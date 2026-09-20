@@ -63,3 +63,11 @@ def test_filter_jobs_preserves_order():
     jobs = [job(title="Data Analyst"), job(title="AI Engineer"), job(title="AI Lead Engineer")]
     out = filter_jobs(jobs, prefs(titles=["AI Engineer"]))
     assert [j.title for j in out] == ["AI Engineer", "AI Lead Engineer"]
+
+
+def test_titles_ignore_trailing_punctuation_and_keep_dotted_tech():
+    p = prefs(titles=["AI Engineer", ".NET Developer", "C++ Developer"])
+    assert job_matches_preferences(job(title="Senior AI Engineer."), p)
+    assert job_matches_preferences(job(title=".NET Developer (m/f/d)"), p)
+    assert job_matches_preferences(job(title="C++ Developer"), p)
+    assert not job_matches_preferences(job(title="Net Developer"), p)

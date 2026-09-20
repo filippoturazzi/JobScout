@@ -36,7 +36,7 @@ def update_preferences(session: Session, user_id: int, changes: dict[str, Any]) 
     allowed = set(UserPreferences.model_fields) - _PROTECTED_FIELDS
     unknown = set(changes) - allowed
     if unknown:
-        raise ValueError(f"Unknown preference field(s): {', '.join(sorted(unknown))}")
+        raise ValueError(f"Unknown or protected preference field(s): {', '.join(sorted(unknown))}")
     prefs = get_preferences(session, user_id)
     for field, value in changes.items():
         setattr(prefs, field, value)

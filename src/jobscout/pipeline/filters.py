@@ -12,7 +12,8 @@ _WORD_RE = re.compile(r"[a-z0-9+#.]+")
 
 
 def _words(text: str) -> set[str]:
-    return set(_WORD_RE.findall(text.lower()))
+    tokens = (token.rstrip(".") for token in _WORD_RE.findall(text.lower()))
+    return {token for token in tokens if token}
 
 
 def _passes_exclusions(job: Job, prefs: UserPreferences) -> bool:

@@ -47,3 +47,13 @@ def test_update_preferences_rejects_unknown_field(session):
     user = get_or_create_default_user(session)
     with pytest.raises(ValueError, match="nope"):
         update_preferences(session, user.id, {"nope": 1})
+
+
+@pytest.mark.parametrize(
+    "field", ["id", "user_id", "created_at", "updated_at", "profile_embedding"]
+)
+def test_update_preferences_rejects_protected_fields(session, field):
+    user = get_or_create_default_user(session)
+    with pytest.raises(ValueError, match=field):
+        update_preferences(session, user.id, {field: "x"})
+    assert get_preferences(session, user.id).user_id == user.id
