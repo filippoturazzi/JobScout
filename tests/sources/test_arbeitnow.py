@@ -92,3 +92,26 @@ def test_sends_user_agent(sample):
     )
     ArbeitnowSource(max_pages=1).fetch(SearchQuery())
     assert "jobscout" in route.calls.last.request.headers["user-agent"].lower()
+
+
+@respx.mock
+def test_malformed_item_is_skipped_not_fatal(sample, caplog):
+    broken = copy.deepcopy(sample)
+    broken["data"].insert(1, {"company_name": "NoSlug GmbH", "title": "Broken"})
+    respx.get(BASE_URL, params={"page": 1}).mock(return_value=httpx.Response(200, json=broken))
+    with caplog.at_level("WARNING"):
+        jobs = ArbeitnowSource(max_pages=1).fetch(SearchQuery())
+    assert [j.external_id for j in jobs] == [j["slug"] for j in sample["data"]]
+    assert "skipping malformed item" in caplog.text
+
+
+@respx.mock
+def test_injected_client_is_used_and_not_closed(sample):
+    respx.get(BASE_URL, params={"page": 1}).mock(return_value=httpx.Response(200, json=sample))
+    client = httpx.Client(headers={"User-Agent": "custom-agent"})
+    try:
+        jobs = ArbeitnowSource(client=client, max_pages=1).fetch(SearchQuery())
+        assert len(jobs) == 3
+        assert client.is_closed is False
+    finally:
+        client.close()
