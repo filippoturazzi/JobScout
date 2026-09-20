@@ -30,3 +30,20 @@ def test_script_and_style_contents_are_dropped():
 
 def test_bare_less_than_in_text_survives():
     assert html_to_text("<p>&lt; 5 years experience</p>") == "< 5 years experience"
+
+
+def test_plain_text_with_escaped_placeholder_is_not_treated_as_html():
+    text = "Please replace &lt;COMPANY_NAME&gt; in your cover letter."
+    assert html_to_text(text) == "Please replace <COMPANY_NAME> in your cover letter."
+
+
+def test_plain_text_with_escaped_generics_is_preserved():
+    assert html_to_text("Generics like Vector&lt;int&gt; are a plus.") == (
+        "Generics like Vector<int> are a plus."
+    )
+
+
+def test_double_escaped_entity_stays_literal():
+    assert html_to_text("<p>Write &amp;lt;tag&amp;gt; to show a tag</p>") == (
+        "Write &lt;tag&gt; to show a tag"
+    )

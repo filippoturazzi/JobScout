@@ -29,9 +29,17 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data)
 
 
+_ESCAPED_TAG_RE = re.compile(
+    r"&lt;/?(?:p|br|div|span|ul|ol|li|strong|b|em|i|u|h[1-6]|a|table|thead|tbody|tr|td|th"
+    r"|section|article|header|footer|hr|img|blockquote|pre|code)(?:\s|/?&gt;)",
+    re.IGNORECASE,
+)
+
+
 def _looks_double_encoded(value: str) -> bool:
-    # Some boards return "&lt;p&gt;..." instead of "<p>...": no real tags, but escaped ones.
-    return "<" not in value and "&lt;" in value
+    # Some boards return "&lt;p&gt;..." instead of "<p>...". Require an escaped *HTML tag*
+    # (not just any "&lt;") so plain text like "&lt;COMPANY_NAME&gt;" is left alone.
+    return "<" not in value and _ESCAPED_TAG_RE.search(value) is not None
 
 
 def html_to_text(value: str) -> str:
