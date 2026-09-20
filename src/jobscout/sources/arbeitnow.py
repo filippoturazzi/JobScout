@@ -1,0 +1,60 @@
+"""Arbeitnow job board (https://www.arbeitnow.com). Free public API, no key.
+
+Terms (from the API's own ``meta.terms``): do not abuse; link back to arbeitnow.com.
+Jobs are ordered by ``created_at`` desc and paginated with ``?page=N`` (250 per page).
+"""
+
+from datetime import UTC, datetime
+from typing import Any
+
+import httpx
+
+from jobscout import __version__
+from jobscout.sources.base import RawJob, SearchQuery
+from jobscout.sources.text import html_to_text
+
+BASE_URL = "https://www.arbeitnow.com/api/job-board-api"
+USER_AGENT = f"jobscout/{__version__} (+https://github.com/filippoturazzi/jobscout)"
+
+
+class ArbeitnowSource:
+    name = "arbeitnow"
+
+    def __init__(self, client: httpx.Client | None = None, max_pages: int = 2) -> None:
+        self._client = client or httpx.Client(timeout=30.0, headers={"User-Agent": USER_AGENT})
+        self._max_pages = max_pages
+
+    def fetch(self, query: SearchQuery) -> list[RawJob]:
+        jobs: list[RawJob] = []
+        page = 1
+        while page <= self._max_pages:
+            response = self._client.get(BASE_URL, params={"page": page})
+            response.raise_for_status()
+            payload = response.json()
+            jobs.extend(self._to_raw(item) for item in payload.get("data", []))
+            if not payload.get("links", {}).get("next"):
+                break
+            page += 1
+        if query.remote_only:
+            jobs = [job for job in jobs if job.remote]
+        return jobs
+
+    @staticmethod
+    def _to_raw(item: dict[str, Any]) -> RawJob:
+        created = item.get("created_at")
+        posted_at = (
+            datetime.fromtimestamp(created, tz=UTC).replace(tzinfo=None) if created else None
+        )
+        return RawJob(
+            source="arbeitnow",
+            external_id=item["slug"],
+            title=item["title"],
+            company=item.get("company_name") or "",
+            location=item.get("location") or None,
+            remote=bool(item.get("remote", False)),
+            url=item["url"],
+            description=html_to_text(item.get("description", "")),
+            tags=list(item.get("tags") or []) + list(item.get("job_types") or []),
+            posted_at=posted_at,
+            raw=item,
+        )

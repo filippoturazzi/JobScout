@@ -1,0 +1,54 @@
+{
+  "data": [
+    {
+      "slug": "remote-ai-developer-nurnberg-177325",
+      "company_name": "Partspace",
+      "title": "AI Developer (m/f/d)",
+      "description": "<br><strong>Join the AI of Manufacturing</strong><p><span style=\"font-family:Arial;\">PartSpace builds Document AI for CAD/CAM.</span></p>",
+      "remote": true,
+      "url": "https://www.arbeitnow.com/jobs/companies/partspace/remote-ai-developer-nurnberg-177325",
+      "tags": ["C#", ".NET", "LLMs", "MLOps", "Computer Vision", "remote"],
+      "job_types": ["Experienced", "Permanent", "Full time"],
+      "location": "Nürnberg",
+      "created_at": 1789848555
+    },
+    {
+      "slug": "senior-decision-scientist-trust-safety-berlin-349233",
+      "company_name": "Vinteden",
+      "title": "Senior Decision Scientist, Trust & Safety",
+      "description": "&lt;div class=&quot;content-intro&quot;&gt;&lt;h2&gt;&lt;strong&gt;Brief info about Vinted&amp;nbsp;&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;Our marketplace.&lt;/p&gt;",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/jobs/companies/vinteden/senior-decision-scientist-trust-safety-berlin-349233",
+      "tags": ["Data Science & Analytics"],
+      "job_types": [],
+      "location": "Berlin",
+      "created_at": 1789851317
+    },
+    {
+      "slug": "ai-application-engineer-ai-products-llm-rag-berlin-232153",
+      "company_name": "Machine Learning Reply",
+      "title": "AI Application Engineer – AI Products (LLM & RAG) (m/f/d)",
+      "description": "<p>At Machine Learning Reply, we help organizations turn cutting-edge AI technologies into real-world applications.</p><p style=\"min-height: 1.7em;\"></p><p>To strengthen our team, we are looking for you.</p>",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/jobs/companies/machine-learning-reply/ai-application-engineer-ai-products-llm-rag-berlin-232153",
+      "tags": ["Machine Learning Engineering"],
+      "job_types": ["Mid", "fulltime permanent"],
+      "location": "Berlin, Berlin, Germany",
+      "created_at": 1789849840
+    }
+  ],
+  "links": {
+    "first": "https://www.arbeitnow.com/api/job-board-api?page=1",
+    "last": null,
+    "prev": null,
+    "next": null
+  },
+  "meta": {
+    "current_page": 1,
+    "per_page": 250,
+    "from": 1,
+    "to": 3,
+    "path": "https://www.arbeitnow.com/api/job-board-api",
+    "current_page_url": "https://www.arbeitnow.com/api/job-board-api?page=1"
+  }
+}
