@@ -18,6 +18,8 @@ from jobscout.sources.base import JobSource, RawJob, SearchQuery
 
 log = logging.getLogger(__name__)
 
+_LOOKUP_CHUNK = 500
+
 
 def content_hash(title: str, description: str) -> str:
     return hashlib.sha256(f"{title}\n{description}".encode()).hexdigest()
@@ -50,12 +52,16 @@ def upsert_jobs(
     if not by_key:
         return stats
 
-    sources = {k[0] for k in by_key}
-    existing = {
-        (j.source, j.external_id): j
-        for j in session.exec(select(Job).where(col(Job.source).in_(sources))).all()
-        if (j.source, j.external_id) in by_key
-    }
+    existing: dict[tuple[str, str], Job] = {}
+    for source_name in {k[0] for k in by_key}:
+        ids = [ext_id for (src, ext_id) in by_key if src == source_name]
+        for i in range(0, len(ids), _LOOKUP_CHUNK):
+            chunk = ids[i : i + _LOOKUP_CHUNK]
+            statement = select(Job).where(
+                Job.source == source_name, col(Job.external_id).in_(chunk)
+            )
+            for job in session.exec(statement).all():
+                existing[(job.source, job.external_id)] = job
 
     for key, raw in by_key.items():
         new_hash = content_hash(raw.title, raw.description)
@@ -101,13 +107,14 @@ def ingest(
         result = IngestResult(source=source.name)
         try:
             raw_jobs = source.fetch(query)
-        except Exception as exc:  # noqa: BLE001 - isolate any source failure
+            result.fetched = len(raw_jobs)
+            stats = upsert_jobs(session, raw_jobs, now=now)
+        except Exception as exc:  # noqa: BLE001 - isolate any source failure (fetch or persist)
+            session.rollback()
             log.exception("source %s failed", source.name)
             result.error = f"{type(exc).__name__}: {exc}"
             results.append(result)
             continue
-        result.fetched = len(raw_jobs)
-        stats = upsert_jobs(session, raw_jobs, now=now)
         result.created, result.updated, result.changed = (
             stats.created,
             stats.updated,

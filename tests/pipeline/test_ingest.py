@@ -112,3 +112,33 @@ def test_ingest_isolates_source_failures(session):
     assert results[1].error is None
     assert (results[1].fetched, results[1].created) == (1, 1)
     assert len(session.exec(select(Job)).all()) == 1
+
+
+def test_ingest_isolates_persist_failures_and_keeps_session_usable(session, monkeypatch):
+    import jobscout.pipeline.ingest as ingest_module
+
+    real_upsert = ingest_module.upsert_jobs
+
+    def flaky_upsert(sess, raw_jobs, now=None):
+        if raw_jobs and raw_jobs[0].source == "bad":
+            raise RuntimeError("disk full")
+        return real_upsert(sess, raw_jobs, now=now)
+
+    monkeypatch.setattr(ingest_module, "upsert_jobs", flaky_upsert)
+    bad = FakeSource("bad", [raw("b1", source="bad")])
+    ok = FakeSource("ok", [raw("a1", source="ok")])
+
+    results = ingest(session, [bad, ok], SearchQuery(), now=T0)
+
+    assert results[0].error == "RuntimeError: disk full"
+    assert results[0].fetched == 1
+    assert results[1].error is None and results[1].created == 1
+    assert [j.external_id for j in session.exec(select(Job)).all()] == ["a1"]
+
+
+def test_upsert_handles_batches_larger_than_lookup_chunk(session):
+    batch = [raw(f"j{i}") for i in range(1200)]
+    first = upsert_jobs(session, batch, now=T0)
+    second = upsert_jobs(session, batch, now=T0 + timedelta(hours=1))
+    assert (first.created, second.updated, second.created) == (1200, 1200, 0)
+    assert len(session.exec(select(Job)).all()) == 1200
