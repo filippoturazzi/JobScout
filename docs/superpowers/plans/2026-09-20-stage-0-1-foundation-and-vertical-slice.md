@@ -989,7 +989,7 @@ def test_fetch_maps_fields(sample):
         "Join the AI of Manufacturing PartSpace builds Document AI for CAD/CAM."
     )
     assert "LLMs" in first.tags
-    assert first.posted_at == datetime(2026, 9, 19, 5, 29, 15)
+    assert first.posted_at == datetime(2026, 9, 19, 20, 9, 15)
     assert first.raw["slug"] == first.external_id
 
 
@@ -2420,6 +2420,7 @@ class PreferencesUpdate(BaseModel):
 """FastAPI dependencies. ``get_current_user`` is the single seam auth will replace in stage 6."""
 
 from collections.abc import Iterator
+from typing import Annotated
 
 from fastapi import Depends
 from sqlmodel import Session
@@ -2434,7 +2435,7 @@ def get_session() -> Iterator[Session]:
         yield session
 
 
-def get_current_user(session: Session = Depends(get_session)) -> User:
+def get_current_user(session: Annotated[Session, Depends(get_session)]) -> User:
     return get_or_create_default_user(session)
 ```
 
