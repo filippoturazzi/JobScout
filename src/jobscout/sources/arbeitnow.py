@@ -51,8 +51,6 @@ class ArbeitnowSource:
             if not payload.get("links", {}).get("next"):
                 break
             page += 1
-        if query.remote_only:
-            jobs = [job for job in jobs if job.remote]
         return jobs
 
     @staticmethod

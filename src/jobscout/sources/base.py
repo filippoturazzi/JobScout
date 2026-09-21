@@ -35,6 +35,16 @@ class RawJob(BaseModel):
 
 @runtime_checkable
 class JobSource(Protocol):
+    """A job source. Sources must return everything they fetched; never drop results
+    based on ``query``. ``SearchQuery`` only parameterizes APIs that require server-side
+    search. User filtering happens in ``pipeline/filters.py``.
+    """
+
     name: str
 
-    def fetch(self, query: SearchQuery) -> list[RawJob]: ...
+    def fetch(self, query: SearchQuery) -> list[RawJob]:
+        """Fetch postings from the source. Must return everything fetched; never drop
+        results based on ``query``. ``SearchQuery`` only parameterizes APIs that require
+        server-side search. User filtering happens in ``pipeline/filters.py``.
+        """
+        ...

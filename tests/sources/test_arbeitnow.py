@@ -72,10 +72,10 @@ def test_fetch_stops_when_no_next_link(sample):
 
 
 @respx.mock
-def test_remote_only_filters_client_side(sample):
+def test_query_does_not_drop_fetched_jobs(sample):
     respx.get(BASE_URL, params={"page": 1}).mock(return_value=httpx.Response(200, json=sample))
     jobs = ArbeitnowSource(max_pages=1).fetch(SearchQuery(remote_only=True))
-    assert [j.external_id for j in jobs] == ["remote-ai-developer-nurnberg-177325"]
+    assert len(jobs) == 3
 
 
 @respx.mock
