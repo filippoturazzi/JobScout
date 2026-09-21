@@ -28,6 +28,14 @@ _BLOCK_ELEMENTS = {
     "blockquote",
     "pre",
     "hr",
+    "td",
+    "th",
+    "dt",
+    "dd",
+    "thead",
+    "tbody",
+    "dl",
+    "caption",
 }
 
 

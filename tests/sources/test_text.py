@@ -58,3 +58,5 @@ def test_block_tags_separate_text():
     assert html_to_text("<ul><li>x</li><li>y</li></ul>") == "x y"
     assert html_to_text("a<br>b<br/>c") == "a b c"
     assert html_to_text("<h2>Title</h2>Body") == "Title Body"
+    assert html_to_text("<table><tr><td>a</td><td>b</td></tr></table>") == "a b"
+    assert html_to_text("<dl><dt>Level</dt><dd>Senior</dd></dl>") == "Level Senior"
