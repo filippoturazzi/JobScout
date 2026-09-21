@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Design approved, implementation not started. The source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md` — read it before any architectural work. `job-radar-contexto.md` is the original (Portuguese) brainstorm; the spec supersedes its open questions. Update the **Commands** section below as soon as real commands exist.
+Stages 0 and 1 are implemented (see `docs/superpowers/plans/2026-09-20-stage-0-1-foundation-and-vertical-slice.md`). Next is stage 2 (LangGraph matching). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -38,4 +38,9 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 
 ## Commands
 
-None yet. Once `pyproject.toml` exists: `uv sync`, `uv run pytest` (single test: `uv run pytest tests/test_x.py::test_name`), `uv run ruff check .`, `uv run ruff format .`. Replace this paragraph with the verified commands.
+- `uv sync --all-groups` — install (Python 3.12 is pinned in `.python-version`; never use the system Python).
+- `uv run pytest` — unit tests, no network. Single test: `uv run pytest tests/sources/test_arbeitnow.py::test_fetch_maps_fields -v`.
+- `uv run pytest -m integration` — opt-in tests against real APIs (off by default via `addopts`).
+- `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
+- `uv run jobscout fetch|jobs|serve` — CLI. `serve` runs uvicorn on `jobscout.api.app:app`.
+- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check and pytest.
