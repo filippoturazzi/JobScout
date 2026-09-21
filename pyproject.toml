@@ -51,3 +51,8 @@ markers = [
     "integration: hits real external services; deselected by default",
 ]
 addopts = "-m 'not integration'"
+filterwarnings = [
+    # Third-party deprecations raised by starlette's TestClient at import time (starlette 1.x).
+    "ignore:Using .httpx. with .starlette\\.testclient. is deprecated:",
+    "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated:",
+]
