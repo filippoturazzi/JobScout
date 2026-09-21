@@ -1,13 +1,13 @@
 """Fetch from sources and upsert into the ``job`` table.
 
-Idempotent: re-running with the same data only advances ``last_seen_at``. A changed
-title/description updates the text, clears the cached embedding (stage 2 also marks
-matches stale) and keeps ``first_seen_at``.
+Every sighting refreshes metadata and ``last_seen_at``; only a title/description
+change clears the cached embedding (stage 2b also marks matches stale) and keeps
+``first_seen_at``.
 """
 
 import hashlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlmodel import Session, col, select
@@ -20,6 +20,19 @@ log = logging.getLogger(__name__)
 
 _LOOKUP_CHUNK = 500
 
+_METADATA_FIELDS = (
+    "company",
+    "location",
+    "remote",
+    "url",
+    "salary_min",
+    "salary_max",
+    "salary_currency",
+    "tags",
+    "posted_at",
+    "raw",
+)
+
 
 def content_hash(title: str, description: str) -> str:
     return hashlib.sha256(f"{title}\n{description}".encode()).hexdigest()
@@ -30,6 +43,8 @@ class UpsertStats:
     created: int = 0
     updated: int = 0
     changed: int = 0
+    created_ids: list[int] = field(default_factory=list)
+    changed_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -39,6 +54,8 @@ class IngestResult:
     created: int = 0
     updated: int = 0
     changed: int = 0
+    created_ids: list[int] = field(default_factory=list)
+    changed_ids: list[int] = field(default_factory=list)
     error: str | None = None
 
 
@@ -63,34 +80,44 @@ def upsert_jobs(
             for job in session.exec(statement).all():
                 existing[(job.source, job.external_id)] = job
 
+    created_jobs: list[Job] = []
+    changed_jobs: list[Job] = []
     for key, raw in by_key.items():
         new_hash = content_hash(raw.title, raw.description)
         job = existing.get(key)
         if job is None:
-            session.add(
-                Job(
-                    **raw.model_dump(),
-                    content_hash=new_hash,
-                    first_seen_at=now,
-                    last_seen_at=now,
-                    is_active=True,
-                )
+            job = Job(
+                **raw.model_dump(),
+                content_hash=new_hash,
+                first_seen_at=now,
+                last_seen_at=now,
+                is_active=True,
             )
+            session.add(job)
+            created_jobs.append(job)
             stats.created += 1
             continue
 
+        # Every sighting: liveness + metadata refresh.
         job.last_seen_at = now
         job.is_active = True
+        for name in _METADATA_FIELDS:
+            setattr(job, name, getattr(raw, name))
+        # Only a text change invalidates what was derived from the text.
         if job.content_hash != new_hash:
-            for field, value in raw.model_dump(exclude={"source", "external_id"}).items():
-                setattr(job, field, value)
+            job.title = raw.title
+            job.description = raw.description
             job.content_hash = new_hash
             job.embedding = None
+            changed_jobs.append(job)
             stats.changed += 1
         else:
             stats.updated += 1
         session.add(job)
 
+    session.flush()  # assigns ids for the new rows
+    stats.created_ids = [job.id for job in created_jobs if job.id is not None]
+    stats.changed_ids = [job.id for job in changed_jobs if job.id is not None]
     session.commit()
     return stats
 
@@ -126,5 +153,6 @@ def ingest(
             stats.updated,
             stats.changed,
         )
+        result.created_ids, result.changed_ids = stats.created_ids, stats.changed_ids
         results.append(result)
     return results

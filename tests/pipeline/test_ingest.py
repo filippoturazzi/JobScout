@@ -133,3 +133,54 @@ def test_upsert_handles_batches_larger_than_lookup_chunk(session):
     second = upsert_jobs(session, batch, now=T0 + timedelta(hours=1))
     assert (first.created, second.updated, second.created) == (1200, 1200, 0)
     assert len(session.exec(select(Job)).all()) == 1200
+
+
+def test_metadata_is_refreshed_on_every_sighting(session):
+    upsert_jobs(session, [raw("j1", location="Berlin", remote=True, tags=["python"])], now=T0)
+    j1 = session.exec(select(Job)).one()
+    j1.embedding = b"\x01"
+    session.add(j1)
+    session.commit()
+
+    stats = upsert_jobs(
+        session,
+        [
+            raw(
+                "j1",
+                location="Munich",
+                remote=False,
+                tags=["python", "llm"],
+                salary_min=60000,
+                salary_currency="EUR",
+            )
+        ],
+        now=T0 + timedelta(hours=1),
+    )
+    session.refresh(j1)
+    assert (stats.created, stats.updated, stats.changed) == (0, 1, 0)
+    assert j1.location == "Munich" and j1.remote is False
+    assert j1.tags == ["python", "llm"] and j1.salary_min == 60000
+    assert j1.embedding == b"\x01", "same text: embedding must be kept"
+    assert j1.content_hash == content_hash("AI Engineer", "Build agents.")
+
+
+def test_stats_carry_created_and_changed_ids(session):
+    first = upsert_jobs(session, [raw("a"), raw("b")], now=T0)
+    ids = {j.external_id: j.id for j in session.exec(select(Job)).all()}
+    assert sorted(first.created_ids) == sorted([ids["a"], ids["b"]])
+    assert first.changed_ids == []
+
+    second = upsert_jobs(session, [raw("a"), raw("b", description="new text"), raw("c")], now=T0)
+    ids = {j.external_id: j.id for j in session.exec(select(Job)).all()}
+    assert second.created_ids == [ids["c"]]
+    assert second.changed_ids == [ids["b"]]
+
+    third = upsert_jobs(session, [raw("a"), raw("b", description="new text"), raw("c")], now=T0)
+    assert (third.created_ids, third.changed_ids) == ([], [])
+
+
+def test_ingest_result_exposes_ids(session):
+    results = ingest(session, [FakeSource("ok", [raw("x", source="ok")])], SearchQuery(), now=T0)
+    job_id = session.exec(select(Job)).one().id
+    assert results[0].created_ids == [job_id]
+    assert results[0].changed_ids == []
