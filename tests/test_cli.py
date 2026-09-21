@@ -57,3 +57,32 @@ def test_serve_calls_uvicorn(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert calls["app"] == "jobscout.api.app:app"
     assert calls["port"] == 9001
+
+
+def test_serve_uses_settings_defaults_and_honors_port_zero(tmp_path, monkeypatch):
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        api_host="0.0.0.0",
+        api_port=8123,
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    calls: list[dict] = []
+    monkeypatch.setattr(cli.uvicorn, "run", lambda *a, **kw: calls.append({**kw, "app": a[0]}))
+
+    assert runner.invoke(cli.app, ["serve"]).exit_code == 0
+    assert calls[-1] == {
+        "app": "jobscout.api.app:app",
+        "host": "0.0.0.0",
+        "port": 8123,
+        "reload": False,
+    }
+
+    result = runner.invoke(cli.app, ["serve", "--port", "0", "--host", "127.0.0.1", "--reload"])
+    assert result.exit_code == 0
+    assert calls[-1] == {
+        "app": "jobscout.api.app:app",
+        "host": "127.0.0.1",
+        "port": 0,
+        "reload": True,
+    }

@@ -62,15 +62,15 @@ def jobs(
 
 @app.command()
 def serve(
-    host: Annotated[str | None, typer.Option()] = None,
-    port: Annotated[int | None, typer.Option()] = None,
+    host: Annotated[str | None, typer.Option(help="Bind address.")] = None,
+    port: Annotated[int | None, typer.Option(help="Bind port.")] = None,
     reload: Annotated[bool, typer.Option(help="Auto-reload on code changes.")] = False,
 ) -> None:
     """Run the HTTP API (docs at /docs)."""
     settings = get_settings()
     uvicorn.run(
         "jobscout.api.app:app",
-        host=host or settings.api_host,
-        port=port or settings.api_port,
+        host=host if host is not None else settings.api_host,
+        port=port if port is not None else settings.api_port,
         reload=reload,
     )
