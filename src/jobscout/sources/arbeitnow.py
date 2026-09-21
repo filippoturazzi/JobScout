@@ -4,6 +4,7 @@ Terms (from the API's own ``meta.terms``): do not abuse; link back to arbeitnow.
 Jobs are ordered by ``created_at`` desc and paginated with ``?page=N`` (250 per page).
 """
 
+import html
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -62,8 +63,8 @@ class ArbeitnowSource:
         return RawJob(
             source="arbeitnow",
             external_id=item["slug"],
-            title=item["title"],
-            company=item.get("company_name") or "",
+            title=html.unescape(item["title"]),
+            company=html.unescape(item.get("company_name") or ""),
             location=item.get("location") or None,
             remote=bool(item.get("remote", False)),
             url=item["url"],

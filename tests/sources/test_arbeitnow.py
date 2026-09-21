@@ -39,6 +39,17 @@ def test_fetch_maps_fields(sample):
 
 
 @respx.mock
+def test_fetch_unescapes_html_entities_in_title_and_company(sample):
+    escaped = copy.deepcopy(sample)
+    escaped["data"][0]["title"] = "Trust &amp; Safety Lead"
+    escaped["data"][0]["company_name"] = "Acme &amp; Co"
+    respx.get(BASE_URL, params={"page": 1}).mock(return_value=httpx.Response(200, json=escaped))
+    jobs = ArbeitnowSource(max_pages=1).fetch(SearchQuery())
+    assert jobs[0].title == "Trust & Safety Lead"
+    assert jobs[0].company == "Acme & Co"
+
+
+@respx.mock
 def test_fetch_decodes_escaped_html(sample):
     respx.get(BASE_URL, params={"page": 1}).mock(return_value=httpx.Response(200, json=sample))
     jobs = ArbeitnowSource(max_pages=1).fetch(SearchQuery())
