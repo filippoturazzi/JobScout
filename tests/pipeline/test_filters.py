@@ -1,5 +1,5 @@
 from jobscout.models import Job, UserPreferences
-from jobscout.pipeline.filters import filter_jobs, job_matches_preferences
+from jobscout.pipeline.filters import filter_jobs, job_matches_preferences, tokenize
 
 
 def job(title="AI Engineer", location="Berlin, Germany", remote=False, tags=None) -> Job:
@@ -71,3 +71,33 @@ def test_titles_ignore_trailing_punctuation_and_keep_dotted_tech():
     assert job_matches_preferences(job(title=".NET Developer (m/f/d)"), p)
     assert job_matches_preferences(job(title="C++ Developer"), p)
     assert not job_matches_preferences(job(title="Net Developer"), p)
+
+
+def test_tokenize_preserves_order_and_handles_tech_tokens():
+    assert tokenize("Senior .NET / C++ Engineer.") == ["senior", ".net", "c++", "engineer"]
+    assert tokenize("") == []
+
+
+def test_exclusions_match_whole_tokens_not_substrings():
+    p = prefs(excluded_keywords=["ai"])
+    assert job_matches_preferences(job(title="Maintenance Engineer"), p)
+    assert not job_matches_preferences(job(title="AI Engineer"), p)
+    assert not job_matches_preferences(job(title="Engineer", tags=["AI"]), p)
+
+
+def test_exclusions_match_contiguous_phrases():
+    p = prefs(excluded_keywords=["machine learning"])
+    assert not job_matches_preferences(job(title="Machine Learning Engineer"), p)
+    assert job_matches_preferences(job(title="Learning Platform Machine Operator"), p)
+    assert not job_matches_preferences(job(title="Engineer", tags=["Machine Learning"]), p)
+
+
+def test_regions_match_location_segments_not_substrings():
+    p = prefs(regions=["US"])
+    assert not job_matches_preferences(job(location="Sydney, Australia"), p)
+    assert job_matches_preferences(job(location="Austin, TX, US"), p)
+
+    p = prefs(regions=["Germany", "New York"])
+    assert job_matches_preferences(job(location="Berlin, Berlin, Germany"), p)
+    assert job_matches_preferences(job(location="New York City, NY"), p)
+    assert not job_matches_preferences(job(location="Paris, France"), p)
