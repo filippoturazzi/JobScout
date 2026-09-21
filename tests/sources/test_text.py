@@ -47,3 +47,14 @@ def test_double_escaped_entity_stays_literal():
     assert html_to_text("<p>Write &amp;lt;tag&amp;gt; to show a tag</p>") == (
         "Write &lt;tag&gt; to show a tag"
     )
+
+
+def test_inline_tags_do_not_split_words():
+    assert html_to_text("Java<b>Script</b> and Type<i>Script</i>") == "JavaScript and TypeScript"
+
+
+def test_block_tags_separate_text():
+    assert html_to_text("<p>a</p><p>b</p>") == "a b"
+    assert html_to_text("<ul><li>x</li><li>y</li></ul>") == "x y"
+    assert html_to_text("a<br>b<br/>c") == "a b c"
+    assert html_to_text("<h2>Title</h2>Body") == "Title Body"

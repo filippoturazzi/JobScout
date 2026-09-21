@@ -6,10 +6,33 @@ from html.parser import HTMLParser
 
 _WS_RE = re.compile(r"\s+")
 _SKIPPED_ELEMENTS = {"script", "style"}
+_BLOCK_ELEMENTS = {
+    "p",
+    "div",
+    "br",
+    "li",
+    "ul",
+    "ol",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "tr",
+    "table",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "blockquote",
+    "pre",
+    "hr",
+}
 
 
 class _TextExtractor(HTMLParser):
-    """Collects text nodes, skipping script/style content."""
+    """Collects text nodes, skipping script/style content; block-level tags become line breaks."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -19,10 +42,18 @@ class _TextExtractor(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in _SKIPPED_ELEMENTS:
             self._skip_depth += 1
+        elif tag in _BLOCK_ELEMENTS:
+            self.parts.append("\n")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _BLOCK_ELEMENTS:
+            self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _SKIPPED_ELEMENTS and self._skip_depth:
             self._skip_depth -= 1
+        elif tag in _BLOCK_ELEMENTS:
+            self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
         if not self._skip_depth:
@@ -50,5 +81,5 @@ def html_to_text(value: str) -> str:
     parser = _TextExtractor()
     parser.feed(value)
     parser.close()
-    text = " ".join(parser.parts).replace("\xa0", " ")
+    text = "".join(parser.parts).replace("\xa0", " ")
     return _WS_RE.sub(" ", text).strip()
