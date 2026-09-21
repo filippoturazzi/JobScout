@@ -42,6 +42,19 @@ def test_fetch_reports_source_error_and_exits_nonzero(tmp_path, monkeypatch):
     assert "HTTPStatusError" in result.output
 
 
+def test_fetch_unknown_source_exits_with_code_2(tmp_path, monkeypatch):
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        sources="arbeitnow,nope",
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    result = runner.invoke(cli.app, ["fetch"])
+    assert result.exit_code == 2
+    assert "Unknown source" in result.output
+
+
 def test_jobs_on_empty_db(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
     result = runner.invoke(cli.app, ["jobs"])

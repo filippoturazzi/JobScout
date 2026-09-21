@@ -111,7 +111,13 @@ def ingest(
             stats = upsert_jobs(session, raw_jobs, now=now)
         except Exception as exc:  # noqa: BLE001 - isolate any source failure (fetch or persist)
             session.rollback()
-            log.exception("source %s failed", source.name)
+            log.error(
+                "source %s failed: %s: %s",
+                source.name,
+                type(exc).__name__,
+                exc,
+                exc_info=log.isEnabledFor(logging.DEBUG),
+            )
             result.error = f"{type(exc).__name__}: {exc}"
             results.append(result)
             continue

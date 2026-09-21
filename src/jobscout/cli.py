@@ -1,5 +1,6 @@
 """Command-line interface. Thin shell over ``jobscout.pipeline``."""
 
+import logging
 from typing import Annotated
 
 import typer
@@ -10,6 +11,8 @@ from jobscout.config import get_settings
 from jobscout.db import create_engine_from_url, init_db
 from jobscout.pipeline.run import list_jobs, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
+
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
 app = typer.Typer(help="JobScout: find jobs that match your profile.", no_args_is_help=True)
 
@@ -26,7 +29,11 @@ def fetch() -> None:
     settings = get_settings()
     with _session() as session:
         user = get_or_create_default_user(session)
-        results = run_ingest(session, settings, user.id)
+        try:
+            results = run_ingest(session, settings, user.id)
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
     failed = False
     for r in results:
         if r.error:
