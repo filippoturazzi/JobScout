@@ -44,10 +44,15 @@ def test_run_ingest_is_global_and_uses_given_sources(session):
 def test_run_ingest_does_not_need_a_user(session):
     from sqlmodel import select
 
-    from jobscout.models import User
+    from jobscout.models import Job, User
 
-    run_ingest(session, Settings(_env_file=None), sources=[FakeSource([])])
-    assert session.exec(select(User)).all() == []
+    results = run_ingest(
+        session, Settings(_env_file=None), sources=[FakeSource([raw("a", "AI Engineer")])]
+    )
+
+    assert results[0].created == 1
+    assert [j.external_id for j in session.exec(select(Job)).all()] == ["a"]
+    assert session.exec(select(User)).all() == [], "ingest must not bootstrap a user"
 
 
 def test_list_jobs_filters_and_orders(session):
