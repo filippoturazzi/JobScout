@@ -76,6 +76,7 @@ def test_titles_ignore_trailing_punctuation_and_keep_dotted_tech():
 def test_tokenize_preserves_order_and_handles_tech_tokens():
     assert tokenize("Senior .NET / C++ Engineer.") == ["senior", ".net", "c++", "engineer"]
     assert tokenize("") == []
+    assert tokenize("Zürich, São Paulo") == ["zürich", "são", "paulo"]
 
 
 def test_exclusions_match_whole_tokens_not_substrings():
@@ -90,6 +91,12 @@ def test_exclusions_match_contiguous_phrases():
     assert not job_matches_preferences(job(title="Machine Learning Engineer"), p)
     assert job_matches_preferences(job(title="Learning Platform Machine Operator"), p)
     assert not job_matches_preferences(job(title="Engineer", tags=["Machine Learning"]), p)
+
+
+def test_unicode_keywords_do_not_fragment():
+    p = prefs(excluded_keywords=["Öl"])
+    assert job_matches_preferences(job(title="L & D Manager"), p)
+    assert not job_matches_preferences(job(title="Öl und Gas Engineer"), p)
 
 
 def test_regions_match_location_segments_not_substrings():

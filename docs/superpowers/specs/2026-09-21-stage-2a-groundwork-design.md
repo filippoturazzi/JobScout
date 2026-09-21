@@ -80,7 +80,7 @@ def reset_engines() -> None:
 
 ### 5.3 Filters
 
-- `tokenize(text) -> list[str]`: lowercase; regex `[a-z0-9+#.]+`; strip trailing `.`; drop empties. Preserves order (needed for contiguous matching).
+- `tokenize(text) -> list[str]`: lowercase; regex `(?:[^\W_]|[+#.])+` (Unicode word characters minus underscore, plus `+ # .`); strip trailing `.`; drop empties. Preserves order (needed for contiguous matching).
 - `_contains_sequence(haystack: list[str], needle: list[str]) -> bool`.
 - Exclusions: for each keyword, `needle = tokenize(keyword)`; reject if `_contains_sequence(tokenize(job.title), needle)` or any `tokenize(tag) == needle`.
 - Regions: `segments = [tokenize(s) for s in (job.location or "").split(",")]`; pass if any `_contains_sequence(segment, tokenize(region))`. Remote jobs and empty `regions` pass, as today.

@@ -8,7 +8,7 @@ from collections.abc import Iterable
 
 from jobscout.models import Job, UserPreferences
 
-_TOKEN_RE = re.compile(r"[a-z0-9+#.]+")
+_TOKEN_RE = re.compile(r"(?:[^\W_]|[+#.])+")
 
 
 def tokenize(text: str) -> list[str]:
