@@ -26,6 +26,14 @@ def test_fetch_then_jobs(tmp_path, monkeypatch):
     assert "arbeitnow" in result.output
     assert "created=3" in result.output
 
+    from sqlmodel import Session, select
+
+    from jobscout.db import get_engine
+    from jobscout.models import User
+
+    with Session(get_engine(_settings(tmp_path))) as s:
+        assert s.exec(select(User)).all() == [], "fetch must not bootstrap a user"
+
     result = runner.invoke(cli.app, ["jobs"])
     assert result.exit_code == 0, result.output
     assert "AI Developer (m/f/d)" in result.output

@@ -28,9 +28,8 @@ def fetch() -> None:
     """Fetch jobs from all enabled sources into the database."""
     settings = get_settings()
     with _session() as session:
-        user = get_or_create_default_user(session)
         try:
-            results = run_ingest(session, settings, user.id)
+            results = run_ingest(session, settings)
         except ValueError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=2) from exc
