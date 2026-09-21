@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta
 
+from sqlmodel import select
+
 from jobscout.config import Settings
+from jobscout.models import Job, User
 from jobscout.pipeline.ingest import upsert_jobs
 from jobscout.pipeline.run import list_jobs, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
@@ -42,10 +45,6 @@ def test_run_ingest_is_global_and_uses_given_sources(session):
 
 
 def test_run_ingest_does_not_need_a_user(session):
-    from sqlmodel import select
-
-    from jobscout.models import Job, User
-
     results = run_ingest(
         session, Settings(_env_file=None), sources=[FakeSource([raw("a", "AI Engineer")])]
     )

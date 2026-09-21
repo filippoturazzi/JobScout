@@ -1,3 +1,6 @@
+from jobscout.models.user import non_nullable_preference_fields
+
+
 def test_get_preferences_bootstraps_default_user(client):
     r = client.get("/preferences")
     assert r.status_code == 200
@@ -48,8 +51,6 @@ def test_put_preferences_allows_explicit_null_on_nullable_field(client):
 
 
 def test_update_schema_rejects_null_for_every_non_nullable_field(client):
-    from jobscout.models.user import non_nullable_preference_fields
-
     for name in sorted(non_nullable_preference_fields()):
         r = client.put("/preferences", json={name: None})
         assert r.status_code == 422, name

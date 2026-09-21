@@ -52,10 +52,6 @@ strict = true
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
 
-[[tool.mypy.overrides]]
-module = ["uvicorn.*"]
-ignore_missing_imports = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

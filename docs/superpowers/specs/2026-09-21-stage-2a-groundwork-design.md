@@ -20,7 +20,7 @@ Prepare the stage-1 pipeline to receive the matching graph (stage 2b) without an
 | Filters | One tokenizer; exclusions match contiguous token sequences in title tokens or equal a tag's tokens; regions match a comma-separated location segment (equal or contiguous subsequence); titles keep the word-subset rule. No alias map. | Substring matching produced silent false negatives (`"ai"` rejected "Maintenance") and false positives (`"US"` accepted "Australia"). Aliases (US/USA/United States) are deferred until a real user needs them. |
 | `html_to_text` | Text nodes concatenate with `""`; block-level tags emit `"\n"`; final whitespace collapse. | Inline tags no longer split words (`Java<b>Script</b>`), so embeddings see intact tokens. |
 | mypy | `mypy --strict` on `src/` only, pydantic plugin, in CI. Targeted `# type: ignore[code]` allowed; global rule relaxation is not. | Cheap now; catches graph-state mistakes in stage 2b. |
-| Non-nullable preference fields | `api/schemas.py` derives the "cannot be null" field set from `UserPreferences.__table__` columns (non-nullable, not protected); a test asserts it equals what `update_preferences` enforces. | One source of truth for a rule enforced in two layers. |
+| Non-nullable preference fields | `non_nullable_preference_fields()` and `PROTECTED_PREFERENCE_FIELDS` in `models/user.py`, consumed by both `api/schemas.py` and `pipeline/users.py`, derive the "cannot be null" field set from `UserPreferences` columns (non-nullable, not protected); a test asserts it equals what `update_preferences` enforces. | One source of truth for a rule enforced in two layers. |
 
 ## 3. Amendments to the parent spec
 
@@ -40,8 +40,10 @@ src/jobscout/pipeline/filters.py tokenize(); exclusions/regions rewritten on tok
 src/jobscout/sources/text.py     block-aware joining
 src/jobscout/cli.py              fetch uses get_engine(settings); no user lookup
 src/jobscout/api/app.py          lifespan uses get_engine()
-src/jobscout/api/schemas.py      NON_NULLABLE_PREFERENCE_FIELDS derived from the table
-src/jobscout/pipeline/users.py   exports the same derivation (or imports it) so both layers share it
+src/jobscout/api/schemas.py      uses non_nullable_preference_fields() and PROTECTED_PREFERENCE_FIELDS
+                                 from models/user.py
+src/jobscout/pipeline/users.py  uses non_nullable_preference_fields() and PROTECTED_PREFERENCE_FIELDS
+                                 from models/user.py, consumed by both layers
 pyproject.toml                   mypy dev dep + [tool.mypy]; CI step
 tests/                           updated + new tests per section 6
 ```
@@ -99,7 +101,7 @@ def reset_engines() -> None:
 - `test_db.py`: `get_engine` returns the same engine for the same URL, different for different URLs; `reset_engines()` yields a fresh instance.
 - `test_filters.py`: existing tests as regression + `"ai"` does not reject "Maintenance Engineer"; `"machine learning"` rejects "Machine Learning Engineer"; `"US"` does not match "Sydney, Australia"; `"Germany"` matches "Berlin, Berlin, Germany"; `"New York"` matches "New York City, NY".
 - `test_text.py`: existing 10 + `Java<b>Script</b>` → "JavaScript"; `<p>a</p><p>b</p>` → "a b"; `<li>x</li><li>y</li>` → "x y"; `a<br>b` → "a b".
-- `tests/api/test_preferences.py`: existing + a test that `NON_NULLABLE_PREFERENCE_FIELDS == {c.name for c in UserPreferences.__table__.columns if not c.nullable} - PROTECTED`.
+- `tests/api/test_preferences.py`: existing + a test that `non_nullable_preference_fields() == {c.name for c in UserPreferences.__table__.columns if not c.nullable} - PROTECTED_PREFERENCE_FIELDS`.
 - CI: `uv run mypy src` added after ruff.
 
 ## 7. Out of scope

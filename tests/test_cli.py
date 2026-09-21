@@ -1,9 +1,12 @@
 import httpx
 import respx
+from sqlmodel import Session, select
 from typer.testing import CliRunner
 
 from jobscout import cli
 from jobscout.config import Settings
+from jobscout.db import get_engine
+from jobscout.models import User
 from jobscout.sources.arbeitnow import BASE_URL
 from tests.conftest import load_fixture
 
@@ -25,11 +28,6 @@ def test_fetch_then_jobs(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "arbeitnow" in result.output
     assert "created=3" in result.output
-
-    from sqlmodel import Session, select
-
-    from jobscout.db import get_engine
-    from jobscout.models import User
 
     with Session(get_engine(_settings(tmp_path))) as s:
         assert s.exec(select(User)).all() == [], "fetch must not bootstrap a user"

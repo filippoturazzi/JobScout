@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, inspect
 from sqlmodel import Field, SQLModel
 
 from jobscout.models.base import utcnow
@@ -52,9 +52,9 @@ PROTECTED_PREFERENCE_FIELDS: frozenset[str] = frozenset(
 
 def non_nullable_preference_fields() -> frozenset[str]:
     """User-editable preference columns that must never be set to NULL."""
-    table = UserPreferences.__table__  # type: ignore[attr-defined]
+    mapper = inspect(UserPreferences)
     return frozenset(
         column.name
-        for column in table.columns
+        for column in mapper.columns
         if not column.nullable and column.name not in PROTECTED_PREFERENCE_FIELDS
     )

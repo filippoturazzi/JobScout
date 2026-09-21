@@ -61,7 +61,11 @@ def _passes_titles(job: Job, prefs: UserPreferences) -> bool:
     if not prefs.titles:
         return True
     title_words = set(tokenize(job.title))
-    return any(set(tokenize(t)) and set(tokenize(t)) <= title_words for t in prefs.titles)
+    for preferred in prefs.titles:
+        words = set(tokenize(preferred))
+        if words and words <= title_words:
+            return True
+    return False
 
 
 def job_matches_preferences(job: Job, prefs: UserPreferences) -> bool:

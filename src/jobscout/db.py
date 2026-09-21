@@ -28,8 +28,7 @@ _engines: dict[str, Engine] = {}
 
 
 def get_engine(settings: Settings | None = None) -> Engine:
-    """One engine per DATABASE_URL, shared by the CLI, the API lifespan and (stage 3) the
-    scheduler."""
+    """One engine per DATABASE_URL, shared by the CLI, the API lifespan and the scheduler."""
     url = (settings or get_settings()).database_url
     if url not in _engines:
         _engines[url] = create_engine_from_url(url)
