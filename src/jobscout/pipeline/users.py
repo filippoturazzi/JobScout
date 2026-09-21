@@ -5,10 +5,9 @@ from typing import Any
 from sqlmodel import Session, select
 
 from jobscout.models import User, UserPreferences
+from jobscout.models.user import PROTECTED_PREFERENCE_FIELDS, non_nullable_preference_fields
 
 DEFAULT_USER_EMAIL = "me@localhost"
-
-_PROTECTED_FIELDS = {"id", "user_id", "created_at", "updated_at", "profile_embedding"}
 
 
 def get_or_create_default_user(session: Session) -> User:
@@ -33,14 +32,13 @@ def get_preferences(session: Session, user_id: int) -> UserPreferences:
 
 
 def update_preferences(session: Session, user_id: int, changes: dict[str, Any]) -> UserPreferences:
-    allowed = set(UserPreferences.model_fields) - _PROTECTED_FIELDS
+    allowed = set(UserPreferences.model_fields) - PROTECTED_PREFERENCE_FIELDS
     unknown = set(changes) - allowed
     if unknown:
         raise ValueError(f"Unknown or protected preference field(s): {', '.join(sorted(unknown))}")
+    non_nullable = non_nullable_preference_fields()
     non_nullable_nulls = sorted(
-        field
-        for field, value in changes.items()
-        if value is None and UserPreferences.__table__.c[field].nullable is False
+        field for field, value in changes.items() if value is None and field in non_nullable
     )
     if non_nullable_nulls:
         raise ValueError(f"Preference field(s) cannot be null: {', '.join(non_nullable_nulls)}")

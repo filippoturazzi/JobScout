@@ -43,3 +43,18 @@ class UserPreferences(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=utcnow, nullable=False, sa_column_kwargs={"onupdate": utcnow}
     )
+
+
+PROTECTED_PREFERENCE_FIELDS: frozenset[str] = frozenset(
+    {"id", "user_id", "created_at", "updated_at", "profile_embedding"}
+)
+
+
+def non_nullable_preference_fields() -> frozenset[str]:
+    """User-editable preference columns that must never be set to NULL."""
+    table = UserPreferences.__table__  # Task 7 adds a narrow type-ignore here only if mypy asks
+    return frozenset(
+        column.name
+        for column in table.columns
+        if not column.nullable and column.name not in PROTECTED_PREFERENCE_FIELDS
+    )
