@@ -61,7 +61,7 @@ sources/         base.py   Protocol JobSource { name: str; fetch(prefs) -> list[
                  registry.py  active sources (from settings)
 pipeline/        ingest.py    fetch all sources -> normalize -> upsert Job (dedup + liveness + content hash)
                  backfill.py  backfill_matches(user_id, window_days)
-                 run.py       run_pipeline(user_id) = ingest -> match new jobs -> notify
+                 run.py       run_ingest(session, settings) [global]; run_pipeline = ingest -> match new/changed jobs per user -> notify
                  plain Python; no LangGraph here
 matching/        llm.py        factory: chat model + embeddings from Settings
                  embeddings.py embed profile and job text
@@ -87,11 +87,12 @@ cli.py           Typer: fetch, match, run, jobs, serve
 
 ## 5. Data flow
 
-1. `Source.fetch(prefs)` returns `RawJob` objects (Pydantic; already normalized to a common shape).
+1. `Source.fetch(query)` returns `RawJob` objects (Pydantic; already normalized to a common shape). *(Amended 2026-09-21, stage 2a:)* ingest is instance-global; sources return everything they fetch and never drop results based on `query`. `SearchQuery` only parameterizes APIs that require server-side search (stage 5 builds it from the union of all users' keywords). User filtering happens in `pipeline/filters.py` and, from stage 2b, in the matching graph.
 2. `ingest` upserts each `RawJob` into `Job`, keyed by `(source, external_id)`:
    - new → insert with `first_seen_at = last_seen_at = now`, `is_active = True`, `content_hash`
-   - known, same hash → update `last_seen_at`
-   - known, different hash → update text, clear `embedding`, update `last_seen_at`, mark existing `Match` rows `stale`
+   - known → refresh all metadata fields (`company, location, remote, url, salary_*, tags, posted_at, raw`), set `last_seen_at`, reactivate *(amended 2026-09-21, stage 2a)*
+   - known and `content_hash` (title + description) differs → also update title/description, clear `embedding`, mark existing `Match` rows `stale` (stage 2b)
+   - `UpsertStats` reports `created_ids` / `changed_ids` so downstream matching targets exactly those rows
 3. For each new (or stale) `Job` × each user, a deterministic pre-filter (`pipeline/filters.py`: work mode, region, hard keyword exclusions from preferences) drops obvious non-candidates without writing anything; the rest go through `matching.graph`, which writes a `Match`. In stage 1, before the graph exists, this filter alone decides what `jobs` lists.
 4. `Notifier.send(match)` fires when `match.score >= prefs.min_score_to_notify` and `status == new`.
 5. Periodically (stage 3), jobs with `last_seen_at` older than `INACTIVE_AFTER_DAYS` are marked `is_active = False`. Matching and backfill consider only active jobs.
@@ -139,6 +140,7 @@ Non-persisted contracts:
 - LLM/embedding failures for one job mark nothing and are retried on the next pipeline run (the job simply has no `Match` yet). Structured-output parse failures are logged with the raw response.
 - Ingest is idempotent: running twice with the same data changes only `last_seen_at`.
 - Settings validation fails fast at startup with a clear message naming the missing variable.
+- The API lifespan (`init_db` + default-user bootstrap through `db.get_engine()`) is covered by a test; CLI and API share the same engine seam *(added 2026-09-21, stage 2a)*.
 
 ## 9. Testing and CI
 
