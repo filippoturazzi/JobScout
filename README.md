@@ -3,7 +3,7 @@
 Open-source AI agent that continuously searches public job-board APIs and matches
 postings against **your** profile — with an LLM explaining every score.
 
-> Status: early development. Stage 1 (collection, no AI yet) in progress.
+> Status: early development. Stages 0–1 (collection, CLI, API — no AI yet) are done; stage 2 (LLM matching) is next.
 > See `docs/superpowers/specs/2026-09-19-jobscout-design.md` for the full design and roadmap.
 
 ## Quick start
@@ -17,7 +17,7 @@ uv run jobscout jobs --all         # every active job, ignoring preferences
 uv run jobscout serve              # API + Swagger UI at http://127.0.0.1:8000/docs
 ```
 
-Set your preferences through the API (`PUT /preferences`), e.g
+Set your preferences through the API (`PUT /preferences`), e.g.
 
 ```json
 { "titles": ["AI Engineer", "Machine Learning Engineer"], "work_modes": ["remote"], "regions": ["Germany", "Portugal"] }
