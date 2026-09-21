@@ -25,3 +25,16 @@ def session(engine) -> Iterator[Session]:
 
 def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_engines():
+    """Every test starts and ends without cached engines or cached settings."""
+    from jobscout.config import get_settings
+    from jobscout.db import reset_engines
+
+    reset_engines()
+    get_settings.cache_clear()
+    yield
+    reset_engines()
+    get_settings.cache_clear()

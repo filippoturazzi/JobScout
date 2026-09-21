@@ -8,7 +8,7 @@ import uvicorn
 from sqlmodel import Session
 
 from jobscout.config import get_settings
-from jobscout.db import create_engine_from_url, init_db
+from jobscout.db import get_engine, init_db
 from jobscout.pipeline.run import list_jobs, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
 
@@ -18,7 +18,7 @@ app = typer.Typer(help="JobScout: find jobs that match your profile.", no_args_i
 
 
 def _session() -> Session:
-    engine = create_engine_from_url(get_settings().database_url)
+    engine = get_engine(get_settings())
     init_db(engine)
     return Session(engine)
 
