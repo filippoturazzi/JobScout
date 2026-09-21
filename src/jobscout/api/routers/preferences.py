@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from jobscout.api.deps import get_current_user, get_session
@@ -26,4 +26,8 @@ def put_preferences(
     user: Annotated[User, Depends(get_current_user)],
 ) -> PreferencesRead:
     changes = payload.model_dump(exclude_unset=True)
-    return PreferencesRead.model_validate(update_preferences(session, user.id, changes))
+    try:
+        prefs = update_preferences(session, user.id, changes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return PreferencesRead.model_validate(prefs)

@@ -26,3 +26,22 @@ def test_put_preferences_validates_work_mode(client):
 def test_put_preferences_rejects_unknown_field(client):
     r = client.put("/preferences", json={"favorite_color": "blue"})
     assert r.status_code == 422
+
+
+def test_put_preferences_rejects_explicit_null_on_non_nullable_field(client):
+    r = client.put("/preferences", json={"titles": None})
+    assert r.status_code == 422
+
+    r = client.get("/preferences")
+    assert r.status_code == 200
+    assert r.json()["titles"] == []
+
+
+def test_put_preferences_allows_explicit_null_on_nullable_field(client):
+    r = client.put("/preferences", json={"min_salary": 60000})
+    assert r.status_code == 200
+    assert r.json()["min_salary"] == 60000
+
+    r = client.put("/preferences", json={"min_salary": None})
+    assert r.status_code == 200
+    assert r.json()["min_salary"] is None

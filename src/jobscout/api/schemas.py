@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 WorkMode = Literal["remote", "hybrid", "onsite"]
 
@@ -61,3 +61,21 @@ class PreferencesUpdate(BaseModel):
     excluded_keywords: list[str] | None = None
     profile_summary: str | None = None
     min_score_to_notify: int | None = Field(default=None, ge=0, le=100)
+
+    @field_validator(
+        "titles",
+        "seniority",
+        "work_modes",
+        "regions",
+        "required_skills",
+        "nice_to_have_skills",
+        "excluded_keywords",
+        "profile_summary",
+        "min_score_to_notify",
+        mode="before",
+    )
+    @classmethod
+    def _reject_explicit_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("field cannot be null")
+        return value

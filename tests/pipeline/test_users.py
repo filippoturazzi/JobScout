@@ -57,3 +57,15 @@ def test_update_preferences_rejects_protected_fields(session, field):
     with pytest.raises(ValueError, match=field):
         update_preferences(session, user.id, {field: "x"})
     assert get_preferences(session, user.id).user_id == user.id
+
+
+def test_update_preferences_rejects_null_on_non_nullable_field(session):
+    user = get_or_create_default_user(session)
+    with pytest.raises(ValueError, match="null"):
+        update_preferences(session, user.id, {"titles": None})
+
+
+def test_update_preferences_allows_null_on_nullable_field(session):
+    user = get_or_create_default_user(session)
+    prefs = update_preferences(session, user.id, {"min_salary": None})
+    assert prefs.min_salary is None

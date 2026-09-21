@@ -37,6 +37,13 @@ def update_preferences(session: Session, user_id: int, changes: dict[str, Any]) 
     unknown = set(changes) - allowed
     if unknown:
         raise ValueError(f"Unknown or protected preference field(s): {', '.join(sorted(unknown))}")
+    non_nullable_nulls = sorted(
+        field
+        for field, value in changes.items()
+        if value is None and UserPreferences.__table__.c[field].nullable is False
+    )
+    if non_nullable_nulls:
+        raise ValueError(f"Preference field(s) cannot be null: {', '.join(non_nullable_nulls)}")
     prefs = get_preferences(session, user_id)
     for field, value in changes.items():
         setattr(prefs, field, value)
