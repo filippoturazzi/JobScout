@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
@@ -18,5 +18,5 @@ def read_jobs(
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     all: Annotated[bool, Query(description="Ignore preferences; return every active job.")] = False,
 ) -> list[JobRead]:
-    jobs = list_jobs(session, user.id, limit=limit, apply_filters=not all)
+    jobs = list_jobs(session, cast(int, user.id), limit=limit, apply_filters=not all)
     return [JobRead.model_validate(j) for j in jobs]

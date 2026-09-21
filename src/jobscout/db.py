@@ -1,5 +1,7 @@
 """Engine and session helpers. SQLite by default; any SQLAlchemy URL via DATABASE_URL."""
 
+from typing import Any
+
 from sqlalchemy import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
@@ -10,7 +12,7 @@ from jobscout.config import Settings, get_settings
 
 def create_engine_from_url(url: str) -> Engine:
     if url.startswith("sqlite"):
-        kwargs: dict = {"connect_args": {"check_same_thread": False}}
+        kwargs: dict[str, Any] = {"connect_args": {"check_same_thread": False}}
         if url in ("sqlite://", "sqlite:///:memory:"):
             # One shared in-memory database across connections (tests).
             kwargs["poolclass"] = StaticPool

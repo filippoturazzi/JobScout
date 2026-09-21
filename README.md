@@ -39,6 +39,7 @@ uv run pytest                      # unit tests, no network
 uv run pytest -m integration       # opt-in tests against real APIs
 uv run pytest tests/sources/test_arbeitnow.py::test_fetch_maps_fields   # single test
 uv run ruff check . && uv run ruff format .
+uv run mypy src               # static typing (strict, src only)
 ```
 
 Adding a job source: implement `JobSource` in `src/jobscout/sources/<name>.py` returning `RawJob`s,

@@ -1,7 +1,7 @@
 """Command-line interface. Thin shell over ``jobscout.pipeline``."""
 
 import logging
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 import uvicorn
@@ -57,7 +57,7 @@ def jobs(
     """List active jobs that pass your preferences (newest first)."""
     with _session() as session:
         user = get_or_create_default_user(session)
-        rows = list_jobs(session, user.id, limit=limit, apply_filters=not all_jobs)
+        rows = list_jobs(session, cast(int, user.id), limit=limit, apply_filters=not all_jobs)
         if not rows:
             typer.echo("No jobs found. Run `jobscout fetch` first or relax your preferences.")
             return

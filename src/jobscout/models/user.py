@@ -52,7 +52,7 @@ PROTECTED_PREFERENCE_FIELDS: frozenset[str] = frozenset(
 
 def non_nullable_preference_fields() -> frozenset[str]:
     """User-editable preference columns that must never be set to NULL."""
-    table = UserPreferences.__table__  # Task 7 adds a narrow type-ignore here only if mypy asks
+    table = UserPreferences.__table__  # type: ignore[attr-defined]
     return frozenset(
         column.name
         for column in table.columns

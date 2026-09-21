@@ -77,8 +77,8 @@ def upsert_jobs(
             statement = select(Job).where(
                 Job.source == source_name, col(Job.external_id).in_(chunk)
             )
-            for job in session.exec(statement).all():
-                existing[(job.source, job.external_id)] = job
+            for found_job in session.exec(statement).all():
+                existing[(found_job.source, found_job.external_id)] = found_job
 
     created_jobs: list[Job] = []
     changed_jobs: list[Job] = []
