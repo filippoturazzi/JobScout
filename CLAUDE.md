@@ -44,4 +44,4 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
 - `uv run mypy src` — strict type check of `src/`; must be clean before committing (CI enforces it).
 - `uv run jobscout fetch|jobs|serve` — CLI. `serve` runs uvicorn on `jobscout.api.app:app`.
-- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check and pytest.
+- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy and pytest.
