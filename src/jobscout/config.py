@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     embedding_dim: int = 768
     similarity_threshold: float = 0.35
     max_llm_evaluations_per_run: int = 25
+    google_api_key: str | None = None
+    openai_api_key: str | None = None
 
     @property
     def source_names(self) -> list[str]:
