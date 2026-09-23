@@ -9,6 +9,18 @@ from jobscout.models.user import PROTECTED_PREFERENCE_FIELDS, non_nullable_prefe
 
 DEFAULT_USER_EMAIL = "me@localhost"
 
+MATCHING_RELEVANT_FIELDS: frozenset[str] = frozenset(
+    {
+        "titles",
+        "seniority",
+        "required_skills",
+        "nice_to_have_skills",
+        "min_salary",
+        "profile_summary",
+    }
+)
+"""Changing any of these invalidates existing scores; see pipeline.run.save_preferences."""
+
 
 def get_or_create_default_user(session: Session) -> User:
     user = session.exec(select(User).where(User.email == DEFAULT_USER_EMAIL)).first()
@@ -31,7 +43,10 @@ def get_preferences(session: Session, user_id: int) -> UserPreferences:
     return prefs
 
 
-def update_preferences(session: Session, user_id: int, changes: dict[str, Any]) -> UserPreferences:
+def update_preferences(
+    session: Session, user_id: int, changes: dict[str, Any]
+) -> tuple[UserPreferences, frozenset[str]]:
+    """Apply a partial update; return the row and the names of fields whose value changed."""
     allowed = set(UserPreferences.model_fields) - PROTECTED_PREFERENCE_FIELDS
     unknown = set(changes) - allowed
     if unknown:
@@ -43,9 +58,12 @@ def update_preferences(session: Session, user_id: int, changes: dict[str, Any]) 
     if non_nullable_nulls:
         raise ValueError(f"Preference field(s) cannot be null: {', '.join(non_nullable_nulls)}")
     prefs = get_preferences(session, user_id)
+    changed = frozenset(field for field, value in changes.items() if getattr(prefs, field) != value)
     for field, value in changes.items():
         setattr(prefs, field, value)
+    if "profile_summary" in changed:
+        prefs.profile_embedding = None  # the stored vector described the old summary
     session.add(prefs)
     session.commit()
     session.refresh(prefs)
-    return prefs
+    return prefs, changed

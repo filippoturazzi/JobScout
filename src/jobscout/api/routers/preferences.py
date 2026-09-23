@@ -27,7 +27,7 @@ def put_preferences(
 ) -> PreferencesRead:
     changes = payload.model_dump(exclude_unset=True)
     try:
-        prefs = update_preferences(session, cast(int, user.id), changes)
+        prefs, _ = update_preferences(session, cast(int, user.id), changes)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return PreferencesRead.model_validate(prefs)
