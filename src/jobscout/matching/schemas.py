@@ -33,6 +33,7 @@ class MatchState(TypedDict, total=False):
     job_embedding: list[float]
     profile_embedding: list[float]
     similarity: float
+    min_score: int
     evaluation: EvaluationResult | None
     llm_model: str | None
     should_notify: bool

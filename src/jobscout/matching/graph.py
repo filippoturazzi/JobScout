@@ -70,7 +70,8 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph[MatchState]:
 
     def decide(state: MatchState) -> MatchState:
         evaluation = state.get("evaluation")
-        return {"should_notify": evaluation is not None}
+        threshold = state.get("min_score", 0)
+        return {"should_notify": evaluation is not None and evaluation.score >= threshold}
 
     builder = StateGraph(MatchState)
     builder.add_node("embed_job", embed_job)

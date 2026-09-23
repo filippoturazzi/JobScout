@@ -1,8 +1,6 @@
-from langchain_core.embeddings import DeterministicFakeEmbedding
-
 from jobscout.matching.graph import GraphDeps, build_graph
 from jobscout.matching.schemas import EvaluationResult
-from tests.matching.fakes import CountingChatModel
+from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 DIM = 8
 
@@ -10,7 +8,7 @@ DIM = 8
 def _deps(chat: CountingChatModel, threshold: float) -> GraphDeps:
     return GraphDeps(
         chat=chat,  # type: ignore[arg-type]
-        embed=DeterministicFakeEmbedding(size=DIM),
+        embed=DeterministicFakeEmbedding(size=DIM),  # type: ignore[arg-type]
         threshold=threshold,
         model_name="fake-model",
     )
@@ -77,3 +75,15 @@ def test_identical_texts_score_similarity_one():
     final = graph.invoke(_state(job_text=text, profile_text=text, profile_embedding=profile))
 
     assert final["similarity"] > 0.999
+
+
+def test_decide_uses_the_users_notify_threshold():
+    chat = CountingChatModel(results=[EvaluationResult(score=65, reasoning="Partial fit.")])
+    graph = build_graph(_deps(chat, threshold=-1.0))
+
+    below = graph.invoke(_state(min_score=70))
+    assert below["should_notify"] is False
+
+    chat_high = CountingChatModel(results=[EvaluationResult(score=90, reasoning="Strong fit.")])
+    above = build_graph(_deps(chat_high, threshold=-1.0)).invoke(_state(min_score=70))
+    assert above["should_notify"] is True

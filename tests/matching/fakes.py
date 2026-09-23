@@ -1,5 +1,6 @@
 """Test doubles. The langchain fake chat models do not implement structured output usefully."""
 
+import hashlib
 from typing import Any
 
 from jobscout.matching.schemas import EvaluationResult
@@ -37,3 +38,22 @@ class CountingChatModel:
 
     def with_structured_output(self, _schema: Any) -> _StructuredRunnable:
         return _StructuredRunnable(self)
+
+
+class DeterministicFakeEmbedding:
+    """Same text -> same vector, no dependencies. Values are stable across runs and OSes."""
+
+    def __init__(self, size: int) -> None:
+        self.size = size
+
+    def _vector(self, text: str) -> list[float]:
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        return [
+            ((digest[i % len(digest)] ^ (i * 31 + 7) % 256) / 255.0) - 0.5 for i in range(self.size)
+        ]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._vector(text)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [self._vector(text) for text in texts]
