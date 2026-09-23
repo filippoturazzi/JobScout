@@ -3,10 +3,12 @@ from sqlmodel import select
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
+from jobscout.matching.prompts import job_text, profile_text
 from jobscout.matching.schemas import EvaluationResult
+from jobscout.matching.vectors import cosine
 from jobscout.models import Job, Match
 from jobscout.pipeline.matching import run_match, select_candidates
-from jobscout.pipeline.users import get_or_create_default_user, update_preferences
+from jobscout.pipeline.users import get_or_create_default_user, get_preferences, update_preferences
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 DIM = 8
@@ -75,9 +77,12 @@ def test_evaluates_candidates_and_persists_matches(session):
     assert match.job_id == job.id and match.user_id == user.id
     assert match.score == 88 and match.status == "new"
     assert match.matched_skills == ["Python"] and match.llm_model == "fake-model"
-    # Cosine similarity's true range is [-1, 1]; the hash-based fake embedding has no
-    # semantic structure, so a same-topic pair can legitimately land anywhere in it.
-    assert -1.0 <= match.similarity <= 1.0
+    fake = DeterministicFakeEmbedding(size=DIM)
+    expected = cosine(
+        fake.embed_query(job_text(job)),
+        fake.embed_query(profile_text(get_preferences(session, user.id))),
+    )
+    assert match.similarity == pytest.approx(expected)
     session.refresh(job)
     assert job.embedding is not None, "the job embedding must be cached"
 
@@ -169,8 +174,6 @@ def test_llm_failure_is_isolated(session):
 
 
 def test_select_candidates_applies_the_deterministic_filter(session):
-    from jobscout.pipeline.users import get_preferences
-
     user = _user_with_profile(session)
     _add_job(session, "good", title="AI Engineer")
     _add_job(session, "bad", title="Data Analyst")
@@ -178,6 +181,25 @@ def test_select_candidates_applies_the_deterministic_filter(session):
     candidates = select_candidates(session, get_preferences(session, user.id), user.id)
 
     assert [job.external_id for job in candidates] == ["good"]
+
+
+def test_dry_run_never_builds_the_chat_client(session, monkeypatch):
+    import jobscout.pipeline.matching as matching_module
+
+    user = _user_with_profile(session)
+    _add_job(session, "a")
+
+    def _explode(_settings):
+        raise AssertionError("dry run must not construct a chat model")
+
+    monkeypatch.setattr(matching_module, "chat_model", _explode)
+    monkeypatch.setattr(
+        matching_module, "embeddings", lambda _settings: DeterministicFakeEmbedding(size=DIM)
+    )
+
+    result = run_match(session, _settings(), user.id, dry_run=True)
+
+    assert len(result.previewed) == 1
 
 
 def test_missing_provider_surfaces_as_error(session, monkeypatch):

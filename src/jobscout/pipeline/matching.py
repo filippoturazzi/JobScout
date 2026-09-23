@@ -7,6 +7,7 @@ happen once per run instead of once per job.
 import logging
 from dataclasses import dataclass, field
 
+from langchain_core.embeddings import Embeddings
 from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
@@ -51,11 +52,11 @@ def select_candidates(session: Session, prefs: UserPreferences, user_id: int) ->
 
 
 def _ensure_profile_embedding(
-    session: Session, prefs: UserPreferences, deps: GraphDeps, wanted_dim: int
+    session: Session, prefs: UserPreferences, embed: Embeddings, wanted_dim: int
 ) -> list[float]:
     if prefs.profile_embedding is not None and dim(prefs.profile_embedding) == wanted_dim:
         return unpack(prefs.profile_embedding)
-    vector = deps.embed.embed_query(profile_text(prefs))
+    vector = embed.embed_query(profile_text(prefs))
     prefs.profile_embedding = pack(vector)
     session.add(prefs)
     session.commit()
@@ -63,7 +64,7 @@ def _ensure_profile_embedding(
 
 
 def _ensure_job_embeddings(
-    session: Session, jobs: list[Job], deps: GraphDeps, wanted_dim: int
+    session: Session, jobs: list[Job], embed: Embeddings, wanted_dim: int
 ) -> dict[int, list[float]]:
     vectors: dict[int, list[float]] = {}
     missing: list[Job] = []
@@ -77,7 +78,7 @@ def _ensure_job_embeddings(
 
     for start in range(0, len(missing), _EMBED_CHUNK):
         chunk = missing[start : start + _EMBED_CHUNK]
-        computed = deps.embed.embed_documents([job_text(job) for job in chunk])
+        computed = embed.embed_documents([job_text(job) for job in chunk])
         for job, vector in zip(chunk, computed, strict=True):
             assert job.id is not None
             job.embedding = pack(vector)
@@ -128,12 +129,12 @@ def run_match(
     if not candidates:
         return result
 
-    deps = deps or _default_deps(settings)
+    embed = deps.embed if deps is not None else embeddings(settings)
     wanted_dim = settings.embedding_dim
-    profile_vector = _ensure_profile_embedding(session, prefs, deps, wanted_dim)
+    profile_vector = _ensure_profile_embedding(session, prefs, embed, wanted_dim)
     # The profile embedding fixes the dimension the job vectors must match.
     wanted_dim = len(profile_vector)
-    job_vectors = _ensure_job_embeddings(session, candidates, deps, wanted_dim)
+    job_vectors = _ensure_job_embeddings(session, candidates, embed, wanted_dim)
 
     ranked = sorted(
         (
@@ -155,7 +156,8 @@ def run_match(
 
     user = session.get(User, user_id)
     locale = user.locale if user is not None else "en"
-    graph = build_graph(deps)
+    graph_deps = deps if deps is not None else _default_deps(settings)
+    graph = build_graph(graph_deps)
 
     for _similarity, job in selected:
         assert job.id is not None
@@ -171,42 +173,43 @@ def run_match(
         }
         try:
             final = graph.invoke(state)
-        except Exception as exc:  # isolate one bad evaluation from the rest of the run
+
+            evaluation = final.get("evaluation")
+            if evaluation is None:
+                _upsert_match(
+                    session,
+                    job.id,
+                    user_id,
+                    similarity=final["similarity"],
+                    score=None,
+                    reasoning=None,
+                    matched_skills=[],
+                    missing_skills=[],
+                    red_flags=[],
+                    status="low",
+                    llm_model=None,
+                )
+                result.skipped_low += 1
+            else:
+                _upsert_match(
+                    session,
+                    job.id,
+                    user_id,
+                    similarity=final["similarity"],
+                    score=evaluation.score,
+                    reasoning=evaluation.reasoning,
+                    matched_skills=evaluation.matched_skills,
+                    missing_skills=evaluation.missing_skills,
+                    red_flags=evaluation.red_flags,
+                    status="new",
+                    llm_model=final.get("llm_model"),
+                )
+                result.evaluated += 1
+            session.commit()
+        except Exception as exc:  # isolate one bad job from the rest of the run
+            session.rollback()
             log.error("matching failed for job %s: %s: %s", job.id, type(exc).__name__, exc)
             result.errors.append(f"job {job.id}: {type(exc).__name__}: {exc}")
             continue
-
-        evaluation = final.get("evaluation")
-        if evaluation is None:
-            _upsert_match(
-                session,
-                job.id,
-                user_id,
-                similarity=final["similarity"],
-                score=None,
-                reasoning=None,
-                matched_skills=[],
-                missing_skills=[],
-                red_flags=[],
-                status="low",
-                llm_model=None,
-            )
-            result.skipped_low += 1
-        else:
-            _upsert_match(
-                session,
-                job.id,
-                user_id,
-                similarity=final["similarity"],
-                score=evaluation.score,
-                reasoning=evaluation.reasoning,
-                matched_skills=evaluation.matched_skills,
-                missing_skills=evaluation.missing_skills,
-                red_flags=evaluation.red_flags,
-                status="new",
-                llm_model=final.get("llm_model"),
-            )
-            result.evaluated += 1
-        session.commit()
 
     return result
