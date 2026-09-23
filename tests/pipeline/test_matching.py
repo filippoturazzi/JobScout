@@ -173,6 +173,30 @@ def test_llm_failure_is_isolated(session):
     assert session.exec(select(Match)).all() == []
 
 
+def test_commit_failure_is_counted_as_an_error_not_a_success(session, monkeypatch):
+    user = _user_with_profile(session)
+    _add_job(session, "a")
+    chat = CountingChatModel()
+    original_commit = session.commit
+    calls = {"n": 0}
+
+    def flaky_commit() -> None:
+        calls["n"] += 1
+        # Calls 1 and 2 are the profile- and job-embedding caching commits inside
+        # run_match, which happen before the per-job loop; only the 3rd commit — the
+        # one after _upsert_match for this single candidate — should fail.
+        if calls["n"] == 3:
+            raise RuntimeError("disk full")
+        original_commit()
+
+    monkeypatch.setattr(session, "commit", flaky_commit)
+
+    result = run_match(session, _settings(), user.id, deps=_deps(chat))
+
+    assert result.evaluated == 0 and result.skipped_low == 0
+    assert len(result.errors) == 1 and "disk full" in result.errors[0]
+
+
 def test_select_candidates_applies_the_deterministic_filter(session):
     user = _user_with_profile(session)
     _add_job(session, "good", title="AI Engineer")

@@ -189,7 +189,7 @@ def run_match(
                     status="low",
                     llm_model=None,
                 )
-                result.skipped_low += 1
+                was_low = True
             else:
                 _upsert_match(
                     session,
@@ -204,12 +204,19 @@ def run_match(
                     status="new",
                     llm_model=final.get("llm_model"),
                 )
-                result.evaluated += 1
+                was_low = False
             session.commit()
         except Exception as exc:  # isolate one bad job from the rest of the run
             session.rollback()
             log.error("matching failed for job %s: %s: %s", job.id, type(exc).__name__, exc)
             result.errors.append(f"job {job.id}: {type(exc).__name__}: {exc}")
             continue
+
+        # Only reachable once the row is durably committed — a commit failure above
+        # jumps to `except` and `continue`s before either counter can move.
+        if was_low:
+            result.skipped_low += 1
+        else:
+            result.evaluated += 1
 
     return result
