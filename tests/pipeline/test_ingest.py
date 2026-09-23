@@ -184,3 +184,26 @@ def test_ingest_result_exposes_ids(session):
     job_id = session.exec(select(Job)).one().id
     assert results[0].created_ids == [job_id]
     assert results[0].changed_ids == []
+
+
+def test_changed_jobs_mark_matches_stale_except_dismissed(session):
+    from jobscout.models import Match, User
+
+    upsert_jobs(session, [raw("j1"), raw("j2")], now=T0)
+    jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
+    user_a = User(email="a@b")
+    user_b = User(email="b@b")
+    session.add(user_a)
+    session.add(user_b)
+    session.commit()
+    session.add(Match(job_id=jobs["j1"].id, user_id=user_a.id, similarity=0.9, status="new"))
+    session.add(Match(job_id=jobs["j1"].id, user_id=user_b.id, similarity=0.9, status="dismissed"))
+    session.add(Match(job_id=jobs["j2"].id, user_id=user_a.id, similarity=0.9, status="new"))
+    session.commit()
+
+    upsert_jobs(session, [raw("j1", description="brand new text"), raw("j2")], now=T0)
+
+    statuses = {(m.job_id, m.user_id): m.status for m in session.exec(select(Match)).all()}
+    assert statuses[(jobs["j1"].id, user_a.id)] == "stale"
+    assert statuses[(jobs["j1"].id, user_b.id)] == "dismissed"
+    assert statuses[(jobs["j2"].id, user_a.id)] == "new", "unchanged job keeps its match"
