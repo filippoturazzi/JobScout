@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     backfill_window_days: int = 30
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    llm_provider: str = "google"
+    llm_model: str = "gemini-3.5-flash"
+    embedding_model: str = "gemini-embedding-001"
+    embedding_dim: int = 768
+    similarity_threshold: float = 0.35
+    max_llm_evaluations_per_run: int = 25
 
     @property
     def source_names(self) -> list[str]:
