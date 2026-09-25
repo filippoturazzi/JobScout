@@ -5,8 +5,9 @@ from typer.testing import CliRunner
 
 from jobscout import cli
 from jobscout.config import Settings
-from jobscout.db import get_engine
-from jobscout.models import User
+from jobscout.db import get_engine, init_db
+from jobscout.models import Job, Match, User
+from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from jobscout.sources.arbeitnow import BASE_URL
 from tests.conftest import load_fixture
 
@@ -105,3 +106,82 @@ def test_serve_uses_settings_defaults_and_honors_port_zero(tmp_path, monkeypatch
         "port": 0,
         "reload": True,
     }
+
+
+def test_match_without_provider_key_exits_2(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with Session(get_engine(_settings(tmp_path))) as session:
+        init_db(get_engine(_settings(tmp_path)))
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    result = runner.invoke(cli.app, ["match"])
+
+    assert result.exit_code == 2
+    assert "GOOGLE_API_KEY" in result.output
+
+
+def test_match_reports_when_there_is_no_profile(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    result = runner.invoke(cli.app, ["match"])
+    assert result.exit_code == 0
+    assert "profile" in result.output.lower()
+
+
+def test_matches_lists_scored_rows(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        job = Job(
+            source="t",
+            external_id="a",
+            title="AI Engineer",
+            company="Acme",
+            remote=True,
+            url="https://x/a",
+            description="d",
+            content_hash="h",
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        session.add(
+            Match(
+                job_id=job.id,
+                user_id=user.id,
+                similarity=0.8,
+                score=91,
+                reasoning="Strong fit.",
+                status="new",
+            )
+        )
+        session.commit()
+
+    result = runner.invoke(cli.app, ["matches"])
+
+    assert result.exit_code == 0
+    assert "91" in result.output and "AI Engineer" in result.output
+
+
+def test_matches_on_empty_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    result = runner.invoke(cli.app, ["matches"])
+    assert result.exit_code == 0
+    assert "No matches" in result.output
