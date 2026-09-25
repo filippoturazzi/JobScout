@@ -6,6 +6,7 @@ from sqlmodel import Session, col, select, update
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
+from jobscout.matching.llm import MissingProviderError
 from jobscout.models import Job, Match, UserPreferences
 from jobscout.pipeline.backfill import backfill_matches
 from jobscout.pipeline.filters import filter_jobs
@@ -61,4 +62,8 @@ def save_preferences(
         .values(status="stale")
     )
     session.commit()
-    return prefs, backfill_matches(session, settings, user_id, deps=deps)
+    try:
+        run = backfill_matches(session, settings, user_id, deps=deps)
+    except MissingProviderError as exc:
+        run = MatchRun(error=str(exc))
+    return prefs, run

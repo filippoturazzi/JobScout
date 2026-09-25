@@ -113,3 +113,22 @@ def test_save_preferences_never_stales_dismissed(session):
 
     assert run.evaluated == 0
     assert session.exec(select(Match)).one().status == "dismissed"
+
+
+def test_save_preferences_survives_a_missing_provider(session, monkeypatch):
+    import jobscout.pipeline.matching as matching_module
+    from jobscout.matching.llm import MissingProviderError
+
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    _add_job(session, "a")
+
+    def _no_provider(_settings):
+        raise MissingProviderError("GOOGLE_API_KEY is not set.")
+
+    monkeypatch.setattr(matching_module, "embeddings", _no_provider)
+
+    prefs, run = save_preferences(session, _settings(), user.id, {"titles": ["AI Engineer"]})
+
+    assert prefs.titles == ["AI Engineer"]
+    assert run.error is not None and "GOOGLE_API_KEY" in run.error

@@ -86,3 +86,37 @@ def test_put_preferences_marks_stale_matches_on_matching_relevant_change(client,
 
     session.refresh(match)
     assert match.status == "stale"
+
+
+def test_put_preferences_succeeds_without_a_configured_provider(client, session, monkeypatch):
+    import jobscout.pipeline.matching as matching_module
+    from jobscout.matching.llm import MissingProviderError
+
+    # A job must exist and pass the preference filter so the backfill actually reaches
+    # `select_candidates` -> `embeddings(settings)`; otherwise the provider is never touched
+    # and this test would pass even without the fix.
+    client.get("/preferences")  # creates the default user
+    session.add(
+        Job(
+            source="t",
+            external_id="a",
+            title="AI Engineer",
+            company="Acme",
+            remote=True,
+            url="https://x/a",
+            description="d",
+            content_hash="h-a",
+        )
+    )
+    session.commit()
+
+    def _no_provider(_settings):
+        raise MissingProviderError("GOOGLE_API_KEY is not set.")
+
+    monkeypatch.setattr(matching_module, "embeddings", _no_provider)
+    client.put("/preferences", json={"profile_summary": "Python LLM engineer."})
+
+    response = client.put("/preferences", json={"titles": ["AI Engineer"]})
+
+    assert response.status_code == 200
+    assert response.json()["titles"] == ["AI Engineer"]
