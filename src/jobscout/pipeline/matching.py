@@ -6,6 +6,7 @@ happen once per run instead of once per job.
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from langchain_core.embeddings import Embeddings
 from sqlmodel import Session, col, select
@@ -35,13 +36,21 @@ class MatchRun:
     previewed: list[tuple[int, float, str]] = field(default_factory=list)
 
 
-def select_candidates(session: Session, prefs: UserPreferences, user_id: int) -> list[Job]:
+def select_candidates(
+    session: Session,
+    prefs: UserPreferences,
+    user_id: int,
+    first_seen_after: datetime | None = None,
+) -> list[Job]:
     """Active jobs passing the deterministic filter that have no match, or a stale one."""
     existing: dict[int, str] = {
         match.job_id: match.status
         for match in session.exec(select(Match).where(Match.user_id == user_id)).all()
     }
-    jobs = session.exec(select(Job).where(col(Job.is_active).is_(True))).all()
+    statement = select(Job).where(col(Job.is_active).is_(True))
+    if first_seen_after is not None:
+        statement = statement.where(col(Job.first_seen_at) >= first_seen_after)
+    jobs = session.exec(statement).all()
     return [
         job
         for job in jobs
@@ -116,6 +125,7 @@ def run_match(
     limit: int | None = None,
     dry_run: bool = False,
     deps: GraphDeps | None = None,
+    first_seen_after: datetime | None = None,
 ) -> MatchRun:
     """Evaluate the best unmatched candidates for one user, bounded by the per-run cap."""
     result = MatchRun()
@@ -124,7 +134,7 @@ def run_match(
         result.error = "No profile summary set — nothing to match against."
         return result
 
-    candidates = select_candidates(session, prefs, user_id)
+    candidates = select_candidates(session, prefs, user_id, first_seen_after=first_seen_after)
     result.candidates = len(candidates)
     if not candidates:
         return result

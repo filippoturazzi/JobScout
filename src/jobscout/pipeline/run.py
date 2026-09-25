@@ -1,12 +1,17 @@
 """Entry points used by the CLI and the API. The only place sources, DB and filters meet."""
 
-from sqlmodel import Session, col, select
+from typing import Any
+
+from sqlmodel import Session, col, select, update
 
 from jobscout.config import Settings
-from jobscout.models import Job
+from jobscout.matching.graph import GraphDeps
+from jobscout.models import Job, Match, UserPreferences
+from jobscout.pipeline.backfill import backfill_matches
 from jobscout.pipeline.filters import filter_jobs
 from jobscout.pipeline.ingest import IngestResult, ingest
-from jobscout.pipeline.users import get_preferences
+from jobscout.pipeline.matching import MatchRun
+from jobscout.pipeline.users import MATCHING_RELEVANT_FIELDS, get_preferences, update_preferences
 from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.registry import build_sources
 
@@ -36,3 +41,24 @@ def list_jobs(
     if apply_filters:
         jobs = filter_jobs(jobs, prefs)
     return jobs[:limit]
+
+
+def save_preferences(
+    session: Session,
+    settings: Settings,
+    user_id: int,
+    changes: dict[str, Any],
+    deps: GraphDeps | None = None,
+) -> tuple[UserPreferences, MatchRun]:
+    """Apply preference changes, invalidate what they affect, and backfill within the cap."""
+    prefs, changed = update_preferences(session, user_id, changes)
+    if not (changed & MATCHING_RELEVANT_FIELDS):
+        return prefs, MatchRun()
+
+    session.exec(
+        update(Match)
+        .where(col(Match.user_id) == user_id, col(Match.status) != "dismissed")
+        .values(status="stale")
+    )
+    session.commit()
+    return prefs, backfill_matches(session, settings, user_id, deps=deps)
