@@ -104,6 +104,8 @@ def match(
     )
     for message in result.errors:
         typer.echo(f"  ERROR {message}", err=True)
+    if result.errors and result.evaluated == 0 and result.skipped_low == 0:
+        raise typer.Exit(code=1)
 
 
 @app.command()

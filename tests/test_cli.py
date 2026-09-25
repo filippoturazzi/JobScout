@@ -185,3 +185,58 @@ def test_matches_on_empty_db(tmp_path, monkeypatch):
     result = runner.invoke(cli.app, ["matches"])
     assert result.exit_code == 0
     assert "No matches" in result.output
+
+
+def test_match_dry_run_lists_candidates_without_calling_the_llm(tmp_path, monkeypatch):
+    import jobscout.pipeline.matching as matching_module
+    from tests.matching.fakes import DeterministicFakeEmbedding
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    def _explode(_settings):
+        raise AssertionError("a dry run must not construct a chat model")
+
+    monkeypatch.setattr(matching_module, "chat_model", _explode)
+    monkeypatch.setattr(
+        matching_module, "embeddings", lambda _settings: DeterministicFakeEmbedding(size=8)
+    )
+
+    result = runner.invoke(cli.app, ["match", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Would evaluate 1 of 1 candidates" in result.output
+    assert "AI Engineer" in result.output
+
+
+def test_match_exits_1_when_every_candidate_failed(tmp_path, monkeypatch):
+    from jobscout.pipeline.matching import MatchRun
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    monkeypatch.setattr(
+        cli,
+        "run_match",
+        lambda *a, **kw: MatchRun(candidates=1, errors=["job 1: RuntimeError: boom"]),
+    )
+
+    result = runner.invoke(cli.app, ["match"])
+
+    assert result.exit_code == 1
+    assert "boom" in result.output
