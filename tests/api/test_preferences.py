@@ -1,3 +1,6 @@
+from sqlmodel import select
+
+from jobscout.models import Job, Match, User
 from jobscout.models.user import non_nullable_preference_fields
 
 
@@ -54,3 +57,32 @@ def test_update_schema_rejects_null_for_every_non_nullable_field(client):
     for name in sorted(non_nullable_preference_fields()):
         r = client.put("/preferences", json={name: None})
         assert r.status_code == 422, name
+
+
+def test_put_preferences_marks_stale_matches_on_matching_relevant_change(client, session):
+    client.get("/preferences")  # creates the default user
+    user = session.exec(select(User)).one()
+    job = Job(
+        source="t",
+        external_id="a",
+        title="AI Engineer",
+        company="Acme",
+        remote=True,
+        url="https://x/a",
+        description="d",
+        content_hash="h-a",
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    match = Match(job_id=job.id, user_id=user.id, similarity=0.5, score=40, status="new")
+    session.add(match)
+    session.commit()
+
+    # profile_summary stays empty, so the resulting backfill has nothing to evaluate
+    # and never needs an LLM/embeddings provider — see pipeline.matching.run_match.
+    r = client.put("/preferences", json={"titles": ["AI Engineer"]})
+    assert r.status_code == 200
+
+    session.refresh(match)
+    assert match.status == "stale"
