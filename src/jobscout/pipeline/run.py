@@ -44,6 +44,30 @@ def list_jobs(
     return jobs[:limit]
 
 
+def list_matches(
+    session: Session,
+    user_id: int,
+    min_score: int = 0,
+    status: str | None = None,
+    limit: int = 50,
+) -> list[tuple[Match, Job]]:
+    """Scored matches for one user, best first. Inactive jobs and unscored rows are hidden."""
+    statement = (
+        select(Match, Job)
+        .join(Job, col(Match.job_id) == col(Job.id))
+        .where(
+            col(Match.user_id) == user_id,
+            col(Job.is_active).is_(True),
+            col(Match.score).is_not(None),
+            col(Match.score) >= min_score,
+        )
+        .order_by(col(Match.score).desc(), col(Match.similarity).desc())
+    )
+    if status is not None:
+        statement = statement.where(col(Match.status) == status)
+    return list(session.exec(statement.limit(limit)).all())
+
+
 def save_preferences(
     session: Session,
     settings: Settings,

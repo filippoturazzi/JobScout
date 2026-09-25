@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 from sqlmodel import select
 
 from jobscout.config import Settings
-from jobscout.models import Job, User
+from jobscout.models import Job, Match, User
 from jobscout.pipeline.ingest import upsert_jobs
-from jobscout.pipeline.run import list_jobs, run_ingest
+from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from jobscout.sources.base import RawJob, SearchQuery
 
@@ -78,3 +78,30 @@ def test_list_jobs_hides_inactive_by_default(session):
     session.commit()
     assert list_jobs(session, user.id) == []
     assert len(list_jobs(session, user.id, active_only=False)) == 1
+
+
+def test_list_matches_orders_by_score_and_hides_inactive(session):
+    user = get_or_create_default_user(session)
+    upsert_jobs(
+        session,
+        [raw("low", "AI Engineer"), raw("high", "AI Engineer"), raw("gone", "AI Engineer")],
+        now=T0,
+    )
+    jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
+    jobs["gone"].is_active = False
+    session.add(jobs["gone"])
+    session.add(
+        Match(job_id=jobs["low"].id, user_id=user.id, similarity=0.5, score=40, status="new")
+    )
+    session.add(
+        Match(job_id=jobs["high"].id, user_id=user.id, similarity=0.8, score=90, status="new")
+    )
+    session.add(
+        Match(job_id=jobs["gone"].id, user_id=user.id, similarity=0.9, score=99, status="new")
+    )
+    session.commit()
+
+    rows = list_matches(session, user.id)
+
+    assert [job.external_id for _match, job in rows] == ["high", "low"]
+    assert len(list_matches(session, user.id, limit=1)) == 1
