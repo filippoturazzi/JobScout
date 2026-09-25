@@ -22,9 +22,16 @@ class Settings(BaseSettings):
     api_port: int = 8000
     llm_provider: str = "google"
     llm_model: str = "gemini-3.5-flash"
-    embedding_model: str = "gemini-embedding-001"
+    embedding_model: str = "gemini-embedding-2"
     embedding_dim: int = 768
-    similarity_threshold: float = 0.35
+    # Live run 2026-09-25 (30 active jobs, profile "Junior AI engineer... Python, FastAPI,
+    # LLM applications, LangGraph. Remote, Europe."): observed cosine similarity ranged
+    # 0.503-0.695, so the old 0.35 floor never fired. No clean gap between plainly-relevant
+    # and plainly-irrelevant titles showed up at this sample size (e.g. "Account Executive"
+    # and "RevOps" postings scored 0.62-0.63, close to the one genuine "AI Engineer" match at
+    # 0.695), so raised conservatively into the gap between 0.35 and the observed floor,
+    # leaving margin below every score seen so far.
+    similarity_threshold: float = 0.45
     max_llm_evaluations_per_run: int = 25
     google_api_key: str | None = None
     openai_api_key: str | None = None

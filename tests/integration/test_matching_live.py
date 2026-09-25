@@ -3,8 +3,6 @@
 Needs GOOGLE_API_KEY (or the configured provider's key) and jobs in the database.
 """
 
-import os
-
 import pytest
 from sqlmodel import Session, col, select
 
@@ -25,8 +23,8 @@ PROFILE = "Junior AI engineer. Python, FastAPI, LLM applications, LangGraph. Rem
 @pytest.fixture
 def live_session():
     settings = get_settings()
-    if not os.environ.get("GOOGLE_API_KEY") and settings.llm_provider == "google":
-        pytest.skip("GOOGLE_API_KEY not set")
+    if settings.llm_provider == "google" and not settings.google_api_key:
+        pytest.skip("GOOGLE_API_KEY not set (put it in .env or the environment)")
     engine = get_engine(settings)
     init_db(engine)
     with Session(engine) as session:

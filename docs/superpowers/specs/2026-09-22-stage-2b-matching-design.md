@@ -25,7 +25,7 @@ Turn the collected jobs into explained matches. For each (job, user) pair worth 
 | Providers | `LLM_PROVIDER` selects a builder with a lazy import: `google` (installed), `openai`, `ollama` (clear "pip install …" error if absent) | The multi-provider story without shipping three SDKs. |
 | Scope | One plan, one branch | The halves are not independently useful: a graph with no CLI is not demoable; backfill with no graph does nothing. |
 
-Versions verified on 2026-09-22: `langgraph` 1.2.12, `langchain-google-genai` 4.4.0 (pulls `langchain-core` ≥1.6.1), `langchain-core` 1.6.4. Current Gemini names in that package's docs: chat `gemini-3.5-flash`, embeddings `gemini-embedding-*`. **The defaults below are confirmed against the real API in the integration task; if a name 404s, the working name is used and this table updated.**
+Versions verified on 2026-09-22: `langgraph` 1.2.12, `langchain-google-genai` 4.4.0 (pulls `langchain-core` ≥1.6.1), `langchain-core` 1.6.4. Current Gemini names in that package's docs: chat `gemini-3.5-flash`, embeddings `gemini-embedding-*`. **Confirmed against the real API in the integration task (Task 13): `gemini-3.5-flash` exists as documented; the placeholder `gemini-embedding-001` does not exist and the API answered it with a misleading `429 RESOURCE_EXHAUSTED` rather than a 404 — the working embedding model is `gemini-embedding-2`, which honours `outputDimensionality: 768`. The table below reflects the corrected default.**
 
 ## 3. Components
 
@@ -125,12 +125,12 @@ After `session.flush()` in `upsert_jobs`, for `stats.changed_ids`, one bulk `UPD
 |---|---|---|
 | `LLM_PROVIDER` | `google` | `google` \| `openai` \| `ollama` |
 | `LLM_MODEL` | `gemini-3.5-flash` | chat model for evaluation |
-| `EMBEDDING_MODEL` | `gemini-embedding-001` | embedding model |
+| `EMBEDDING_MODEL` | `gemini-embedding-2` | embedding model |
 | `EMBEDDING_DIM` | `768` | requested `output_dimensionality`; a stored vector of another length is re-embedded |
-| `SIMILARITY_THRESHOLD` | `0.35` | floor below which the LLM is skipped |
+| `SIMILARITY_THRESHOLD` | `0.45` | floor below which the LLM is skipped |
 | `MAX_LLM_EVALUATIONS_PER_RUN` | `25` | hard cap per run and per backfill |
 
-Provider keys (`GOOGLE_API_KEY`, `OPENAI_API_KEY`) are read by the provider packages from the environment; they are documented in `.env.example` and never stored in user tables. The threshold is deliberately low — top-K does the real selection; the integration task prints the observed similarity distribution so it can be calibrated from data.
+Provider keys (`GOOGLE_API_KEY`, `OPENAI_API_KEY`) are read by the provider packages from the environment; they are documented in `.env.example` and never stored in user tables. The threshold started deliberately low — top-K does the real selection; the integration task (Task 13) prints the observed similarity distribution so it can be calibrated from data. Calibrated 2026-09-25: over 30 active jobs against a "Junior AI engineer... Python, FastAPI, LLM applications, LangGraph. Remote, Europe." profile, cosine similarity ranged 0.503-0.695 — the original 0.35 floor never fired. No clean gap between plainly-relevant and plainly-irrelevant titles was visible at that sample size, so the threshold was raised conservatively to `0.45`, inside the gap between the old floor and the observed minimum.
 
 ## 6. Interfaces
 

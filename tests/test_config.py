@@ -29,9 +29,9 @@ def test_matching_defaults():
     s = Settings(_env_file=None)
     assert s.llm_provider == "google"
     assert s.llm_model == "gemini-3.5-flash"
-    assert s.embedding_model == "gemini-embedding-001"
+    assert s.embedding_model == "gemini-embedding-2"
     assert s.embedding_dim == 768
-    assert s.similarity_threshold == 0.35
+    assert s.similarity_threshold == 0.45
     assert s.max_llm_evaluations_per_run == 25
 
 
