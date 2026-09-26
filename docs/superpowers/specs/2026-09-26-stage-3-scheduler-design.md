@@ -87,7 +87,7 @@ so pruning happens once per execution.
 ### 5.4 `should_skip_for_backoff`
 
 ```python
-def should_skip_for_backoff(session: Session, job: str, tick: int, settings: Settings) -> bool
+def should_skip_for_backoff(session: Session, settings: Settings, job: str, tick: int) -> bool
 ```
 
 A pure function of its arguments, so it can be tested without a scheduler. `session` supplies
