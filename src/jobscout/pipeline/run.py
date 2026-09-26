@@ -1,5 +1,6 @@
 """Entry points used by the CLI and the API. The only place sources, DB and filters meet."""
 
+import logging
 from typing import Any
 
 from sqlmodel import Session, col, select, update
@@ -15,6 +16,8 @@ from jobscout.pipeline.matching import MatchRun
 from jobscout.pipeline.users import MATCHING_RELEVANT_FIELDS, get_preferences, update_preferences
 from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.registry import build_sources
+
+log = logging.getLogger(__name__)
 
 
 def run_ingest(
@@ -86,8 +89,13 @@ def save_preferences(
         .values(status="stale")
     )
     session.commit()
+    # The preferences are already committed above: from here on, every failure is reported
+    # through `MatchRun.error`. Saving preferences must never fail because matching failed.
     try:
         run = backfill_matches(session, settings, user_id, deps=deps)
     except MissingProviderError as exc:
         run = MatchRun(error=str(exc))
+    except Exception as exc:  # 429, network, auth — anything the provider can throw
+        log.error("backfill after preference save failed: %s: %s", type(exc).__name__, exc)
+        run = MatchRun(error=f"{type(exc).__name__}: {exc}")
     return prefs, run

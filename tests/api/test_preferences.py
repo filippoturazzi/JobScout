@@ -120,3 +120,33 @@ def test_put_preferences_succeeds_without_a_configured_provider(client, session,
 
     assert response.status_code == 200
     assert response.json()["titles"] == ["AI Engineer"]
+
+
+def test_put_preferences_survives_a_provider_runtime_error(client, session, monkeypatch):
+    """The preferences commit happens before the backfill; a 429 must not report a 500."""
+    import jobscout.pipeline.matching as matching_module
+
+    client.get("/preferences")  # creates the default user
+    session.add(
+        Job(
+            source="t",
+            external_id="a",
+            title="AI Engineer",
+            company="Acme",
+            remote=True,
+            url="https://x/a",
+            description="d",
+            content_hash="h-a",
+        )
+    )
+    session.commit()
+
+    def _rate_limited(_settings):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    monkeypatch.setattr(matching_module, "embeddings", _rate_limited)
+
+    response = client.put("/preferences", json={"profile_summary": "Python LLM engineer."})
+
+    assert response.status_code == 200
+    assert response.json()["profile_summary"] == "Python LLM engineer."

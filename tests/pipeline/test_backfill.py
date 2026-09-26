@@ -132,3 +132,22 @@ def test_save_preferences_survives_a_missing_provider(session, monkeypatch):
 
     assert prefs.titles == ["AI Engineer"]
     assert run.error is not None and "GOOGLE_API_KEY" in run.error
+
+
+def test_save_preferences_survives_a_provider_runtime_error(session, monkeypatch):
+    """A 429/network/auth failure must not lose a preference save that already committed."""
+    import jobscout.pipeline.matching as matching_module
+
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    _add_job(session, "a")
+
+    def _rate_limited(_settings):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    monkeypatch.setattr(matching_module, "embeddings", _rate_limited)
+
+    prefs, run = save_preferences(session, _settings(), user.id, {"titles": ["AI Engineer"]})
+
+    assert prefs.titles == ["AI Engineer"]
+    assert run.error == "RuntimeError: 429 RESOURCE_EXHAUSTED"

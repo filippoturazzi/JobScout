@@ -226,6 +226,41 @@ def test_match_dry_run_lists_candidates_without_calling_the_llm(tmp_path, monkey
     assert "AI Engineer" in result.output
 
 
+def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, monkeypatch):
+    import jobscout.pipeline.matching as matching_module
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    def _rate_limited(_settings):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    monkeypatch.setattr(matching_module, "embeddings", _rate_limited)
+
+    result = runner.invoke(cli.app, ["match"])
+
+    assert result.exit_code == 1
+    assert "Error: RuntimeError: 429 RESOURCE_EXHAUSTED" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_match_exits_1_when_every_candidate_failed(tmp_path, monkeypatch):
     from jobscout.pipeline.matching import MatchRun
 

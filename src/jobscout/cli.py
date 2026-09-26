@@ -86,6 +86,9 @@ def match(
         except MissingProviderError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=2) from exc
+        except Exception as exc:  # a 429 or a dropped connection is not a traceback's worth
+            typer.echo(f"Error: {type(exc).__name__}: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
 
     if result.error:
         typer.echo(result.error)
