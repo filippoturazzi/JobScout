@@ -87,3 +87,14 @@ def test_decide_uses_the_users_notify_threshold():
     chat_high = CountingChatModel(results=[EvaluationResult(score=90, reasoning="Strong fit.")])
     above = build_graph(_deps(chat_high, threshold=-1.0)).invoke(_state(min_score=70))
     assert above["should_notify"] is True
+
+
+def test_a_missing_notify_threshold_fails_closed():
+    """A caller that forgets `min_score` must not notify on everything (stage 4 reads this)."""
+    chat = CountingChatModel(results=[EvaluationResult(score=100, reasoning="Perfect fit.")])
+    graph = build_graph(_deps(chat, threshold=-1.0))
+
+    final = graph.invoke(_state())  # no min_score in the state
+
+    assert final["evaluation"] is not None
+    assert final["should_notify"] is False

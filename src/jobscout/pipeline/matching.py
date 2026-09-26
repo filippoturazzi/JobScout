@@ -17,7 +17,7 @@ from jobscout.matching.llm import chat_model, embeddings
 from jobscout.matching.prompts import build_user_prompt, job_text, profile_text
 from jobscout.matching.schemas import MatchState
 from jobscout.matching.vectors import cosine, dim, pack, unpack
-from jobscout.models import Job, Match, User, UserPreferences
+from jobscout.models import REEVALUATABLE_STATUSES, Job, Match, User, UserPreferences
 from jobscout.pipeline.filters import job_matches_preferences
 from jobscout.pipeline.users import get_preferences
 
@@ -59,7 +59,8 @@ def select_candidates(
         job
         for job in jobs
         if job.id is not None
-        and existing.get(job.id, "stale") == "stale"
+        # A job with no row yet is treated as stale: it has never been evaluated.
+        and existing.get(job.id, "stale") in REEVALUATABLE_STATUSES
         and job_matches_preferences(job, prefs)
     ]
 

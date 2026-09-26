@@ -8,10 +8,13 @@ from jobscout.models.base import utcnow
 MATCH_STATUSES: frozenset[str] = frozenset(
     {"new", "seen", "saved", "dismissed", "notified", "low", "stale"}
 )
-"""Low = rejected by cosine prefilter; stale = needs re-evaluation."""
+"""`low` = rejected by the cosine prefilter, terminal until something stales it;
+`stale` = needs re-evaluation; `dismissed` = the user said no, and it sticks."""
 
 REEVALUATABLE_STATUSES: frozenset[str] = frozenset({"stale"})
-"""Statuses a new run may pick up again. `dismissed` is deliberately absent."""
+"""Statuses a new run may pick up again. `low` is not one — only a stale-ing event
+(a changed job hash, a changed preference) puts a rejected pair back in the queue —
+and `dismissed` is deliberately absent, so a dismissal is never re-evaluated."""
 
 
 class Match(SQLModel, table=True):

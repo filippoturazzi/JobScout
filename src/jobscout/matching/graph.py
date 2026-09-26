@@ -70,7 +70,9 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph[MatchState]:
 
     def decide(state: MatchState) -> MatchState:
         evaluation = state.get("evaluation")
-        threshold = state.get("min_score", 0)
+        # Fail closed: a caller that forgets `min_score` gets no notification rather than
+        # one for every job. Scores are 0-100, so 101 is unreachable.
+        threshold = state.get("min_score", 101)
         return {"should_notify": evaluation is not None and evaluation.score >= threshold}
 
     builder = StateGraph(MatchState)
