@@ -86,8 +86,11 @@ def _ensure_job_embeddings(
     """Embed jobs missing vectors of the right dimension, bounded by max_embeddings.
 
     Returns (vectors_dict, embedded_count, embeddings_pending) where:
-    - embedded_count is the number of new vectors computed this run
+    - embedded_count is the number of new vectors committed this run
     - embeddings_pending is the count of candidates that still lack a vector after this run.
+
+    A failing chunk propagates — the caller sees the provider error as before — but every
+    earlier chunk is already committed, so nothing paid for is thrown away.
     """
     vectors: dict[int, list[float]] = {}
     missing: list[Job] = []
@@ -102,7 +105,7 @@ def _ensure_job_embeddings(
     # Limit embedding work if requested; the rest will be picked up by the next run.
     to_embed = missing[:max_embeddings] if max_embeddings is not None else missing
     embeddings_pending = len(missing) - len(to_embed)
-    embedded_count = len(to_embed)
+    embedded_count = 0
 
     for start in range(0, len(to_embed), _EMBED_CHUNK):
         chunk = to_embed[start : start + _EMBED_CHUNK]
@@ -112,8 +115,10 @@ def _ensure_job_embeddings(
             job.embedding = pack(vector)
             vectors[job.id] = vector
             session.add(job)
-    if to_embed:
+        # Commit per chunk, not once at the end: a later chunk failing must not roll back
+        # vectors that were already computed and charged for.
         session.commit()
+        embedded_count += len(chunk)
     return vectors, embedded_count, embeddings_pending
 
 

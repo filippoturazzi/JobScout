@@ -250,6 +250,41 @@ def test_embedding_work_is_bounded_per_run(session):
     assert result.evaluated <= 2, "only embedded candidates can be ranked and evaluated"
 
 
+def test_a_failing_chunk_keeps_the_embeddings_already_paid_for(session, monkeypatch):
+    """Chunk N+1 blowing up (a 429, typically) must not discard chunk N's vectors."""
+    import jobscout.pipeline.matching as matching_module
+
+    class FailsOnTheSecondBatch(DeterministicFakeEmbedding):
+        def __init__(self, size: int) -> None:
+            super().__init__(size)
+            self.batches = 0
+
+        def embed_documents(self, texts):
+            self.batches += 1
+            if self.batches == 2:
+                raise RuntimeError("429 RESOURCE_EXHAUSTED")
+            return super().embed_documents(texts)
+
+    user = _user_with_profile(session)
+    for i in range(4):
+        _add_job(session, f"j{i}")
+    monkeypatch.setattr(matching_module, "_EMBED_CHUNK", 2)
+    embed = FailsOnTheSecondBatch(size=DIM)
+    deps = GraphDeps(
+        chat=CountingChatModel(),  # type: ignore[arg-type]
+        embed=embed,  # type: ignore[arg-type]
+        threshold=-1.0,
+        model_name="fake-model",
+    )
+
+    with pytest.raises(RuntimeError, match="429"):
+        run_match(session, _settings(), user.id, deps=deps)
+
+    session.rollback()
+    cached = [job for job in session.exec(select(Job)).all() if job.embedding is not None]
+    assert len(cached) == 2, "the first chunk was committed before the second one failed"
+
+
 def test_later_runs_pick_up_the_remaining_embeddings(session):
     user = _user_with_profile(session)
     for i in range(3):
