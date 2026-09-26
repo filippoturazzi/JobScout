@@ -5,8 +5,9 @@ from typer.testing import CliRunner
 
 from jobscout import cli
 from jobscout.config import Settings
-from jobscout.db import get_engine
-from jobscout.models import User
+from jobscout.db import get_engine, init_db
+from jobscout.models import Job, Match, User
+from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from jobscout.sources.arbeitnow import BASE_URL
 from tests.conftest import load_fixture
 
@@ -105,3 +106,218 @@ def test_serve_uses_settings_defaults_and_honors_port_zero(tmp_path, monkeypatch
         "port": 0,
         "reload": True,
     }
+
+
+def test_match_without_provider_key_exits_2(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    with Session(get_engine(_settings(tmp_path))) as session:
+        init_db(get_engine(_settings(tmp_path)))
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    result = runner.invoke(cli.app, ["match"])
+
+    assert result.exit_code == 2
+    assert "GOOGLE_API_KEY" in result.output
+
+
+def test_match_reports_when_there_is_no_profile(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    result = runner.invoke(cli.app, ["match"])
+    assert result.exit_code == 0
+    assert "profile" in result.output.lower()
+
+
+def test_matches_lists_scored_rows(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        job = Job(
+            source="t",
+            external_id="a",
+            title="AI Engineer",
+            company="Acme",
+            remote=True,
+            url="https://x/a",
+            description="d",
+            content_hash="h",
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        session.add(
+            Match(
+                job_id=job.id,
+                user_id=user.id,
+                similarity=0.8,
+                score=91,
+                reasoning="Strong fit.",
+                status="new",
+            )
+        )
+        session.commit()
+
+    result = runner.invoke(cli.app, ["matches"])
+
+    assert result.exit_code == 0
+    assert "91" in result.output and "AI Engineer" in result.output
+
+
+def test_matches_on_empty_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    result = runner.invoke(cli.app, ["matches"])
+    assert result.exit_code == 0
+    assert "No matches" in result.output
+
+
+def test_match_dry_run_lists_candidates_without_calling_the_llm(tmp_path, monkeypatch):
+    import jobscout.pipeline.matching as matching_module
+    from tests.matching.fakes import DeterministicFakeEmbedding
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    def _explode(_settings):
+        raise AssertionError("a dry run must not construct a chat model")
+
+    monkeypatch.setattr(matching_module, "chat_model", _explode)
+    monkeypatch.setattr(
+        matching_module, "embeddings", lambda _settings: DeterministicFakeEmbedding(size=8)
+    )
+
+    result = runner.invoke(cli.app, ["match", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Would evaluate 1 of 1 candidates" in result.output
+    assert "AI Engineer" in result.output
+
+
+def test_match_scores_and_persists_a_candidate_end_to_end(tmp_path, monkeypatch):
+    """The whole non-dry-run path: CLI -> run_match -> graph -> persisted row -> summary."""
+    import jobscout.pipeline.matching as matching_module
+    from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
+
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        embedding_dim=8,
+        similarity_threshold=-1.0,  # the fake vectors carry no meaningful floor
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    engine = get_engine(settings)
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(matching_module, "chat_model", lambda _settings: CountingChatModel())
+    monkeypatch.setattr(
+        matching_module, "embeddings", lambda _settings: DeterministicFakeEmbedding(size=8)
+    )
+
+    result = runner.invoke(cli.app, ["match"])
+
+    assert result.exit_code == 0, result.output
+    assert "candidates=1 evaluated=1 skipped_low=0 embedded=1 pending=0 errors=0" in result.output
+    with Session(engine) as session:
+        row = session.exec(select(Match)).one()
+        assert row.score == 75 and row.status == "new"
+        assert row.reasoning and row.llm_model == settings.llm_model
+
+
+def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, monkeypatch):
+    import jobscout.pipeline.matching as matching_module
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    def _rate_limited(_settings):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    monkeypatch.setattr(matching_module, "embeddings", _rate_limited)
+
+    result = runner.invoke(cli.app, ["match"])
+
+    # 2 = the provider could not be used, distinct from 1 = it ran and everything failed.
+    assert result.exit_code == 2
+    assert "Error: RuntimeError: 429 RESOURCE_EXHAUSTED" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_match_exits_1_when_every_candidate_failed(tmp_path, monkeypatch):
+    from jobscout.pipeline.matching import MatchRun
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    monkeypatch.setattr(
+        cli,
+        "run_match",
+        lambda *a, **kw: MatchRun(candidates=1, errors=["job 1: RuntimeError: boom"]),
+    )
+
+    result = runner.invoke(cli.app, ["match"])
+
+    assert result.exit_code == 1
+    assert "boom" in result.output

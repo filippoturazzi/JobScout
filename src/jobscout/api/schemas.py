@@ -70,3 +70,18 @@ class PreferencesUpdate(BaseModel):
         if value is None:
             raise ValueError("field cannot be null")
         return value
+
+
+class MatchRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    similarity: float
+    score: int | None
+    reasoning: str | None
+    matched_skills: list[str]
+    missing_skills: list[str]
+    red_flags: list[str]
+    status: str
+    llm_model: str | None
+    job: JobRead

@@ -10,9 +10,9 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, select, update
 
-from jobscout.models import Job
+from jobscout.models import Job, Match
 from jobscout.models.base import utcnow
 from jobscout.sources.base import JobSource, RawJob, SearchQuery
 
@@ -57,6 +57,17 @@ class IngestResult:
     created_ids: list[int] = field(default_factory=list)
     changed_ids: list[int] = field(default_factory=list)
     error: str | None = None
+
+
+def _mark_matches_stale(session: Session, job_ids: list[int]) -> None:
+    """A changed description invalidates every score derived from it — except a user's own no."""
+    for start in range(0, len(job_ids), _LOOKUP_CHUNK):
+        chunk = job_ids[start : start + _LOOKUP_CHUNK]
+        session.exec(
+            update(Match)
+            .where(col(Match.job_id).in_(chunk), col(Match.status) != "dismissed")
+            .values(status="stale")
+        )
 
 
 def upsert_jobs(
@@ -118,6 +129,7 @@ def upsert_jobs(
     session.flush()  # assigns ids for the new rows
     stats.created_ids = [job.id for job in created_jobs if job.id is not None]
     stats.changed_ids = [job.id for job in changed_jobs if job.id is not None]
+    _mark_matches_stale(session, stats.changed_ids)
     session.commit()
     return stats
 

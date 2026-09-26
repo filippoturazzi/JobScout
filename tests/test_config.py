@@ -23,3 +23,24 @@ def test_env_overrides(monkeypatch):
 def test_get_settings_is_cached():
     get_settings.cache_clear()
     assert get_settings() is get_settings()
+
+
+def test_matching_defaults():
+    s = Settings(_env_file=None)
+    assert s.llm_provider == "google"
+    assert s.llm_model == "gemini-3.5-flash"
+    assert s.embedding_model == "gemini-embedding-2"
+    assert s.embedding_dim == 768
+    assert s.similarity_threshold == 0.45
+    assert s.max_embeddings_per_run == 50
+    assert s.max_llm_evaluations_per_run == 25
+
+
+def test_matching_settings_from_env(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("SIMILARITY_THRESHOLD", "0.5")
+    monkeypatch.setenv("MAX_LLM_EVALUATIONS_PER_RUN", "3")
+    s = Settings(_env_file=None)
+    assert s.llm_provider == "ollama"
+    assert s.similarity_threshold == 0.5
+    assert s.max_llm_evaluations_per_run == 3

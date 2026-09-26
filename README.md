@@ -23,6 +23,23 @@ Set your preferences through the API (`PUT /preferences`), e.g.
 { "titles": ["AI Engineer", "Machine Learning Engineer"], "work_modes": ["remote"], "regions": ["Germany", "Portugal"] }
 ```
 
+## Matching (AI)
+
+```bash
+cp .env.example .env          # set LLM_PROVIDER and your provider key
+uv run jobscout match --dry-run   # ranked candidates, no LLM call (still embeds)
+uv run jobscout match             # score them (bounded by MAX_LLM_EVALUATIONS_PER_RUN)
+uv run jobscout matches --min-score 70
+```
+
+Each match carries a 0–100 score, a written justification, matched and missing skills, and
+red flags. A cosine prefilter over cached embeddings decides what is worth an LLM call, so a
+run costs a bounded number of requests. `--dry-run` makes no LLM call, but it still embeds
+up to `MAX_EMBEDDINGS_PER_RUN` jobs that have no cached vector yet, so it does spend
+embedding quota. A real run ends with a summary line whose `pending=` counter is how many
+candidates are still waiting for a vector — run `jobscout match` again to score the rest.
+Without a provider key, everything except matching still works.
+
 ## API
 
 | Method | Path            | Description                                   |
@@ -31,6 +48,7 @@ Set your preferences through the API (`PUT /preferences`), e.g.
 | GET    | `/jobs`         | Active jobs passing your preferences (`?all=true` to ignore them, `?limit=`) |
 | GET    | `/preferences`  | Current preferences                           |
 | PUT    | `/preferences`  | Partial update; only sent fields change       |
+| GET    | `/matches`      | Scored matches, best first (`?min_score=`, `?status=`, `?limit=`) |
 
 ## Development
 
