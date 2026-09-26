@@ -166,3 +166,25 @@ def test_save_preferences_survives_a_provider_runtime_error(session, monkeypatch
 
     assert prefs.titles == ["AI Engineer"]
     assert run.error == "RuntimeError: 429 RESOURCE_EXHAUSTED"
+
+
+def test_save_preferences_discards_what_a_failed_backfill_left_pending(session, monkeypatch):
+    """A failed backfill must not leave half-written rows for the next commit to flush."""
+    import jobscout.pipeline.run as run_module
+
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    job = _add_job(session, "a")
+
+    def _dirty_then_fail(session_arg, *_args, **_kwargs):
+        session_arg.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=90))
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    monkeypatch.setattr(run_module, "backfill_matches", _dirty_then_fail)
+
+    _prefs, run = save_preferences(session, _settings(), user.id, {"titles": ["AI Engineer"]})
+
+    assert run.error == "RuntimeError: 429 RESOURCE_EXHAUSTED"
+    # Unrelated later work on the same session must not persist the abandoned row.
+    session.commit()
+    assert session.exec(select(Match)).all() == []

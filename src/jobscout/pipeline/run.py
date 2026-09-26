@@ -107,8 +107,10 @@ def save_preferences(
             session, settings, user_id, deps=deps, limit=_BACKFILL_EVALUATION_CAP
         )
     except MissingProviderError as exc:
+        session.rollback()
         run = MatchRun(error=str(exc))
     except Exception as exc:  # 429, network, auth — anything the provider can throw
+        session.rollback()
         log.error("backfill after preference save failed: %s: %s", type(exc).__name__, exc)
         run = MatchRun(error=f"{type(exc).__name__}: {exc}")
     return prefs, run
