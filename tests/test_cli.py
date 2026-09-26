@@ -111,7 +111,6 @@ def test_serve_uses_settings_defaults_and_honors_port_zero(tmp_path, monkeypatch
 def test_match_without_provider_key_exits_2(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with Session(get_engine(_settings(tmp_path))) as session:
         init_db(get_engine(_settings(tmp_path)))
         user = get_or_create_default_user(session)

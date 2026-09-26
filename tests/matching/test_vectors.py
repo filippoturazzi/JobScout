@@ -6,9 +6,11 @@ from jobscout.matching.vectors import cosine, dim, pack, unpack
 
 
 def test_pack_unpack_roundtrip():
-    vector = [0.5, -0.25, 0.125]
+    # 0.1 is not representable in binary: it exercises the float32 rounding `pack` does,
+    # which the dyadic values alone would hide.
+    vector = [0.5, -0.25, 0.125, 0.1]
     restored = unpack(pack(vector))
-    assert len(restored) == 3
+    assert len(restored) == 4
     assert all(math.isclose(a, b, rel_tol=1e-6) for a, b in zip(vector, restored, strict=True))
 
 

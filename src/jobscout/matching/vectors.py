@@ -2,6 +2,11 @@
 
 ``array("f")`` keeps this dependency-free: 4 bytes per dimension, native float32.
 At a few hundred jobs the pure-Python dot product costs milliseconds.
+
+Native also means native *endianness*: a database file copied between architectures of
+opposite byte order would decode to garbage at an unchanged byte length, so the dimension
+guard in ``pipeline.matching`` would not catch it. Not a concern for a self-hosted SQLite
+file; it would be one the day a DB dump is shared.
 """
 
 import math

@@ -243,7 +243,6 @@ def test_missing_provider_surfaces_as_error(session, monkeypatch):
     user = _user_with_profile(session)
     _add_job(session, "a")
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     with pytest.raises(Exception, match="GOOGLE_API_KEY"):
         run_match(session, _settings(), user.id)  # no deps -> real factory
