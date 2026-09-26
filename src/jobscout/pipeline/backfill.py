@@ -16,7 +16,9 @@ def backfill_matches(
     user_id: int,
     window_days: int | None = None,
     deps: GraphDeps | None = None,
+    limit: int | None = None,
 ) -> MatchRun:
+    """`limit` caps LLM evaluations for this backfill; ``None`` uses the per-run setting."""
     days = window_days if window_days is not None else settings.backfill_window_days
     cutoff = utcnow() - timedelta(days=days)
-    return run_match(session, settings, user_id, deps=deps, first_seen_after=cutoff)
+    return run_match(session, settings, user_id, limit=limit, deps=deps, first_seen_after=cutoff)

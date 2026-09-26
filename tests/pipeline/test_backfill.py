@@ -7,7 +7,7 @@ from jobscout.matching.graph import GraphDeps
 from jobscout.models import Job, Match
 from jobscout.models.base import utcnow
 from jobscout.pipeline.backfill import backfill_matches
-from jobscout.pipeline.run import save_preferences
+from jobscout.pipeline.run import _BACKFILL_EVALUATION_CAP, save_preferences
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
@@ -81,6 +81,21 @@ def test_save_preferences_stales_and_backfills(session):
     assert prefs.required_skills == ["Python"]
     assert run.evaluated == 1, "the staled match was re-evaluated"
     assert session.exec(select(Match)).one().status == "new"
+
+
+def test_save_preferences_caps_the_backfill_so_the_request_stays_interactive(session):
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    for i in range(_BACKFILL_EVALUATION_CAP + 2):
+        _add_job(session, f"j{i}")
+    chat = CountingChatModel()
+
+    _, run = save_preferences(
+        session, _settings(), user.id, {"titles": ["AI Engineer"]}, deps=_deps(chat)
+    )
+
+    assert run.candidates == _BACKFILL_EVALUATION_CAP + 2
+    assert (run.evaluated, chat.calls) == (_BACKFILL_EVALUATION_CAP, _BACKFILL_EVALUATION_CAP)
 
 
 def test_save_preferences_ignores_irrelevant_changes(session):

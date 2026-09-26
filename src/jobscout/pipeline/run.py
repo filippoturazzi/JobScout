@@ -19,6 +19,12 @@ from jobscout.sources.registry import build_sources
 
 log = logging.getLogger(__name__)
 
+# `PUT /preferences` runs its backfill inside the HTTP request, so the per-run cap (25 LLM
+# calls, 1-2 minutes at real provider latency) would push the response past most proxy and
+# client timeouts. Keep a preference save interactive; the real fix is moving the backfill
+# onto the stage-3 scheduler, which has no request to block.
+_BACKFILL_EVALUATION_CAP = 5
+
 
 def run_ingest(
     session: Session,
@@ -97,7 +103,9 @@ def save_preferences(
     # The preferences are already committed above: from here on, every failure is reported
     # through `MatchRun.error`. Saving preferences must never fail because matching failed.
     try:
-        run = backfill_matches(session, settings, user_id, deps=deps)
+        run = backfill_matches(
+            session, settings, user_id, deps=deps, limit=_BACKFILL_EVALUATION_CAP
+        )
     except MissingProviderError as exc:
         run = MatchRun(error=str(exc))
     except Exception as exc:  # 429, network, auth — anything the provider can throw
