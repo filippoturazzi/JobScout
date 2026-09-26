@@ -17,13 +17,20 @@ DIM = 8
 
 
 def _settings(**kw) -> Settings:
+    # The fakes return DIM-dimensional vectors; saying so keeps the profile-embedding
+    # cache live in tests instead of re-embedding on every run.
+    kw.setdefault("embedding_dim", DIM)
     return Settings(_env_file=None, **kw)
 
 
-def _deps(chat: CountingChatModel, threshold: float = -1.0) -> GraphDeps:
+def _deps(
+    chat: CountingChatModel,
+    threshold: float = -1.0,
+    embed: DeterministicFakeEmbedding | None = None,
+) -> GraphDeps:
     return GraphDeps(
         chat=chat,  # type: ignore[arg-type]
-        embed=DeterministicFakeEmbedding(size=DIM),  # type: ignore[arg-type]
+        embed=embed or DeterministicFakeEmbedding(size=DIM),  # type: ignore[arg-type]
         threshold=threshold,
         model_name="fake-model",
     )
@@ -344,3 +351,20 @@ def test_later_runs_pick_up_the_remaining_embeddings(session):
     second = run_match(session, settings, user.id, deps=_deps(CountingChatModel()))
 
     assert second.embedded == 1, "the next run embeds the next batch"
+
+
+def test_a_cached_profile_embedding_is_not_recomputed_on_the_next_run(session):
+    """The profile vector is paid for once; only the jobs are embedded again."""
+    user = _user_with_profile(session)
+    for i in range(2):
+        _add_job(session, f"j{i}")
+    embed = DeterministicFakeEmbedding(size=DIM)
+    settings = _settings(max_embeddings_per_run=1)
+
+    run_match(session, settings, user.id, deps=_deps(CountingChatModel(), embed=embed))
+    assert embed.query_calls == 1, "the first run has to embed the profile"
+
+    run_match(session, settings, user.id, deps=_deps(CountingChatModel(), embed=embed))
+
+    assert embed.query_calls == 1, "the second run must reuse the stored profile vector"
+    assert embed.document_calls == 2, "but it still embeds the job left over from run one"

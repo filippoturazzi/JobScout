@@ -100,3 +100,31 @@ evaluations). Everything here was ruled out of that wave and deferred.
 - `temperature=0` is unvalidated for OpenAI's o-series models, which reject it.
 - Provider keys are typed `str | None` rather than `SecretStr`, so they can end up in a
   repr or a log line.
+
+## Added after the stage-2b fix wave (2026-09-26 scoped re-review)
+
+- **Stage 3 — the preference-save backfill now covers 5 matches, not 25, while still
+  staling *all* of them.** `save_preferences` marks every non-dismissed match `stale` but
+  re-scores only `_BACKFILL_EVALUATION_CAP`. Staling does not clear `score`, and the
+  default `/matches` listing is status-agnostic, so rows 6..N keep serving scores computed
+  against the *old* preferences until something re-runs matching. The interactive cap is
+  the right call for a request; the scheduler draining the tail is the fix.
+- **Stage 3 — `PUT /preferences` still embeds inline.** The cap bounds the LLM half only;
+  the same request embeds up to `MAX_EMBEDDINGS_PER_RUN` jobs. That is one batched call and
+  the vectors are cached rather than spent, so it is not the dominant latency term, but it
+  does consume the whole per-run embedding budget inside an HTTP request.
+- **Stage 3/6 — the default `/matches` listing is status-agnostic**, so a `dismissed` row
+  with a score is still returned. Pre-dates stage 2b and was not flagged by the whole-branch
+  review, but stage 4 would notify on it and stage 6 would show it. Decide the visibility
+  rule (`dismissed` hidden, `stale` shown-but-marked?) when the UI lands.
+- **Stage 3 — a mid-chunk embedding failure loses the *report* of what was paid for.**
+  `_ensure_job_embeddings` now commits per chunk, so the vectors survive, but the exception
+  propagates before `embedded_count` is returned: the caller sees `embedded=0`. The money is
+  saved; the operator is not told which vectors they bought.
+- **Stage 6 — `SIMILARITY_THRESHOLD` and `NULLS LAST` portability.** `ORDER BY ... NULLS
+  LAST` is emitted literally; SQLite has supported it since 3.30 (2019), but a self-hosted
+  install linking an older `libsqlite3` would get a syntax error on every `/matches` call.
+  Worth a startup check when Postgres/Docker land.
+- **Stage 5 — `select_candidates` hardcodes `"stale"` as the never-evaluated sentinel**
+  (`existing.get(job.id, "stale") in REEVALUATABLE_STATUSES`). If a later stage renames or
+  drops `"stale"` from that set, brand-new jobs silently stop being candidates.

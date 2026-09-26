@@ -1,9 +1,11 @@
 from datetime import timedelta
 
+import pytest
 from sqlmodel import select
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
+from jobscout.matching.llm import MissingProviderError
 from jobscout.models import Job, Match
 from jobscout.models.base import utcnow
 from jobscout.pipeline.backfill import backfill_matches
@@ -15,6 +17,9 @@ DIM = 8
 
 
 def _settings(**kw) -> Settings:
+    # The fakes return DIM-dimensional vectors; saying so keeps the profile-embedding
+    # cache live in tests instead of re-embedding on every run.
+    kw.setdefault("embedding_dim", DIM)
     return Settings(_env_file=None, **kw)
 
 
@@ -168,7 +173,12 @@ def test_save_preferences_survives_a_provider_runtime_error(session, monkeypatch
     assert run.error == "RuntimeError: 429 RESOURCE_EXHAUSTED"
 
 
-def test_save_preferences_discards_what_a_failed_backfill_left_pending(session, monkeypatch):
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("429 RESOURCE_EXHAUSTED"), MissingProviderError("no key")],
+    ids=["runtime", "missing_provider"],
+)
+def test_save_preferences_discards_what_a_failed_backfill_left_pending(session, monkeypatch, error):
     """A failed backfill must not leave half-written rows for the next commit to flush."""
     import jobscout.pipeline.run as run_module
 
@@ -178,13 +188,32 @@ def test_save_preferences_discards_what_a_failed_backfill_left_pending(session, 
 
     def _dirty_then_fail(session_arg, *_args, **_kwargs):
         session_arg.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=90))
-        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+        raise error
 
     monkeypatch.setattr(run_module, "backfill_matches", _dirty_then_fail)
 
     _prefs, run = save_preferences(session, _settings(), user.id, {"titles": ["AI Engineer"]})
 
-    assert run.error == "RuntimeError: 429 RESOURCE_EXHAUSTED"
+    assert run.error
     # Unrelated later work on the same session must not persist the abandoned row.
     session.commit()
     assert session.exec(select(Match)).all() == []
+
+
+def test_save_preferences_never_spends_more_than_the_operator_allowed(session):
+    """The interactive cap is a ceiling, not a floor: a lower operator budget still wins."""
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    for i in range(_BACKFILL_EVALUATION_CAP + 2):
+        _add_job(session, f"j{i}")
+    chat = CountingChatModel()
+
+    _, run = save_preferences(
+        session,
+        _settings(max_llm_evaluations_per_run=1),
+        user.id,
+        {"titles": ["AI Engineer"]},
+        deps=_deps(chat),
+    )
+
+    assert (run.evaluated, chat.calls) == (1, 1)

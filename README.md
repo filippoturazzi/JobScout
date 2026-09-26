@@ -36,9 +36,9 @@ Each match carries a 0–100 score, a written justification, matched and missing
 red flags. A cosine prefilter over cached embeddings decides what is worth an LLM call, so a
 run costs a bounded number of requests. `--dry-run` makes no LLM call, but it still embeds
 up to `MAX_EMBEDDINGS_PER_RUN` jobs that have no cached vector yet, so it does spend
-embedding quota. The `pending=` counter in a run's summary is how many candidates are still
-waiting for a vector — run `jobscout match` again to score the rest. Without a provider key,
-everything except matching still works.
+embedding quota. A real run ends with a summary line whose `pending=` counter is how many
+candidates are still waiting for a vector — run `jobscout match` again to score the rest.
+Without a provider key, everything except matching still works.
 
 ## API
 

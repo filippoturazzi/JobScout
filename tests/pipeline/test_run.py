@@ -5,7 +5,7 @@ from sqlmodel import select
 from jobscout.config import Settings
 from jobscout.models import Job, Match, User
 from jobscout.pipeline.ingest import upsert_jobs
-from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
+from jobscout.pipeline.run import list_jobs, list_matches, match_listing_statement, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from jobscout.sources.base import RawJob, SearchQuery
 
@@ -142,3 +142,17 @@ def test_list_matches_orders_unscored_rows_last(session):
     rows = list_matches(session, user.id, status="stale")
 
     assert [job.external_id for _match, job in rows] == ["scored", "blank"]
+
+
+def test_list_matches_spells_nulls_last_for_databases_that_need_it():
+    """SQLite already sorts NULLs last under DESC, so only the SQL proves the ordering.
+
+    Postgres defaults DESC to NULLS FIRST and would put the unscored row first, which the
+    test above cannot catch on SQLite.
+    """
+    from sqlalchemy.dialects import postgresql
+
+    statement = match_listing_statement(user_id=1)
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+
+    assert "NULLS LAST" in compiled

@@ -45,6 +45,8 @@ class DeterministicFakeEmbedding:
 
     def __init__(self, size: int) -> None:
         self.size = size
+        self.query_calls = 0
+        self.document_calls = 0
 
     def _vector(self, text: str) -> list[float]:
         digest = hashlib.sha256(text.encode("utf-8")).digest()
@@ -53,7 +55,9 @@ class DeterministicFakeEmbedding:
         ]
 
     def embed_query(self, text: str) -> list[float]:
+        self.query_calls += 1
         return self._vector(text)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.document_calls += 1
         return [self._vector(text) for text in texts]

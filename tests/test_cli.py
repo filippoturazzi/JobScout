@@ -301,7 +301,8 @@ def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, mo
 
     result = runner.invoke(cli.app, ["match"])
 
-    assert result.exit_code == 1
+    # 2 = the provider could not be used, distinct from 1 = it ran and everything failed.
+    assert result.exit_code == 2
     assert "Error: RuntimeError: 429 RESOURCE_EXHAUSTED" in result.output
     assert "Traceback" not in result.output
 

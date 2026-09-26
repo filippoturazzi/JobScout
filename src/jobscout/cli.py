@@ -14,6 +14,7 @@ from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+log = logging.getLogger(__name__)
 
 app = typer.Typer(help="JobScout: find jobs that match your profile.", no_args_is_help=True)
 
@@ -86,8 +87,11 @@ def match(
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=2) from exc
         except Exception as exc:  # a 429 or a dropped connection is not a traceback's worth
+            log.exception("match failed")
             typer.echo(f"Error: {type(exc).__name__}: {exc}", err=True)
-            raise typer.Exit(code=1) from exc
+            # Exit 2 is "the provider could not be used"; exit 1 below is "it ran and
+            # every candidate failed". A wrapping script needs to tell those apart.
+            raise typer.Exit(code=2) from exc
 
     if result.error:
         typer.echo(result.error)
