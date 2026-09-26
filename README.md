@@ -27,15 +27,18 @@ Set your preferences through the API (`PUT /preferences`), e.g.
 
 ```bash
 cp .env.example .env          # set LLM_PROVIDER and your provider key
-uv run jobscout match --dry-run   # ranked candidates, no LLM call
+uv run jobscout match --dry-run   # ranked candidates, no LLM call (still embeds)
 uv run jobscout match             # score them (bounded by MAX_LLM_EVALUATIONS_PER_RUN)
 uv run jobscout matches --min-score 70
 ```
 
 Each match carries a 0–100 score, a written justification, matched and missing skills, and
 red flags. A cosine prefilter over cached embeddings decides what is worth an LLM call, so a
-run costs a bounded number of requests. Without a provider key, everything except matching
-still works.
+run costs a bounded number of requests. `--dry-run` makes no LLM call, but it still embeds
+up to `MAX_EMBEDDINGS_PER_RUN` jobs that have no cached vector yet, so it does spend
+embedding quota. The `pending=` counter in a run's summary is how many candidates are still
+waiting for a vector — run `jobscout match` again to score the rest. Without a provider key,
+everything except matching still works.
 
 ## API
 
