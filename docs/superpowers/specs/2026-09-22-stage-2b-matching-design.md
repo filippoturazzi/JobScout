@@ -85,11 +85,11 @@ Re-evaluation: a pair becomes `stale` when the job's `content_hash` changed (ing
 1. Load preferences. If `profile_summary` is empty → return a `MatchRun` with `error="no profile summary"` (nothing to match against) and evaluate nothing.
 2. Candidate query: active jobs that pass `job_matches_preferences` and either have no `Match` for this user or have one with `status == "stale"`. Every other status (`new`, `seen`, `saved`, `notified`, `low`, `dismissed`) is skipped.
 3. Ensure the profile embedding: if `profile_embedding` is `None` or its dimension differs from `EMBEDDING_DIM`, embed `profile_text` and store it.
-4. Batch-embed candidates whose `Job.embedding` is missing or of the wrong dimension — one `embed_documents` call, chunked at 100 texts.
-5. Compute cosine for every candidate, sort descending, keep the first `min(limit or MAX_LLM_EVALUATIONS_PER_RUN, len(candidates))`.
+4. Batch-embed candidates whose `Job.embedding` is missing or of the wrong dimension — bounded by `MAX_EMBEDDINGS_PER_RUN` — one `embed_documents` call, chunked at 100 texts. Candidates lacking a vector are reconsidered in later runs.
+5. Compute cosine for every candidate that now has a vector, sort descending, keep the first `min(limit or MAX_LLM_EVALUATIONS_PER_RUN, len(candidates))`.
 6. `dry_run` stops here and reports what would be evaluated.
 7. For each selected job, run the compiled graph; persist the resulting `Match` (upsert on the unique pair).
-8. Return `MatchRun(evaluated, skipped_low, cap_remaining, errors)`.
+8. Return `MatchRun(evaluated, skipped_low, embedded, embeddings_pending, errors)`.
 
 A candidate that never made the top-K keeps no row at all, so it is reconsidered in the next run — only `record_low` (graph actually ran) writes the terminal `low` row.
 
@@ -128,6 +128,7 @@ After `session.flush()` in `upsert_jobs`, for `stats.changed_ids`, one bulk `UPD
 | `EMBEDDING_MODEL` | `gemini-embedding-2` | embedding model |
 | `EMBEDDING_DIM` | `768` | requested `output_dimensionality`; a stored vector of another length is re-embedded |
 | `SIMILARITY_THRESHOLD` | `0.45` | floor below which the LLM is skipped |
+| `MAX_EMBEDDINGS_PER_RUN` | `200` | hard cap on embedding work per run; remaining candidates are reconsidered in later runs |
 | `MAX_LLM_EVALUATIONS_PER_RUN` | `25` | hard cap per run and per backfill |
 
 Provider keys (`GOOGLE_API_KEY`, `OPENAI_API_KEY`) are read by the provider packages from the environment; they are documented in `.env.example` and never stored in user tables. The threshold started deliberately low — top-K does the real selection; the integration task (Task 13) prints the observed similarity distribution so it can be calibrated from data. Calibrated 2026-09-25: over 30 active jobs against a "Junior AI engineer... Python, FastAPI, LLM applications, LangGraph. Remote, Europe." profile, cosine similarity ranged 0.503-0.695 — the original 0.35 floor never fired. No clean gap between plainly-relevant and plainly-irrelevant titles was visible at that sample size, so the threshold was raised conservatively to `0.45`, inside the gap between the old floor and the observed minimum.

@@ -1,3 +1,6 @@
+import types
+from typing import Any
+
 import pytest
 
 from jobscout.config import Settings
@@ -48,3 +51,22 @@ def test_missing_package_explains_the_install(monkeypatch):
     monkeypatch.setattr(llm, "_import_module", _boom)
     with pytest.raises(MissingProviderError, match="pip install langchain-openai"):
         chat_model(_settings(llm_provider="openai", openai_api_key="x"))
+
+
+def test_google_embeddings_receive_the_configured_dimensionality(monkeypatch):
+    import jobscout.matching.llm as llm
+
+    recorded: dict[str, Any] = {}
+
+    class _Recorder:
+        def __init__(self, **kwargs: Any) -> None:
+            recorded.update(kwargs)
+
+    stub = types.ModuleType("langchain_google_genai")
+    stub.GoogleGenerativeAIEmbeddings = _Recorder  # type: ignore[attr-defined]
+    monkeypatch.setattr(llm, "_import_module", lambda _name: stub)
+
+    llm.embeddings(_settings(llm_provider="google", google_api_key="k", embedding_dim=768))
+
+    assert recorded["output_dimensionality"] == 768
+    assert recorded["model"] == "gemini-embedding-2"

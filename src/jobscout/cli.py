@@ -100,7 +100,8 @@ def match(
         return
     typer.echo(
         f"candidates={result.candidates} evaluated={result.evaluated} "
-        f"skipped_low={result.skipped_low} errors={len(result.errors)}"
+        f"skipped_low={result.skipped_low} embedded={result.embedded} "
+        f"pending={result.embeddings_pending} errors={len(result.errors)}"
     )
     for message in result.errors:
         typer.echo(f"  ERROR {message}", err=True)

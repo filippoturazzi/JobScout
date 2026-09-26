@@ -234,3 +234,29 @@ def test_missing_provider_surfaces_as_error(session, monkeypatch):
 
     with pytest.raises(Exception, match="GOOGLE_API_KEY"):
         run_match(session, _settings(), user.id)  # no deps -> real factory
+
+
+def test_embedding_work_is_bounded_per_run(session):
+    user = _user_with_profile(session)
+    for i in range(5):
+        _add_job(session, f"j{i}")
+
+    result = run_match(
+        session, _settings(max_embeddings_per_run=2), user.id, deps=_deps(CountingChatModel())
+    )
+
+    assert result.embedded == 2
+    assert result.embeddings_pending == 3
+    assert result.evaluated <= 2, "only embedded candidates can be ranked and evaluated"
+
+
+def test_later_runs_pick_up_the_remaining_embeddings(session):
+    user = _user_with_profile(session)
+    for i in range(3):
+        _add_job(session, f"j{i}")
+    settings = _settings(max_embeddings_per_run=1)
+
+    run_match(session, settings, user.id, deps=_deps(CountingChatModel()))
+    second = run_match(session, settings, user.id, deps=_deps(CountingChatModel()))
+
+    assert second.embedded == 1, "the next run embeds the next batch"

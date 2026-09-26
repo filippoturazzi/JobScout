@@ -29,6 +29,7 @@ class _Provider:
     embeddings_class: str
     key_setting: str  # Settings attribute name; "" when the provider needs no key
     key_env: str  # env var name to show the user; "" when the provider needs no key
+    supports_output_dimensionality: bool = False  # whether API honors output_dimensionality
 
 
 PROVIDERS: dict[str, _Provider] = {
@@ -39,6 +40,7 @@ PROVIDERS: dict[str, _Provider] = {
         embeddings_class="GoogleGenerativeAIEmbeddings",
         key_setting="google_api_key",
         key_env="GOOGLE_API_KEY",
+        supports_output_dimensionality=True,
     ),
     "openai": _Provider(
         module="langchain_openai",
@@ -104,4 +106,6 @@ def embeddings(settings: Settings) -> Embeddings:
     kwargs: dict[str, Any] = {"model": settings.embedding_model}
     if key:
         kwargs["api_key"] = key
+    if provider.supports_output_dimensionality:
+        kwargs["output_dimensionality"] = settings.embedding_dim
     return factory(**kwargs)  # type: ignore[no-any-return]

@@ -31,6 +31,8 @@ class MatchRun:
     candidates: int = 0
     evaluated: int = 0
     skipped_low: int = 0
+    embedded: int = 0
+    embeddings_pending: int = 0
     errors: list[str] = field(default_factory=list)
     error: str | None = None
     previewed: list[tuple[int, float, str]] = field(default_factory=list)
@@ -73,8 +75,18 @@ def _ensure_profile_embedding(
 
 
 def _ensure_job_embeddings(
-    session: Session, jobs: list[Job], embed: Embeddings, wanted_dim: int
-) -> dict[int, list[float]]:
+    session: Session,
+    jobs: list[Job],
+    embed: Embeddings,
+    wanted_dim: int,
+    max_embeddings: int | None = None,
+) -> tuple[dict[int, list[float]], int, int]:
+    """Embed jobs missing vectors of the right dimension, bounded by max_embeddings.
+
+    Returns (vectors_dict, embedded_count, embeddings_pending) where:
+    - embedded_count is the number of new vectors computed this run
+    - embeddings_pending is the count of candidates that still lack a vector after this run.
+    """
     vectors: dict[int, list[float]] = {}
     missing: list[Job] = []
     for job in jobs:
@@ -85,17 +97,22 @@ def _ensure_job_embeddings(
         else:
             missing.append(job)
 
-    for start in range(0, len(missing), _EMBED_CHUNK):
-        chunk = missing[start : start + _EMBED_CHUNK]
+    # Limit embedding work if requested; the rest will be picked up by the next run.
+    to_embed = missing[:max_embeddings] if max_embeddings is not None else missing
+    embeddings_pending = len(missing) - len(to_embed)
+    embedded_count = len(to_embed)
+
+    for start in range(0, len(to_embed), _EMBED_CHUNK):
+        chunk = to_embed[start : start + _EMBED_CHUNK]
         computed = embed.embed_documents([job_text(job) for job in chunk])
         for job, vector in zip(chunk, computed, strict=True):
             assert job.id is not None
             job.embedding = pack(vector)
             vectors[job.id] = vector
             session.add(job)
-    if missing:
+    if to_embed:
         session.commit()
-    return vectors
+    return vectors, embedded_count, embeddings_pending
 
 
 def _upsert_match(session: Session, job_id: int, user_id: int, **values: object) -> None:
@@ -144,7 +161,9 @@ def run_match(
     profile_vector = _ensure_profile_embedding(session, prefs, embed, wanted_dim)
     # The profile embedding fixes the dimension the job vectors must match.
     wanted_dim = len(profile_vector)
-    job_vectors = _ensure_job_embeddings(session, candidates, embed, wanted_dim)
+    job_vectors, result.embedded, result.embeddings_pending = _ensure_job_embeddings(
+        session, candidates, embed, wanted_dim, max_embeddings=settings.max_embeddings_per_run
+    )
 
     ranked = sorted(
         (

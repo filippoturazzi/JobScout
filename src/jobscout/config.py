@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # leaving margin below every score seen so far.
     similarity_threshold: float = 0.45
     max_llm_evaluations_per_run: int = 25
+    max_embeddings_per_run: int = 200
     google_api_key: str | None = None
     openai_api_key: str | None = None
 
