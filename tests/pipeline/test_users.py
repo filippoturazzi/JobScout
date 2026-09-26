@@ -34,12 +34,12 @@ def test_get_preferences_missing_user_raises(session):
 
 def test_update_preferences_partial(session):
     user = get_or_create_default_user(session)
-    prefs = update_preferences(
+    prefs, _ = update_preferences(
         session, user.id, {"titles": ["AI Engineer"], "work_modes": ["remote"]}
     )
     assert prefs.titles == ["AI Engineer"]
     assert prefs.work_modes == ["remote"]
-    prefs = update_preferences(session, user.id, {"min_salary": 60000})
+    prefs, _ = update_preferences(session, user.id, {"min_salary": 60000})
     assert prefs.titles == ["AI Engineer"], "untouched fields are kept"
     assert prefs.min_salary == 60000
 
@@ -68,7 +68,7 @@ def test_update_preferences_rejects_null_on_non_nullable_field(session):
 
 def test_update_preferences_allows_null_on_nullable_field(session):
     user = get_or_create_default_user(session)
-    prefs = update_preferences(session, user.id, {"min_salary": None})
+    prefs, _ = update_preferences(session, user.id, {"min_salary": None})
     assert prefs.min_salary is None
 
 
@@ -89,4 +89,56 @@ def test_non_nullable_fields_are_derived_from_the_table():
     assert (
         frozenset({"id", "user_id", "created_at", "updated_at", "profile_embedding"})
         == PROTECTED_PREFERENCE_FIELDS
+    )
+
+
+def test_update_preferences_reports_changed_fields(session):
+    user = get_or_create_default_user(session)
+    _, changed = update_preferences(session, user.id, {"titles": ["AI Engineer"]})
+    assert changed == frozenset({"titles"})
+
+    _, changed = update_preferences(session, user.id, {"titles": ["AI Engineer"]})
+    assert changed == frozenset(), "same value is not a change"
+
+
+def test_profile_summary_change_clears_the_profile_embedding(session):
+    user = get_or_create_default_user(session)
+    prefs, _ = update_preferences(session, user.id, {"profile_summary": "first"})
+    prefs.profile_embedding = b"\x00\x01\x02\x03"
+    session.add(prefs)
+    session.commit()
+
+    prefs, changed = update_preferences(session, user.id, {"profile_summary": "second"})
+
+    assert "profile_summary" in changed
+    assert prefs.profile_embedding is None
+
+
+def test_unrelated_change_keeps_the_profile_embedding(session):
+    user = get_or_create_default_user(session)
+    prefs, _ = update_preferences(session, user.id, {"profile_summary": "first"})
+    prefs.profile_embedding = b"\x00\x01\x02\x03"
+    session.add(prefs)
+    session.commit()
+
+    prefs, _ = update_preferences(session, user.id, {"min_score_to_notify": 80})
+
+    assert prefs.profile_embedding == b"\x00\x01\x02\x03"
+
+
+def test_matching_relevant_fields_are_declared():
+    from jobscout.pipeline.users import MATCHING_RELEVANT_FIELDS
+
+    assert (
+        frozenset(
+            {
+                "titles",
+                "seniority",
+                "required_skills",
+                "nice_to_have_skills",
+                "min_salary",
+                "profile_summary",
+            }
+        )
+        == MATCHING_RELEVANT_FIELDS
     )

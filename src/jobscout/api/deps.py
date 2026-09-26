@@ -18,3 +18,9 @@ def get_session() -> Iterator[Session]:
 
 def get_current_user(session: Annotated[Session, Depends(get_session)]) -> User:
     return get_or_create_default_user(session)
+
+
+def get_current_user_id(user: Annotated[User, Depends(get_current_user)]) -> int:
+    """The current user's id, non-optional. Auth (stage 6) replaces get_current_user only."""
+    assert user.id is not None, "a persisted user always has an id"
+    return user.id

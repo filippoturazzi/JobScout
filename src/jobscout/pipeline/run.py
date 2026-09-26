@@ -1,14 +1,33 @@
 """Entry points used by the CLI and the API. The only place sources, DB and filters meet."""
 
-from sqlmodel import Session, col, select
+import logging
+from typing import Any
+
+from sqlmodel import Session, col, select, update
+from sqlmodel.sql.expression import Select
 
 from jobscout.config import Settings
-from jobscout.models import Job
+from jobscout.matching.graph import GraphDeps
+from jobscout.matching.llm import MissingProviderError
+from jobscout.models import Job, Match, UserPreferences
+from jobscout.pipeline.backfill import backfill_matches
 from jobscout.pipeline.filters import filter_jobs
 from jobscout.pipeline.ingest import IngestResult, ingest
-from jobscout.pipeline.users import get_preferences
+from jobscout.pipeline.matching import MatchRun
+from jobscout.pipeline.users import MATCHING_RELEVANT_FIELDS, get_preferences, update_preferences
 from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.registry import build_sources
+
+log = logging.getLogger(__name__)
+
+# `PUT /preferences` runs its backfill inside the HTTP request, so the per-run cap (25 LLM
+# calls, 1-2 minutes at real provider latency) would push the response past most proxy and
+# client timeouts. This bounds the LLM half only: the same request still embeds up to
+# MAX_EMBEDDINGS_PER_RUN jobs, though that is one batched call and the vectors are cached
+# rather than spent. The real fix is moving the backfill onto the stage-3 scheduler, which
+# has no request to block; until then a preference save re-scores only this many matches
+# while staling all of them (see the stage-3 notes in docs/superpowers/notes/).
+_BACKFILL_EVALUATION_CAP = 5
 
 
 def run_ingest(
@@ -36,3 +55,77 @@ def list_jobs(
     if apply_filters:
         jobs = filter_jobs(jobs, prefs)
     return jobs[:limit]
+
+
+def match_listing_statement(
+    user_id: int, min_score: int = 0, status: str | None = None
+) -> Select[tuple[Match, Job]]:
+    """The `list_matches` query, separated so a test can compile it for another dialect."""
+    statement = (
+        select(Match, Job)
+        .join(Job, col(Match.job_id) == col(Job.id))
+        .where(col(Match.user_id) == user_id, col(Job.is_active).is_(True))
+        # SQLite already sorts NULLs last under DESC; Postgres defaults to NULLS FIRST.
+        .order_by(col(Match.score).desc().nulls_last(), col(Match.similarity).desc())
+    )
+    if status is None:
+        statement = statement.where(col(Match.score).is_not(None))
+    else:
+        statement = statement.where(col(Match.status) == status)
+    if min_score > 0:
+        statement = statement.where(col(Match.score) >= min_score)
+    return statement
+
+
+def list_matches(
+    session: Session,
+    user_id: int,
+    min_score: int = 0,
+    status: str | None = None,
+    limit: int = 50,
+) -> list[tuple[Match, Job]]:
+    """Matches for one user, best first (unscored rows last). Inactive jobs are hidden.
+
+    Unscored rows — the `low` ones the cosine prefilter wrote without calling the LLM —
+    are hidden from the default listing but returned when an explicit ``status`` is asked
+    for, so ``status="low"`` can answer "why didn't this job show up". ``min_score`` is
+    applied only when above 0, so the default 0 does not silently drop them again — but
+    combining a ``min_score`` above 0 with ``status="low"`` does exclude the unscored
+    rows, because a row with no score cannot clear a floor.
+    """
+    statement = match_listing_statement(user_id, min_score=min_score, status=status)
+    return list(session.exec(statement.limit(limit)).all())
+
+
+def save_preferences(
+    session: Session,
+    settings: Settings,
+    user_id: int,
+    changes: dict[str, Any],
+    deps: GraphDeps | None = None,
+) -> tuple[UserPreferences, MatchRun]:
+    """Apply preference changes, invalidate what they affect, and backfill within the cap."""
+    prefs, changed = update_preferences(session, user_id, changes)
+    if not (changed & MATCHING_RELEVANT_FIELDS):
+        return prefs, MatchRun()
+
+    session.exec(
+        update(Match)
+        .where(col(Match.user_id) == user_id, col(Match.status) != "dismissed")
+        .values(status="stale")
+    )
+    session.commit()
+    # The preferences are already committed above: from here on, every failure is reported
+    # through `MatchRun.error`. Saving preferences must never fail because matching failed.
+    # A ceiling, never a floor: an operator who rationed the budget down keeps their number.
+    evaluation_cap = min(_BACKFILL_EVALUATION_CAP, settings.max_llm_evaluations_per_run)
+    try:
+        run = backfill_matches(session, settings, user_id, deps=deps, limit=evaluation_cap)
+    except MissingProviderError as exc:
+        session.rollback()
+        run = MatchRun(error=str(exc))
+    except Exception as exc:  # 429, network, auth — anything the provider can throw
+        session.rollback()
+        log.exception("backfill after preference save failed")
+        run = MatchRun(error=f"{type(exc).__name__}: {exc}")
+    return prefs, run

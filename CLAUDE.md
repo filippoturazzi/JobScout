@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0, 1 and 2a are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 2b (LangGraph matching). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0, 1, 2a and 2b are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 3 (scheduler + inactive marking). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -44,4 +44,5 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
 - `uv run mypy src` — strict type check of `src/`; must be clean before committing (CI enforces it).
 - `uv run jobscout fetch|jobs|serve` — CLI. `serve` runs uvicorn on `jobscout.api.app:app`.
+- `uv run jobscout match|matches` — run the matching graph / list scored matches (needs a provider key).
 - CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy and pytest.

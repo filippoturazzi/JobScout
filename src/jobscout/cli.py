@@ -1,7 +1,7 @@
 """Command-line interface. Thin shell over ``jobscout.pipeline``."""
 
 import logging
-from typing import Annotated, cast
+from typing import Annotated
 
 import typer
 import uvicorn
@@ -9,10 +9,12 @@ from sqlmodel import Session
 
 from jobscout.config import get_settings
 from jobscout.db import get_engine, init_db
-from jobscout.pipeline.run import list_jobs, run_ingest
+from jobscout.pipeline.matching import MissingProviderError, run_match
+from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+log = logging.getLogger(__name__)
 
 app = typer.Typer(help="JobScout: find jobs that match your profile.", no_args_is_help=True)
 
@@ -57,13 +59,80 @@ def jobs(
     """List active jobs that pass your preferences (newest first)."""
     with _session() as session:
         user = get_or_create_default_user(session)
-        rows = list_jobs(session, cast(int, user.id), limit=limit, apply_filters=not all_jobs)
+        assert user.id is not None, "a persisted user always has an id"
+        rows = list_jobs(session, user.id, limit=limit, apply_filters=not all_jobs)
         if not rows:
             typer.echo("No jobs found. Run `jobscout fetch` first or relax your preferences.")
             return
         for job in rows:
             mode = "remote" if job.remote else (job.location or "n/a")
             typer.echo(f"[{job.source}] {job.title} — {job.company} ({mode})\n    {job.url}")
+
+
+@app.command()
+def match(
+    limit: Annotated[int | None, typer.Option(help="Evaluate at most this many jobs.")] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show what would be evaluated; call no LLM.")
+    ] = False,
+) -> None:
+    """Score the best unmatched jobs against your profile."""
+    settings = get_settings()
+    with _session() as session:
+        user = get_or_create_default_user(session)
+        assert user.id is not None, "a persisted user always has an id"
+        try:
+            result = run_match(session, settings, user.id, limit=limit, dry_run=dry_run)
+        except MissingProviderError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        except Exception as exc:  # a 429 or a dropped connection is not a traceback's worth
+            log.exception("match failed")
+            typer.echo(f"Error: {type(exc).__name__}: {exc}", err=True)
+            # Exit 2 is "the provider could not be used"; exit 1 below is "it ran and
+            # every candidate failed". A wrapping script needs to tell those apart.
+            raise typer.Exit(code=2) from exc
+
+    if result.error:
+        typer.echo(result.error)
+        return
+    if dry_run:
+        if not result.previewed:
+            typer.echo(f"Nothing to evaluate ({result.candidates} candidates).")
+            return
+        typer.echo(f"Would evaluate {len(result.previewed)} of {result.candidates} candidates:")
+        for _job_id, similarity, title in result.previewed:
+            typer.echo(f"  {similarity:.3f}  {title}")
+        return
+    typer.echo(
+        f"candidates={result.candidates} evaluated={result.evaluated} "
+        f"skipped_low={result.skipped_low} embedded={result.embedded} "
+        f"pending={result.embeddings_pending} errors={len(result.errors)}"
+    )
+    for message in result.errors:
+        typer.echo(f"  ERROR {message}", err=True)
+    if result.errors and result.evaluated == 0 and result.skipped_low == 0:
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def matches(
+    min_score: Annotated[int, typer.Option(help="Only show matches at or above this score.")] = 0,
+    limit: Annotated[int, typer.Option(help="Max rows to show.")] = 20,
+) -> None:
+    """List scored matches, best first."""
+    with _session() as session:
+        user = get_or_create_default_user(session)
+        assert user.id is not None, "a persisted user always has an id"
+        rows = list_matches(session, user.id, min_score=min_score, limit=limit)
+        if not rows:
+            typer.echo("No matches yet. Run `jobscout match` after setting your profile summary.")
+            return
+        for match_row, job in rows:
+            typer.echo(f"[{match_row.score}] {job.title} — {job.company}")
+            if match_row.reasoning:
+                typer.echo(f"    {match_row.reasoning}")
+            typer.echo(f"    {job.url}")
 
 
 @app.command()
