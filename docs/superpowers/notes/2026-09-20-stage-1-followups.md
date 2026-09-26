@@ -38,3 +38,16 @@ Collected from the whole-branch review of `stage-0-1` (2026-09-20). Nothing here
 - `get_current_user` runs `get_or_create_default_user` per request; replace with a pure lookup once auth exists.
 - `PUT /preferences` has PATCH semantics; rename or document. Upper-case `salary_currency`.
 - Drop redundant single-column indexes on `Job.source` / `Job.external_id` (covered by the unique constraint).
+
+## Added after stage 2a (2026-09-21 whole-branch review)
+
+Stage 2a resolved: engine seam + lifespan test; global ingest; metadata refresh + `created_ids`/`changed_ids`; Unicode token filters; block-aware `html_to_text`; mypy; non-nullable fields derived from the table.
+
+Still open for stage 2b:
+- **Hook points confirmed clean.** Stale-marking: inside `upsert_jobs` right after `session.flush()`, bulk `UPDATE match SET status='stale' WHERE job_id IN (chunk)` over `stats.changed_ids`, chunked by `_LOOKUP_CHUNK`, same transaction. `IngestResult` ids are **per source** — `run_pipeline` must concatenate them across results before matching.
+- **Backfill on preference save:** `pipeline/run.py::save_preferences(session, settings, user_id, changes)` → `update_preferences` → `backfill_matches`; repoint `PUT /preferences` to it. Clear `profile_embedding` when `"profile_summary" in changes` (additive inside `update_preferences`).
+- **`cast(int, user.id)` ×4** (cli.py, api/routers/jobs.py, api/routers/preferences.py ×2): consolidate into a `get_current_user_id()` dependency in `api/deps.py` (keeps "auth changes one function") + a one-liner in `cli.py`, when 2b adds the `/matches` router and CLI `match`.
+- **Hash churn warning:** any change to `html_to_text` or `tokenize` after 2b re-embeds every job and stales every match. Batch renderer changes; put this in the stage-5 source-author guide.
+- `list_jobs` full scan and `Match` visibility vs `Job.is_active`: decide in 2b's plan.
+- Config for 2b: `LLM_PROVIDER`, `LLM_MODEL`, `EMBEDDING_MODEL` (+ provider keys) → `.env.example` and CLAUDE.md operator-config bullet.
+- Stage 3: add a `threading.Lock` around `db._engines` when the scheduler thread becomes a second caller.

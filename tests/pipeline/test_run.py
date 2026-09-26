@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
 
+from sqlmodel import select
+
 from jobscout.config import Settings
-from jobscout.models import UserPreferences
+from jobscout.models import Job, User
 from jobscout.pipeline.ingest import upsert_jobs
-from jobscout.pipeline.run import build_query, list_jobs, run_ingest
+from jobscout.pipeline.run import list_jobs, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from jobscout.sources.base import RawJob, SearchQuery
 
@@ -35,25 +37,21 @@ class FakeSource:
         return self.jobs
 
 
-def test_build_query_from_preferences():
-    p = UserPreferences(user_id=1, titles=["AI Engineer"], work_modes=["remote"], regions=["DE"])
-    q = build_query(p)
-    assert q.keywords == ["AI Engineer"]
-    assert q.remote_only is True
-    assert q.locations == ["DE"]
-    assert (
-        build_query(UserPreferences(user_id=1, work_modes=["remote", "hybrid"])).remote_only
-        is False
+def test_run_ingest_is_global_and_uses_given_sources(session):
+    src = FakeSource([raw("a", "AI Engineer")])
+    results = run_ingest(session, Settings(_env_file=None), sources=[src])
+    assert src.last_query == SearchQuery()
+    assert results[0].created == 1
+
+
+def test_run_ingest_does_not_need_a_user(session):
+    results = run_ingest(
+        session, Settings(_env_file=None), sources=[FakeSource([raw("a", "AI Engineer")])]
     )
 
-
-def test_run_ingest_uses_prefs_and_given_sources(session):
-    user = get_or_create_default_user(session)
-    update_preferences(session, user.id, {"work_modes": ["remote"]})
-    src = FakeSource([raw("a", "AI Engineer")])
-    results = run_ingest(session, Settings(_env_file=None), user.id, sources=[src])
-    assert src.last_query.remote_only is True
     assert results[0].created == 1
+    assert [j.external_id for j in session.exec(select(Job)).all()] == ["a"]
+    assert session.exec(select(User)).all() == [], "ingest must not bootstrap a user"
 
 
 def test_list_jobs_filters_and_orders(session):

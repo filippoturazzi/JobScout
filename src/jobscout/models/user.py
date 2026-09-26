@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, inspect
 from sqlmodel import Field, SQLModel
 
 from jobscout.models.base import utcnow
@@ -42,4 +42,19 @@ class UserPreferences(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
     updated_at: datetime = Field(
         default_factory=utcnow, nullable=False, sa_column_kwargs={"onupdate": utcnow}
+    )
+
+
+PROTECTED_PREFERENCE_FIELDS: frozenset[str] = frozenset(
+    {"id", "user_id", "created_at", "updated_at", "profile_embedding"}
+)
+
+
+def non_nullable_preference_fields() -> frozenset[str]:
+    """User-editable preference columns that must never be set to NULL."""
+    mapper = inspect(UserPreferences)
+    return frozenset(
+        column.name
+        for column in mapper.columns
+        if not column.nullable and column.name not in PROTECTED_PREFERENCE_FIELDS
     )

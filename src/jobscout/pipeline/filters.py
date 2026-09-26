@@ -8,17 +8,33 @@ from collections.abc import Iterable
 
 from jobscout.models import Job, UserPreferences
 
-_WORD_RE = re.compile(r"[a-z0-9+#.]+")
+_TOKEN_RE = re.compile(r"(?:[^\W_]|[+#.])+")
 
 
-def _words(text: str) -> set[str]:
-    tokens = (token.rstrip(".") for token in _WORD_RE.findall(text.lower()))
-    return {token for token in tokens if token}
+def tokenize(text: str) -> list[str]:
+    """Lowercase word tokens in order; trailing periods dropped, leading dots kept (".net")."""
+    tokens = (token.rstrip(".") for token in _TOKEN_RE.findall(text.lower()))
+    return [token for token in tokens if token]
+
+
+def _contains_sequence(haystack: list[str], needle: list[str]) -> bool:
+    if not needle or len(needle) > len(haystack):
+        return False
+    return any(
+        haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1)
+    )
 
 
 def _passes_exclusions(job: Job, prefs: UserPreferences) -> bool:
-    haystack = " ".join([job.title, *job.tags]).lower()
-    return not any(kw.lower() in haystack for kw in prefs.excluded_keywords if kw.strip())
+    title_tokens = tokenize(job.title)
+    tag_tokens = [tokenize(tag) for tag in job.tags]
+    for keyword in prefs.excluded_keywords:
+        needle = tokenize(keyword)
+        if not needle:
+            continue
+        if _contains_sequence(title_tokens, needle) or needle in tag_tokens:
+            return False
+    return True
 
 
 def _passes_work_mode(job: Job, prefs: UserPreferences) -> bool:
@@ -33,15 +49,23 @@ def _passes_work_mode(job: Job, prefs: UserPreferences) -> bool:
 def _passes_region(job: Job, prefs: UserPreferences) -> bool:
     if not prefs.regions or job.remote:
         return True
-    location = (job.location or "").lower()
-    return any(region.lower() in location for region in prefs.regions if region.strip())
+    segments = [tokenize(segment) for segment in (job.location or "").split(",")]
+    for region in prefs.regions:
+        needle = tokenize(region)
+        if needle and any(_contains_sequence(segment, needle) for segment in segments):
+            return True
+    return False
 
 
 def _passes_titles(job: Job, prefs: UserPreferences) -> bool:
     if not prefs.titles:
         return True
-    title_words = _words(job.title)
-    return any(_words(t) and _words(t) <= title_words for t in prefs.titles)
+    title_words = set(tokenize(job.title))
+    for preferred in prefs.titles:
+        words = set(tokenize(preferred))
+        if words and words <= title_words:
+            return True
+    return False
 
 
 def job_matches_preferences(job: Job, prefs: UserPreferences) -> bool:

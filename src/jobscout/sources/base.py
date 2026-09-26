@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 
 
 class SearchQuery(BaseModel):
-    """What the pipeline asks a source for, derived from user preferences."""
+    """What the pipeline asks a source for. Empty until stage 5; only sources with
+    server-side search use it."""
 
     keywords: list[str] = Field(default_factory=list)
     remote_only: bool = False

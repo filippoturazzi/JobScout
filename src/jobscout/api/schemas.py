@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from jobscout.models.user import non_nullable_preference_fields
+
 WorkMode = Literal["remote", "hybrid", "onsite"]
 
 
@@ -62,18 +64,7 @@ class PreferencesUpdate(BaseModel):
     profile_summary: str | None = None
     min_score_to_notify: int | None = Field(default=None, ge=0, le=100)
 
-    @field_validator(
-        "titles",
-        "seniority",
-        "work_modes",
-        "regions",
-        "required_skills",
-        "nice_to_have_skills",
-        "excluded_keywords",
-        "profile_summary",
-        "min_score_to_notify",
-        mode="before",
-    )
+    @field_validator(*sorted(non_nullable_preference_fields()), mode="before")
     @classmethod
     def _reject_explicit_null(cls, value: object) -> object:
         if value is None:

@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
@@ -16,7 +16,7 @@ def read_preferences(
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> PreferencesRead:
-    return PreferencesRead.model_validate(get_preferences(session, user.id))
+    return PreferencesRead.model_validate(get_preferences(session, cast(int, user.id)))
 
 
 @router.put("", response_model=PreferencesRead)
@@ -27,7 +27,7 @@ def put_preferences(
 ) -> PreferencesRead:
     changes = payload.model_dump(exclude_unset=True)
     try:
-        prefs = update_preferences(session, user.id, changes)
+        prefs = update_preferences(session, cast(int, user.id), changes)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return PreferencesRead.model_validate(prefs)

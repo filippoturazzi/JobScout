@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0 and 1 are implemented (see `docs/superpowers/plans/2026-09-20-stage-0-1-foundation-and-vertical-slice.md`). Next is stage 2 (LangGraph matching). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0, 1 and 2a are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 2b (LangGraph matching). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -42,5 +42,6 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv run pytest` — unit tests, no network. Single test: `uv run pytest tests/sources/test_arbeitnow.py::test_fetch_maps_fields -v`.
 - `uv run pytest -m integration` — opt-in tests against real APIs (off by default via `addopts`).
 - `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
+- `uv run mypy src` — strict type check of `src/`; must be clean before committing (CI enforces it).
 - `uv run jobscout fetch|jobs|serve` — CLI. `serve` runs uvicorn on `jobscout.api.app:app`.
-- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check and pytest.
+- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy and pytest.

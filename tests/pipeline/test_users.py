@@ -2,6 +2,7 @@ import pytest
 from sqlmodel import select
 
 from jobscout.models import User, UserPreferences
+from jobscout.models.user import PROTECTED_PREFERENCE_FIELDS, non_nullable_preference_fields
 from jobscout.pipeline.users import (
     DEFAULT_USER_EMAIL,
     get_or_create_default_user,
@@ -69,3 +70,23 @@ def test_update_preferences_allows_null_on_nullable_field(session):
     user = get_or_create_default_user(session)
     prefs = update_preferences(session, user.id, {"min_salary": None})
     assert prefs.min_salary is None
+
+
+def test_non_nullable_fields_are_derived_from_the_table():
+    assert non_nullable_preference_fields() == frozenset(
+        {
+            "titles",
+            "seniority",
+            "work_modes",
+            "regions",
+            "required_skills",
+            "nice_to_have_skills",
+            "excluded_keywords",
+            "profile_summary",
+            "min_score_to_notify",
+        }
+    )
+    assert (
+        frozenset({"id", "user_id", "created_at", "updated_at", "profile_embedding"})
+        == PROTECTED_PREFERENCE_FIELDS
+    )

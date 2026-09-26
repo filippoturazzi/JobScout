@@ -24,6 +24,7 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
     "respx>=0.21",
+    "mypy>=1.13",
 ]
 
 [build-system]
@@ -44,6 +45,12 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.format]
 line-ending = "lf"
+
+[tool.mypy]
+files = ["src"]
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

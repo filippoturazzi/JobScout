@@ -1,14 +1,14 @@
 """Command-line interface. Thin shell over ``jobscout.pipeline``."""
 
 import logging
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 import uvicorn
 from sqlmodel import Session
 
 from jobscout.config import get_settings
-from jobscout.db import create_engine_from_url, init_db
+from jobscout.db import get_engine, init_db
 from jobscout.pipeline.run import list_jobs, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
 
@@ -18,7 +18,7 @@ app = typer.Typer(help="JobScout: find jobs that match your profile.", no_args_i
 
 
 def _session() -> Session:
-    engine = create_engine_from_url(get_settings().database_url)
+    engine = get_engine(get_settings())
     init_db(engine)
     return Session(engine)
 
@@ -28,9 +28,8 @@ def fetch() -> None:
     """Fetch jobs from all enabled sources into the database."""
     settings = get_settings()
     with _session() as session:
-        user = get_or_create_default_user(session)
         try:
-            results = run_ingest(session, settings, user.id)
+            results = run_ingest(session, settings)
         except ValueError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=2) from exc
@@ -58,7 +57,7 @@ def jobs(
     """List active jobs that pass your preferences (newest first)."""
     with _session() as session:
         user = get_or_create_default_user(session)
-        rows = list_jobs(session, user.id, limit=limit, apply_filters=not all_jobs)
+        rows = list_jobs(session, cast(int, user.id), limit=limit, apply_filters=not all_jobs)
         if not rows:
             typer.echo("No jobs found. Run `jobscout fetch` first or relax your preferences.")
             return
