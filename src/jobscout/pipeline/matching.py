@@ -23,7 +23,9 @@ from jobscout.pipeline.users import get_preferences
 
 log = logging.getLogger(__name__)
 
-_EMBED_CHUNK = 100
+# 50 texts ≈ 53k tokens is accepted by the Gemini free tier;
+# 100 ≈ 154k tokens is rejected with 429 RESOURCE_EXHAUSTED (measured 2026-09-26).
+_EMBED_CHUNK = 50
 
 
 @dataclass

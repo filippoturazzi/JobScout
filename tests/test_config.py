@@ -32,6 +32,7 @@ def test_matching_defaults():
     assert s.embedding_model == "gemini-embedding-2"
     assert s.embedding_dim == 768
     assert s.similarity_threshold == 0.45
+    assert s.max_embeddings_per_run == 50
     assert s.max_llm_evaluations_per_run == 25
 
 

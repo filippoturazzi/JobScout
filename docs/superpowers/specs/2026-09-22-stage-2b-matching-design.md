@@ -128,7 +128,7 @@ After `session.flush()` in `upsert_jobs`, for `stats.changed_ids`, one bulk `UPD
 | `EMBEDDING_MODEL` | `gemini-embedding-2` | embedding model |
 | `EMBEDDING_DIM` | `768` | requested `output_dimensionality`; a stored vector of another length is re-embedded |
 | `SIMILARITY_THRESHOLD` | `0.45` | floor below which the LLM is skipped |
-| `MAX_EMBEDDINGS_PER_RUN` | `200` | hard cap on embedding work per run; remaining candidates are reconsidered in later runs |
+| `MAX_EMBEDDINGS_PER_RUN` | `50` | hard cap on embedding work per run (≈50k tokens, the measured Gemini free-tier limit); remaining candidates are reconsidered in later runs |
 | `MAX_LLM_EVALUATIONS_PER_RUN` | `25` | hard cap per run and per backfill |
 
 Provider keys (`GOOGLE_API_KEY`, `OPENAI_API_KEY`) are read by the provider packages from the environment; they are documented in `.env.example` and never stored in user tables. The threshold started deliberately low — top-K does the real selection; the integration task (Task 13) prints the observed similarity distribution so it can be calibrated from data. Calibrated 2026-09-25: over 30 active jobs against a "Junior AI engineer... Python, FastAPI, LLM applications, LangGraph. Remote, Europe." profile, cosine similarity ranged 0.503-0.695 — the original 0.35 floor never fired. No clean gap between plainly-relevant and plainly-irrelevant titles was visible at that sample size, so the threshold was raised conservatively to `0.45`, inside the gap between the old floor and the observed minimum.
