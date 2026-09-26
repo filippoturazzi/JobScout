@@ -5,7 +5,7 @@ from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
 from jobscout.matching.prompts import job_text, profile_text
 from jobscout.matching.schemas import EvaluationResult
-from jobscout.matching.vectors import cosine
+from jobscout.matching.vectors import cosine, dim, pack
 from jobscout.models import Job, Match
 from jobscout.pipeline.matching import run_match, select_candidates
 from jobscout.pipeline.users import get_or_create_default_user, get_preferences, update_preferences
@@ -112,23 +112,34 @@ def test_second_run_is_idempotent(session):
     assert len(session.exec(select(Match)).all()) == 1
 
 
-def test_cap_limits_evaluations_and_takes_the_best_first(session):
+def test_cap_limits_evaluations_and_takes_the_highest_similarities(session):
     user = _user_with_profile(session)
-    for i in range(5):
-        _add_job(session, f"j{i}")
+    # Deliberately different texts, so the five jobs get five different cosines and
+    # "the cap kept the best two" is distinguishable from "the cap kept any two".
+    titles = [
+        "AI Engineer",
+        "Senior AI Engineer",
+        "Junior AI Engineer",
+        "Staff AI Engineer",
+        "Lead AI Engineer",
+    ]
+    jobs = [_add_job(session, f"j{i}", title=title) for i, title in enumerate(titles)]
+    fake = DeterministicFakeEmbedding(size=DIM)
+    profile_vector = fake.embed_query(profile_text(get_preferences(session, user.id)))
+    similarities = {job.id: cosine(fake.embed_query(job_text(job)), profile_vector) for job in jobs}
+    assert len(set(similarities.values())) == 5, "the fixture must not produce ties"
+    best_two = {
+        job_id for job_id, _ in sorted(similarities.items(), key=lambda kv: kv[1], reverse=True)[:2]
+    }
     chat = CountingChatModel()
 
     result = run_match(session, _settings(max_llm_evaluations_per_run=2), user.id, deps=_deps(chat))
 
     assert (result.evaluated, chat.calls) == (2, 2)
     evaluated = session.exec(select(Match)).all()
-    assert len(evaluated) == 2
-    remaining = [
-        job
-        for job in session.exec(select(Job)).all()
-        if job.id not in {m.job_id for m in evaluated}
-    ]
-    assert len(remaining) == 3, "unselected candidates keep no row"
+    assert len(evaluated) == 2, "unselected candidates keep no row"
+    assert {m.job_id for m in evaluated} == best_two
+    assert all(m.similarity == pytest.approx(similarities[m.job_id]) for m in evaluated)
 
 
 def test_stale_is_reevaluated_and_dismissed_is_not(session):
@@ -283,6 +294,29 @@ def test_a_failing_chunk_keeps_the_embeddings_already_paid_for(session, monkeypa
     session.rollback()
     cached = [job for job in session.exec(select(Job)).all() if job.embedding is not None]
     assert len(cached) == 2, "the first chunk was committed before the second one failed"
+
+
+def test_vectors_of_the_wrong_dimension_are_re_embedded(session):
+    """The upgrade path of every existing install: EMBEDDING_DIM changed under stored blobs."""
+    user = _user_with_profile(session)
+    job = _add_job(session, "a")
+    prefs = get_preferences(session, user.id)
+    stale_blob = pack([0.0] * 16)
+    job.embedding = stale_blob
+    prefs.profile_embedding = stale_blob
+    session.add(job)
+    session.add(prefs)
+    session.commit()
+
+    result = run_match(
+        session, _settings(embedding_dim=DIM), user.id, deps=_deps(CountingChatModel())
+    )
+
+    assert result.embedded == 1
+    session.refresh(job)
+    session.refresh(prefs)
+    assert job.embedding is not None and dim(job.embedding) == DIM
+    assert prefs.profile_embedding is not None and dim(prefs.profile_embedding) == DIM
 
 
 def test_later_runs_pick_up_the_remaining_embeddings(session):

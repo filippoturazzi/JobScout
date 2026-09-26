@@ -226,6 +226,52 @@ def test_match_dry_run_lists_candidates_without_calling_the_llm(tmp_path, monkey
     assert "AI Engineer" in result.output
 
 
+def test_match_scores_and_persists_a_candidate_end_to_end(tmp_path, monkeypatch):
+    """The whole non-dry-run path: CLI -> run_match -> graph -> persisted row -> summary."""
+    import jobscout.pipeline.matching as matching_module
+    from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
+
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        embedding_dim=8,
+        similarity_threshold=-1.0,  # the fake vectors carry no meaningful floor
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    engine = get_engine(settings)
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(matching_module, "chat_model", lambda _settings: CountingChatModel())
+    monkeypatch.setattr(
+        matching_module, "embeddings", lambda _settings: DeterministicFakeEmbedding(size=8)
+    )
+
+    result = runner.invoke(cli.app, ["match"])
+
+    assert result.exit_code == 0, result.output
+    assert "candidates=1 evaluated=1 skipped_low=0 embedded=1 pending=0 errors=0" in result.output
+    with Session(engine) as session:
+        row = session.exec(select(Match)).one()
+        assert row.score == 75 and row.status == "new"
+        assert row.reasoning and row.llm_model == settings.llm_model
+
+
 def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, monkeypatch):
     import jobscout.pipeline.matching as matching_module
 
