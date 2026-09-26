@@ -9,8 +9,7 @@ from sqlmodel import Session
 
 from jobscout.config import get_settings
 from jobscout.db import get_engine, init_db
-from jobscout.matching.llm import MissingProviderError
-from jobscout.pipeline.matching import run_match
+from jobscout.pipeline.matching import MissingProviderError, run_match
 from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
 

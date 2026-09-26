@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from sqlmodel import select
 
@@ -317,6 +319,20 @@ def test_vectors_of_the_wrong_dimension_are_re_embedded(session):
     session.refresh(prefs)
     assert job.embedding is not None and dim(job.embedding) == DIM
     assert prefs.profile_embedding is not None and dim(prefs.profile_embedding) == DIM
+
+
+def test_a_provider_dimension_mismatch_warns_once_per_run(session, caplog):
+    """Providers that ignore output_dimensionality re-embed the profile on every run."""
+    user = _user_with_profile(session)
+    _add_job(session, "a")
+
+    with caplog.at_level(logging.WARNING, logger="jobscout.pipeline.matching"):
+        run_match(session, _settings(embedding_dim=768), user.id, deps=_deps(CountingChatModel()))
+
+    warnings = [record for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert "EMBEDDING_DIM" in message and "768" in message and str(DIM) in message
 
 
 def test_later_runs_pick_up_the_remaining_embeddings(session):

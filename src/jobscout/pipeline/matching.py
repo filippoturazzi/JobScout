@@ -13,7 +13,7 @@ from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps, build_graph
-from jobscout.matching.llm import chat_model, embeddings
+from jobscout.matching.llm import MissingProviderError, chat_model, embeddings
 from jobscout.matching.prompts import build_user_prompt, job_text, profile_text
 from jobscout.matching.schemas import MatchState
 from jobscout.matching.vectors import cosine, dim, pack, unpack
@@ -22,6 +22,10 @@ from jobscout.pipeline.filters import job_matches_preferences
 from jobscout.pipeline.users import get_preferences
 
 log = logging.getLogger(__name__)
+
+# Re-exported so the thin shells (cli, api) never have to reach past `pipeline` for the
+# one exception they need to catch.
+__all__ = ["MatchRun", "MissingProviderError", "run_match", "select_candidates"]
 
 # 50 texts ≈ 53k tokens is accepted by the Gemini free tier;
 # 100 ≈ 154k tokens is rejected with 429 RESOURCE_EXHAUSTED (measured 2026-09-26).
@@ -167,6 +171,18 @@ def run_match(
     embed = deps.embed if deps is not None else embeddings(settings)
     wanted_dim = settings.embedding_dim
     profile_vector = _ensure_profile_embedding(session, prefs, embed, wanted_dim)
+    if len(profile_vector) != settings.embedding_dim:
+        # Providers that ignore `output_dimensionality` (openai, ollama) never satisfy the
+        # stored-dimension check, so `_ensure_profile_embedding` pays for one embed_query
+        # on every single run. Warn once per run; setting EMBEDDING_DIM to what the model
+        # actually returns is the cure.
+        log.warning(
+            "the embedding provider returned %d dimensions but EMBEDDING_DIM is %d; "
+            "the profile is re-embedded on every run — set EMBEDDING_DIM=%d",
+            len(profile_vector),
+            settings.embedding_dim,
+            len(profile_vector),
+        )
     # The profile embedding fixes the dimension the job vectors must match.
     wanted_dim = len(profile_vector)
     job_vectors, result.embedded, result.embeddings_pending = _ensure_job_embeddings(
