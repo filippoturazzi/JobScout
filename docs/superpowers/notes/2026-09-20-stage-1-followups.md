@@ -51,3 +51,52 @@ Still open for stage 2b:
 - `list_jobs` full scan and `Match` visibility vs `Job.is_active`: decide in 2b's plan.
 - Config for 2b: `LLM_PROVIDER`, `LLM_MODEL`, `EMBEDDING_MODEL` (+ provider keys) → `.env.example` and CLAUDE.md operator-config bullet.
 - Stage 3: add a `threading.Lock` around `db._engines` when the scheduler thread becomes a second caller.
+
+## Added after stage 2b (2026-09-26 whole-branch review)
+
+Stage 2b resolved: the matching graph, backfill, `/matches`, and the fix wave below it
+(provider errors no longer escape `PUT /preferences` or `jobscout match`; `status=low` is
+reachable; embeddings commit per chunk; the preference-save backfill is capped at 5
+evaluations). Everything here was ruled out of that wave and deferred.
+
+### Stage 3 (scheduler + inactive marking)
+
+- **Move the backfill off the request onto the scheduler.** `PUT /preferences` runs
+  `backfill_matches` inline; the current mitigation is the `_BACKFILL_EVALUATION_CAP = 5`
+  constant in `pipeline/run.py`. Queueing the work kills the latency problem at the root and
+  the cap can go.
+- **One matching job on the scheduler**, with jitter and a "did the last run 429" backoff;
+  the interval is an operator setting (env), never a user preference.
+- **Revisit `SIMILARITY_THRESHOLD` with accumulated data.** Observed 0.503-0.695 over 30
+  jobs, with irrelevant postings at 0.62, so the shipped 0.45 is currently inert. Consider
+  logging the per-run similarity distribution and a percentile-relative floor instead of an
+  absolute one.
+- **`save_preferences` stales more than it backfills.** It marks *all* of a user's matches
+  stale but backfills only `BACKFILL_WINDOW_DAYS`, so rows outside the window sit `stale`
+  until someone runs `jobscout match`. Either scope the staling to the window or let the
+  scheduler drain the tail.
+- **Add an index on `match(user_id, status)`** — `select_candidates` and `list_matches` both
+  filter on that pair.
+
+### Stage 4 (notifier)
+
+- **Decide what re-evaluation does to user state.** Today a staled `notified` or `saved`
+  match is rewritten to `new`, so stage 4 will re-notify and stage 6 will lose "saved".
+  Either preserve user-set status across re-evaluation or add a `notified_at` column.
+
+### Stage 5 (more sources)
+
+- `select_candidates` loads every active job plus all of the user's matches. Fine at 808
+  jobs; revisit when several sources are enabled.
+
+### Stage 6 (UI, auth, Postgres)
+
+- `MatchRun.error` is invisible to the API caller — `PUT /preferences` returns the
+  preferences and silently drops the backfill outcome.
+- Multi-line LLM reasoning breaks the `jobscout matches` indentation.
+
+### Stage 7 (quotas, BYOK, demo)
+
+- `temperature=0` is unvalidated for OpenAI's o-series models, which reject it.
+- Provider keys are typed `str | None` rather than `SecretStr`, so they can end up in a
+  repr or a log line.
