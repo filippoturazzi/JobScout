@@ -15,10 +15,16 @@ def read_matches(
     session: Annotated[Session, Depends(get_session)],
     user_id: Annotated[int, Depends(get_current_user_id)],
     min_score: Annotated[int, Query(ge=0, le=100)] = 0,
-    status: Annotated[str | None, Query(description="Filter by match status.")] = None,
+    status: Annotated[
+        str | None,
+        Query(description="Filter by match status; `low` reveals prefiltered, unscored rows."),
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ) -> list[MatchRead]:
-    """Scored matches for the current user, best first. Inactive jobs are hidden."""
+    """Matches for the current user, best first. Inactive jobs are hidden.
+
+    Unscored rows are hidden unless an explicit `status` is given.
+    """
     rows = list_matches(session, user_id, min_score=min_score, status=status, limit=limit)
     result = []
     for match, job in rows:

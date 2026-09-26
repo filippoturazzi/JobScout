@@ -79,10 +79,18 @@ def test_matches_filters_by_min_score_and_status(client, session):
     ] == ["b"]
 
 
-def test_matches_excludes_unscored_low_rows(client, session):
+def test_unscored_low_rows_are_hidden_by_default_but_returned_for_status_low(client, session):
+    """`?status=low` answers "why didn't this job show up"; the default listing stays clean."""
     user = _bootstrap_user(client, session)
-    job = _job(session, "a")
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.1, score=None, status="low"))
+    scored = _job(session, "scored")
+    low = _job(session, "low")
+    session.add(Match(job_id=scored.id, user_id=user.id, similarity=0.7, score=80, status="new"))
+    session.add(Match(job_id=low.id, user_id=user.id, similarity=0.1, score=None, status="low"))
     session.commit()
 
-    assert client.get("/matches").json() == []
+    default = client.get("/matches").json()
+    assert [m["job"]["external_id"] for m in default] == ["scored"]
+
+    explicit = client.get("/matches", params={"status": "low"}).json()
+    assert [m["job"]["external_id"] for m in explicit] == ["low"]
+    assert explicit[0]["score"] is None

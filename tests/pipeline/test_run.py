@@ -105,3 +105,40 @@ def test_list_matches_orders_by_score_and_hides_inactive(session):
 
     assert [job.external_id for _match, job in rows] == ["high", "low"]
     assert len(list_matches(session, user.id, limit=1)) == 1
+
+
+def test_list_matches_hides_unscored_rows_unless_a_status_is_asked_for(session):
+    user = get_or_create_default_user(session)
+    upsert_jobs(session, [raw("scored", "AI Engineer"), raw("unscored", "AI Engineer")], now=T0)
+    jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
+    session.add(
+        Match(job_id=jobs["scored"].id, user_id=user.id, similarity=0.7, score=80, status="new")
+    )
+    session.add(
+        Match(job_id=jobs["unscored"].id, user_id=user.id, similarity=0.1, score=None, status="low")
+    )
+    session.commit()
+
+    default = list_matches(session, user.id)
+    assert [job.external_id for _match, job in default] == ["scored"]
+
+    explicit = list_matches(session, user.id, status="low")
+    assert [job.external_id for _match, job in explicit] == ["unscored"]
+    assert explicit[0][0].score is None
+
+
+def test_list_matches_orders_unscored_rows_last(session):
+    user = get_or_create_default_user(session)
+    upsert_jobs(session, [raw("blank", "AI Engineer"), raw("scored", "AI Engineer")], now=T0)
+    jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
+    session.add(
+        Match(job_id=jobs["blank"].id, user_id=user.id, similarity=0.9, score=None, status="stale")
+    )
+    session.add(
+        Match(job_id=jobs["scored"].id, user_id=user.id, similarity=0.1, score=10, status="stale")
+    )
+    session.commit()
+
+    rows = list_matches(session, user.id, status="stale")
+
+    assert [job.external_id for _match, job in rows] == ["scored", "blank"]

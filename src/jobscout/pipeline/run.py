@@ -54,20 +54,25 @@ def list_matches(
     status: str | None = None,
     limit: int = 50,
 ) -> list[tuple[Match, Job]]:
-    """Scored matches for one user, best first. Inactive jobs and unscored rows are hidden."""
+    """Matches for one user, best first (unscored rows last). Inactive jobs are hidden.
+
+    Unscored rows — the `low` ones the cosine prefilter wrote without calling the LLM —
+    are hidden from the default listing but returned when an explicit ``status`` is asked
+    for, so ``status="low"`` can answer "why didn't this job show up". ``min_score`` is
+    applied only when above 0, so the default 0 does not silently drop them again.
+    """
     statement = (
         select(Match, Job)
         .join(Job, col(Match.job_id) == col(Job.id))
-        .where(
-            col(Match.user_id) == user_id,
-            col(Job.is_active).is_(True),
-            col(Match.score).is_not(None),
-            col(Match.score) >= min_score,
-        )
-        .order_by(col(Match.score).desc(), col(Match.similarity).desc())
+        .where(col(Match.user_id) == user_id, col(Job.is_active).is_(True))
+        .order_by(col(Match.score).desc().nulls_last(), col(Match.similarity).desc())
     )
-    if status is not None:
+    if status is None:
+        statement = statement.where(col(Match.score).is_not(None))
+    else:
         statement = statement.where(col(Match.status) == status)
+    if min_score > 0:
+        statement = statement.where(col(Match.score) >= min_score)
     return list(session.exec(statement.limit(limit)).all())
 
 
