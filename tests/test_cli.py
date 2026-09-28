@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 import respx
 from sqlmodel import Session, select
@@ -321,3 +323,73 @@ def test_match_exits_1_when_every_candidate_failed(tmp_path, monkeypatch):
 
     assert result.exit_code == 1
     assert "boom" in result.output
+
+
+def test_match_keeps_the_stack_out_of_the_terminal(tmp_path, monkeypatch, caplog):
+    """The one-line Error is the contract; a stack belongs at DEBUG, not in the user's face.
+
+    CliRunner's `result.output` does not capture logging, so asserting on it alone passed
+    while a real `jobscout match` printed a full traceback above the clean message.
+    """
+    import jobscout.pipeline.matching as matching_module
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="Python LLM work.",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    def _rate_limited(_settings):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    monkeypatch.setattr(matching_module, "embeddings", _rate_limited)
+
+    with caplog.at_level(logging.WARNING, logger="jobscout.cli"):
+        result = runner.invoke(cli.app, ["match"])
+
+    assert result.exit_code == 2
+    assert [record.message for record in caplog.records] == []
+
+
+def test_matches_says_why_the_list_is_empty_when_a_filter_hid_everything(tmp_path, monkeypatch):
+    """`min_score` excluding every row is not the same as never having matched."""
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    with Session(engine) as session:
+        user = get_or_create_default_user(session)
+        job = Job(
+            source="t",
+            external_id="a",
+            title="AI Engineer",
+            company="Acme",
+            remote=True,
+            url="https://x/a",
+            description="Python LLM work.",
+            content_hash="h",
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        session.add(Match(job_id=job.id, user_id=user.id, similarity=0.6, score=10))
+        session.commit()
+
+    result = runner.invoke(cli.app, ["matches", "--min-score", "60"])
+
+    assert result.exit_code == 0
+    assert "60" in result.output, "the message must name the floor that hid the rows"
+    assert "Run `jobscout match`" not in result.output

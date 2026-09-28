@@ -27,9 +27,14 @@ log = logging.getLogger(__name__)
 # one exception they need to catch.
 __all__ = ["MatchRun", "MissingProviderError", "run_match", "select_candidates"]
 
-# 50 texts ≈ 53k tokens is accepted by the Gemini free tier;
-# 100 ≈ 154k tokens is rejected with 429 RESOURCE_EXHAUSTED (measured 2026-09-26).
-_EMBED_CHUNK = 50
+# The Gemini free tier allows roughly 30,000 embedding tokens per MINUTE, and a job text
+# averages ~1,070 tokens (measured 2026-09-27 over the live corpus). 15 texts is ~16k, which
+# leaves headroom for the profile embedding and for longer-than-average postings.
+#
+# An earlier 50 was calibrated from a single lucky sample and is not survivable: 50 texts is
+# ~53k tokens in one request, which exceeds the per-minute budget outright and 429s every
+# time from a cold start. Raising this without re-measuring will break `jobscout match`.
+_EMBED_CHUNK = 15
 
 
 @dataclass

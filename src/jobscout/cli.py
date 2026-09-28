@@ -87,7 +87,9 @@ def match(
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=2) from exc
         except Exception as exc:  # a 429 or a dropped connection is not a traceback's worth
-            log.exception("match failed")
+            # Debug, not error: the stack is noise in a terminal, and the one-line message
+            # below is the CLI's contract. Raise the log level to get it back.
+            log.debug("match failed", exc_info=True)
             typer.echo(f"Error: {type(exc).__name__}: {exc}", err=True)
             # Exit 2 is "the provider could not be used"; exit 1 below is "it ran and
             # every candidate failed". A wrapping script needs to tell those apart.
@@ -126,6 +128,10 @@ def matches(
         assert user.id is not None, "a persisted user always has an id"
         rows = list_matches(session, user.id, min_score=min_score, limit=limit)
         if not rows:
+            if min_score > 0:
+                # Having matched and found nothing good is not the same as never matching.
+                typer.echo(f"No matches scoring {min_score} or above. Try a lower --min-score.")
+                return
             typer.echo("No matches yet. Run `jobscout match` after setting your profile summary.")
             return
         for match_row, job in rows:
