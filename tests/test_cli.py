@@ -393,3 +393,35 @@ def test_matches_says_why_the_list_is_empty_when_a_filter_hid_everything(tmp_pat
     assert result.exit_code == 0
     assert "60" in result.output, "the message must name the floor that hid the rows"
     assert "Run `jobscout match`" not in result.output
+
+
+def test_repair_descriptions_reports_what_it_changed(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    mixed = "&lt;p&gt;Python work.&lt;/p&gt;<p>Find more</p>"
+    with Session(engine) as session:
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="<p>Python work.</p> Find more",
+                content_hash="h",
+                embedding=b"\x00\x00\x00\x00",
+                raw={"description": mixed},
+            )
+        )
+        session.commit()
+
+    result = runner.invoke(cli.app, ["repair-descriptions"])
+
+    assert result.exit_code == 0
+    assert "repaired=1" in result.output
+    with Session(engine) as session:
+        job = session.exec(select(Job)).one()
+        assert job.description == "Python work. Find more"
+        assert job.embedding is None

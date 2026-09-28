@@ -60,3 +60,28 @@ def test_block_tags_separate_text():
     assert html_to_text("<h2>Title</h2>Body") == "Title Body"
     assert html_to_text("<table><tr><td>a</td><td>b</td></tr></table>") == "a b"
     assert html_to_text("<dl><dt>Level</dt><dd>Senior</dd></dl>") == "Level Senior"
+
+
+def test_escaped_body_with_a_real_html_footer_is_still_unescaped():
+    """Arbeitnow returns both in one field: an escaped body plus its own unescaped footer.
+
+    A single literal "<" used to disable unescaping for the whole document, so the escaped
+    part came through as visible markup — `convert_charrefs` turned `&lt;p&gt;` into the
+    text `<p>` instead of a tag. 398 of 808 stored descriptions were affected.
+    """
+    value = (
+        "&lt;p&gt;Real content here.&lt;/p&gt;<p>Find more on <a href='https://x'>the board</a></p>"
+    )
+
+    assert html_to_text(value) == "Real content here. Find more on the board"
+
+
+def test_a_lone_escaped_placeholder_is_still_left_alone():
+    """The stage-2a guard must survive: only an escaped *known tag* triggers unescaping."""
+    assert html_to_text("Contact &lt;COMPANY_NAME&gt; today") == "Contact <COMPANY_NAME> today"
+
+
+def test_escaped_attributes_do_not_leak_into_the_text():
+    value = "&lt;div class=&quot;intro&quot;&gt;&lt;strong&gt;About&lt;/strong&gt; us&lt;/div&gt;"
+
+    assert html_to_text(value) == "About us"

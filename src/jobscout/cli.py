@@ -10,6 +10,7 @@ from sqlmodel import Session
 from jobscout.config import get_settings
 from jobscout.db import get_engine, init_db
 from jobscout.pipeline.matching import MissingProviderError, run_match
+from jobscout.pipeline.repair import repair_descriptions as repair
 from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
 
@@ -139,6 +140,20 @@ def matches(
             if match_row.reasoning:
                 typer.echo(f"    {match_row.reasoning}")
             typer.echo(f"    {job.url}")
+
+
+@app.command()
+def repair_descriptions() -> None:
+    """Re-render stored job text after a renderer fix, using each row's saved payload.
+
+    Offline: no source is contacted. Repaired rows lose the embedding computed from the
+    old text and have their matches marked stale, so the next `match` run rescores them.
+    """
+    with _session() as session:
+        stats = repair(session)
+    typer.echo(f"repaired={stats.repaired} unchanged={stats.unchanged} no_payload={stats.skipped}")
+    if stats.repaired:
+        typer.echo("Run `jobscout match` to re-embed and rescore the repaired jobs.")
 
 
 @app.command()
