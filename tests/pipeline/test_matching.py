@@ -5,7 +5,7 @@ from sqlmodel import select
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
-from jobscout.matching.prompts import job_text, profile_text
+from jobscout.matching.prompts import job_embedding_text, profile_text
 from jobscout.matching.schemas import EvaluationResult
 from jobscout.matching.vectors import cosine, dim, pack
 from jobscout.models import Job, Match
@@ -88,7 +88,7 @@ def test_evaluates_candidates_and_persists_matches(session):
     assert match.matched_skills == ["Python"] and match.llm_model == "fake-model"
     fake = DeterministicFakeEmbedding(size=DIM)
     expected = cosine(
-        fake.embed_query(job_text(job)),
+        fake.embed_query(job_embedding_text(job)),
         fake.embed_query(profile_text(get_preferences(session, user.id))),
     )
     assert match.similarity == pytest.approx(expected)
@@ -135,7 +135,9 @@ def test_cap_limits_evaluations_and_takes_the_highest_similarities(session):
     jobs = [_add_job(session, f"j{i}", title=title) for i, title in enumerate(titles)]
     fake = DeterministicFakeEmbedding(size=DIM)
     profile_vector = fake.embed_query(profile_text(get_preferences(session, user.id)))
-    similarities = {job.id: cosine(fake.embed_query(job_text(job)), profile_vector) for job in jobs}
+    similarities = {
+        job.id: cosine(fake.embed_query(job_embedding_text(job)), profile_vector) for job in jobs
+    }
     assert len(set(similarities.values())) == 5, "the fixture must not produce ties"
     best_two = {
         job_id for job_id, _ in sorted(similarities.items(), key=lambda kv: kv[1], reverse=True)[:2]

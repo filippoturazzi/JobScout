@@ -38,7 +38,9 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph[MatchState]:
     def embed_job(state: MatchState) -> MatchState:
         if state.get("job_embedding"):
             return {}
-        vector = deps.embed.embed_query(state["job_text"])
+        # Must match what `pipeline.matching` embeds in bulk, or the two paths
+        # produce vectors of different documents and the cosine is meaningless.
+        vector = deps.embed.embed_query(state.get("job_embedding_text") or state["job_text"])
         return {"job_embedding": vector}
 
     def prefilter(state: MatchState) -> MatchState:

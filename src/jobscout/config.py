@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     max_llm_evaluations_per_run: int = 25
     # Bounded by the provider's per-minute token budget, not by cost alone: see the
     # measurement above _EMBED_CHUNK in pipeline/matching.py before raising this.
-    max_embeddings_per_run: int = 15
+    # 100 jobs x ~175 tokens is ~18k, inside the free tier's ~30k/min.
+    max_embeddings_per_run: int = 100
     google_api_key: str | None = None
     openai_api_key: str | None = None
 

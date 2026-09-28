@@ -98,3 +98,34 @@ def test_a_missing_notify_threshold_fails_closed():
 
     assert final["evaluation"] is not None
     assert final["should_notify"] is False
+
+
+def test_the_fallback_embed_uses_the_short_text_not_the_prompt_text():
+    """Both embed paths must agree on the input, or their vectors are not comparable."""
+    seen: list[str] = []
+
+    class _Recording(DeterministicFakeEmbedding):
+        def embed_query(self, text: str) -> list[float]:
+            seen.append(text)
+            return super().embed_query(text)
+
+    deps = GraphDeps(
+        chat=CountingChatModel(),  # type: ignore[arg-type]
+        embed=_Recording(size=8),  # type: ignore[arg-type]
+        threshold=-1.0,
+        model_name="fake",
+    )
+    graph = build_graph(deps)
+
+    graph.invoke(
+        {
+            "job_id": 1,
+            "user_id": 1,
+            "job_text": "LONG prompt text with lots of boilerplate",
+            "job_embedding_text": "SHORT role text",
+            "profile_embedding": DeterministicFakeEmbedding(size=8).embed_query("p"),
+            "min_score": 0,
+        }
+    )
+
+    assert seen == ["SHORT role text"]

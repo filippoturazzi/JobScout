@@ -14,7 +14,12 @@ from sqlmodel import Session, col, select
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps, build_graph
 from jobscout.matching.llm import MissingProviderError, chat_model, embeddings
-from jobscout.matching.prompts import build_user_prompt, job_text, profile_text
+from jobscout.matching.prompts import (
+    build_user_prompt,
+    job_embedding_text,
+    job_text,
+    profile_text,
+)
 from jobscout.matching.schemas import MatchState
 from jobscout.matching.vectors import cosine, dim, pack, unpack
 from jobscout.models import REEVALUATABLE_STATUSES, Job, Match, User, UserPreferences
@@ -27,14 +32,14 @@ log = logging.getLogger(__name__)
 # one exception they need to catch.
 __all__ = ["MatchRun", "MissingProviderError", "run_match", "select_candidates"]
 
-# The Gemini free tier allows roughly 30,000 embedding tokens per MINUTE, and a job text
-# averages ~1,070 tokens (measured 2026-09-27 over the live corpus). 15 texts is ~16k, which
-# leaves headroom for the profile embedding and for longer-than-average postings.
+# The Gemini free tier allows roughly 30,000 embedding tokens per MINUTE. Since the vector
+# is built from `job_embedding_text` rather than the full posting, a job costs ~175 tokens
+# instead of ~1,070, so 50 per request is ~9k — comfortably inside the window.
 #
-# An earlier 50 was calibrated from a single lucky sample and is not survivable: 50 texts is
-# ~53k tokens in one request, which exceeds the per-minute budget outright and 429s every
-# time from a cold start. Raising this without re-measuring will break `jobscout match`.
-_EMBED_CHUNK = 15
+# History worth keeping: this was 50 when a job cost ~1,070 tokens, i.e. ~53k per request,
+# which 429s every time from a cold start. That number came from a single lucky sample
+# recorded as a measured ceiling. Re-measure before raising it, and measure more than once.
+_EMBED_CHUNK = 50
 
 
 @dataclass
@@ -119,7 +124,7 @@ def _ensure_job_embeddings(
 
     for start in range(0, len(to_embed), _EMBED_CHUNK):
         chunk = to_embed[start : start + _EMBED_CHUNK]
-        computed = embed.embed_documents([job_text(job) for job in chunk])
+        computed = embed.embed_documents([job_embedding_text(job) for job in chunk])
         for job, vector in zip(chunk, computed, strict=True):
             assert job.id is not None
             job.embedding = pack(vector)
@@ -223,6 +228,7 @@ def run_match(
             "job_id": job.id,
             "user_id": user_id,
             "job_text": job_text(job),
+            "job_embedding_text": job_embedding_text(job),
             "prompt": build_user_prompt(prefs, job, locale),
             "profile_text": profile_text(prefs),
             "job_embedding": job_vectors[job.id],
