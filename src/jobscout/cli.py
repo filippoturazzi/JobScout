@@ -10,6 +10,7 @@ from sqlmodel import Session
 from jobscout.config import get_settings
 from jobscout.db import get_engine, init_db
 from jobscout.pipeline.matching import MissingProviderError, run_match
+from jobscout.pipeline.repair import repair_descriptions as repair
 from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
 
@@ -87,7 +88,9 @@ def match(
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=2) from exc
         except Exception as exc:  # a 429 or a dropped connection is not a traceback's worth
-            log.exception("match failed")
+            # Debug, not error: the stack is noise in a terminal, and the one-line message
+            # below is the CLI's contract. Raise the log level to get it back.
+            log.debug("match failed", exc_info=True)
             typer.echo(f"Error: {type(exc).__name__}: {exc}", err=True)
             # Exit 2 is "the provider could not be used"; exit 1 below is "it ran and
             # every candidate failed". A wrapping script needs to tell those apart.
@@ -126,6 +129,10 @@ def matches(
         assert user.id is not None, "a persisted user always has an id"
         rows = list_matches(session, user.id, min_score=min_score, limit=limit)
         if not rows:
+            if min_score > 0:
+                # Having matched and found nothing good is not the same as never matching.
+                typer.echo(f"No matches scoring {min_score} or above. Try a lower --min-score.")
+                return
             typer.echo("No matches yet. Run `jobscout match` after setting your profile summary.")
             return
         for match_row, job in rows:
@@ -133,6 +140,20 @@ def matches(
             if match_row.reasoning:
                 typer.echo(f"    {match_row.reasoning}")
             typer.echo(f"    {job.url}")
+
+
+@app.command()
+def repair_descriptions() -> None:
+    """Re-render stored job text after a renderer fix, using each row's saved payload.
+
+    Offline: no source is contacted. Repaired rows lose the embedding computed from the
+    old text and have their matches marked stale, so the next `match` run rescores them.
+    """
+    with _session() as session:
+        stats = repair(session)
+    typer.echo(f"repaired={stats.repaired} unchanged={stats.unchanged} no_payload={stats.skipped}")
+    if stats.repaired:
+        typer.echo("Run `jobscout match` to re-embed and rescore the repaired jobs.")
 
 
 @app.command()

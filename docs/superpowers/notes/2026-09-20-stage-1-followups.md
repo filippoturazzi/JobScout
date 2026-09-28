@@ -128,3 +128,66 @@ evaluations). Everything here was ruled out of that wave and deferred.
 - **Stage 5 — `select_candidates` hardcodes `"stale"` as the never-evaluated sentinel**
   (`existing.get(job.id, "stale") in REEVALUATABLE_STATUSES`). If a later stage renames or
   drops `"stale"` from that set, brand-new jobs silently stop being candidates.
+
+## Added after the stage-2b live verification (2026-09-27)
+
+The deferred live run finally happened. Beyond the three defects fixed in `5e17c43`, it
+produced the first real calibration data, and it is worse than the earlier note implied.
+
+- **The cosine prefilter is not separating relevant from irrelevant on this corpus.** The
+  three highest-similarity jobs (0.652, 0.642, 0.640) were scored **10, 10 and 0** by the
+  LLM. A "Software Engineer - PLC/OT" industrial-automation posting scored cosine 0.652
+  against a profile reading "Junior AI engineer. Python, FastAPI, LLM applications,
+  LangGraph." Everything observed lands in 0.52-0.65 regardless of relevance, so
+  `SIMILARITY_THRESHOLD` is not merely inert at 0.45 — there is no threshold that would
+  work, because there is no gap to put one in.
+- **Hypothesis for stage 4, not yet tested:** `job_text` is probably dominated by
+  boilerplate — company blurb, benefits, German legal text — rather than role content, so
+  the vectors describe "a German job posting" more than "this job". Worth testing whether
+  embedding title + a truncated description beats embedding the whole rendered text.
+- **Confounder to control for:** Arbeitnow is a German board and most of the corpus is
+  non-tech and non-English, while the profile is English. Stage 5's extra sources may
+  change the picture on their own. Also, `titles` is empty on the default user, so the
+  deterministic filter passes all 808 jobs and the cosine ranking is doing work it was
+  never meant to do alone.
+- **A ranking over an unembedded corpus is not a ranking.** With 15 of 808 jobs embedded,
+  `match --dry-run` prints "Would evaluate 15 of 808 candidates" over an arbitrary subset,
+  not the best 15. Until the backlog is drained the ordering is close to meaningless, and
+  the wording oversells it. Stage 3's scheduler drains the backlog; the CLI wording should
+  say how many candidates still lack a vector.
+- **Per-job error isolation is proven in the wild.** One evaluation died with
+  `RemoteProtocolError: Server disconnected`; it was logged and counted, the other two
+  committed, and the run exited 0. That path had only ever been exercised by a test double.
+
+## Outcome of the embedding-quality work (2026-09-27)
+
+Two changes, measured separately, in this order.
+
+**1. The HTML fix** (`8920404`). 398 of 808 stored descriptions held markup as text. Fixing
+the double-encoding guard and repairing from `Job.raw` moved the top of the ranking from
+PLC/OT + Account Executive to AI/ML roles, but the relevant and irrelevant similarity ranges
+still overlapped (-0.078 -> no separation on a 5-vs-5 control set).
+
+**2. Splitting the embedded text from the prompt text.** `job_embedding_text` renders title,
+tags and the first 600 characters; `job_text` is unchanged and still what the LLM reads.
+
+- Overlap on the control set narrowed from -0.078 to -0.020. Still negative: **no absolute
+  threshold separates relevant from irrelevant.** To exclude the best irrelevant job you
+  would have to exclude two relevant ones. `SIMILARITY_THRESHOLD=0.45` never firing is the
+  safe behaviour, not an oversight — do not "fix" it by raising it.
+- Ranking improved a lot in practice. Over a 100-job pool the top 10 by cosine are almost
+  all genuinely relevant, and the LLM scores them 15-35 where the old ranking's top hits
+  scored 0-10.
+- Cost fell from ~1,070 to ~175 tokens a job, which is what let `MAX_EMBEDDINGS_PER_RUN` go
+  from 15 to 100. Verified live: `embedded=100 errors=0`.
+
+**What this means for later stages.** Top-K plus the LLM is the mechanism that works; the
+threshold is a cheap floor, not a relevance gate. Stage 4 should not expect a threshold to
+carry notification quality on its own. Three things remain unmeasured: whether the result
+holds beyond the 10-job control set, whether a richer profile than the current 80 characters
+separates better, and whether another embedding model behaves differently.
+
+**Recurring hazard.** Changing `job_embedding_text` silently invalidates every stored vector
+without changing `content_hash`, so neither ingest nor `repair-descriptions` notices. This
+time it was handled with a manual UPDATE. Storing a hash of the embedding input beside the
+vector would make it self-healing; worth doing before a third renderer change.

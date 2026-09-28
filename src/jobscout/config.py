@@ -33,7 +33,10 @@ class Settings(BaseSettings):
     # leaving margin below every score seen so far.
     similarity_threshold: float = 0.45
     max_llm_evaluations_per_run: int = 25
-    max_embeddings_per_run: int = 50
+    # Bounded by the provider's per-minute token budget, not by cost alone: see the
+    # measurement above _EMBED_CHUNK in pipeline/matching.py before raising this.
+    # 100 jobs x ~175 tokens is ~18k, inside the free tier's ~30k/min.
+    max_embeddings_per_run: int = 100
     google_api_key: str | None = None
     openai_api_key: str | None = None
 

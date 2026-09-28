@@ -78,7 +78,11 @@ _ESCAPED_TAG_RE = re.compile(
 def _looks_double_encoded(value: str) -> bool:
     # Some boards return "&lt;p&gt;..." instead of "<p>...". Require an escaped *HTML tag*
     # (not just any "&lt;") so plain text like "&lt;COMPANY_NAME&gt;" is left alone.
-    return "<" not in value and _ESCAPED_TAG_RE.search(value) is not None
+    #
+    # Deliberately not also requiring the absence of a literal "<": Arbeitnow returns an
+    # escaped body with its own unescaped footer appended, and one literal "<" near the end
+    # used to leave the whole escaped body as visible markup.
+    return _ESCAPED_TAG_RE.search(value) is not None
 
 
 def html_to_text(value: str) -> str:

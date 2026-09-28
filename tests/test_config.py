@@ -32,7 +32,9 @@ def test_matching_defaults():
     assert s.embedding_model == "gemini-embedding-2"
     assert s.embedding_dim == 768
     assert s.similarity_threshold == 0.45
-    assert s.max_embeddings_per_run == 50
+    # Sized to the free tier's ~30k embedding tokens/min: the vector is built from the
+    # short `job_embedding_text` (~175 tokens), not the full posting. See matching.py.
+    assert s.max_embeddings_per_run == 100
     assert s.max_llm_evaluations_per_run == 25
 
 

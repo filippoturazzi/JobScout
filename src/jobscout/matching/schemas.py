@@ -28,6 +28,7 @@ class MatchState(TypedDict, total=False):
     job_id: int
     user_id: int
     job_text: str
+    job_embedding_text: str
     prompt: str
     profile_text: str
     job_embedding: list[float]
