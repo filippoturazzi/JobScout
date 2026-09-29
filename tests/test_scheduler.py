@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
+from apscheduler.schedulers.background import BackgroundScheduler
 from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
@@ -398,7 +400,10 @@ def test_match_job_that_only_skipped_low_similarity_is_a_success(session: Sessio
 
 def test_start_registers_both_jobs_at_the_configured_intervals(session: Session):
     scheduler = JobScoutScheduler(
-        session.get_bind(), _settings(ingest_interval_minutes=42, match_interval_minutes=7)
+        session.get_bind(),
+        _settings(
+            ingest_interval_minutes=42, match_interval_minutes=7, scheduler_jitter_seconds=13
+        ),
     )
     scheduler.start()
     try:
@@ -408,7 +413,7 @@ def test_start_registers_both_jobs_at_the_configured_intervals(session: Session)
         for job in by_id.values():
             assert job.max_instances == 1
             assert job.coalesce is True
-            assert job.trigger.jitter == 30
+            assert job.trigger.jitter == 13
         assert by_id["ingest"].trigger.interval.total_seconds() == 42 * 60
         assert by_id["match"].trigger.interval.total_seconds() == 7 * 60
     finally:
@@ -440,9 +445,14 @@ def test_wake_adds_one_immediate_run_and_repeats_collapse(session: Session, monk
         scheduler.shutdown()
 
 
-def test_wake_is_scheduled_for_now_not_shifted_by_the_utc_offset(session: Session):
+def test_wake_is_scheduled_for_now_not_shifted_by_the_utc_offset(session: Session, monkeypatch):
     """A naive UTC run_date is read as local time by APScheduler, delaying the wake by hours
-    on UTC-negative machines. Pause the scheduler so nothing fires, then check the time."""
+    on UTC-negative machines. The scheduler zone is pinned to a non-UTC one so this fails on a
+    UTC host (CI) too. Pause the scheduler so nothing fires, then check the time."""
+    monkeypatch.setattr(
+        "jobscout.scheduler.BackgroundScheduler",
+        lambda: BackgroundScheduler(timezone=ZoneInfo("America/New_York")),
+    )
     scheduler = JobScoutScheduler(session.get_bind(), _settings())
     scheduler.start()
     try:
