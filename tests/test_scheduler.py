@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlmodel import Session, col, select
@@ -405,6 +405,10 @@ def test_start_registers_both_jobs_at_the_configured_intervals(session: Session)
         by_id = {job.id: job for job in scheduler.get_jobs()}
 
         assert set(by_id) == {"ingest", "match"}
+        for job in by_id.values():
+            assert job.max_instances == 1
+            assert job.coalesce is True
+            assert job.trigger.jitter == 30
         assert by_id["ingest"].trigger.interval.total_seconds() == 42 * 60
         assert by_id["match"].trigger.interval.total_seconds() == 7 * 60
     finally:
@@ -421,7 +425,9 @@ def test_disabled_scheduler_registers_nothing(session: Session):
         scheduler.shutdown()
 
 
-def test_wake_adds_one_immediate_run_and_repeats_collapse(session: Session):
+def test_wake_adds_one_immediate_run_and_repeats_collapse(session: Session, monkeypatch):
+    # Stubbed: the woken run fires within milliseconds and must not touch the real pipeline.
+    monkeypatch.setattr("jobscout.scheduler.match_job", lambda engine, settings, tick=0: None)
     scheduler = JobScoutScheduler(session.get_bind(), _settings())
     scheduler.start()
     try:
@@ -430,6 +436,22 @@ def test_wake_adds_one_immediate_run_and_repeats_collapse(session: Session):
 
         wakes = [job for job in scheduler.get_jobs() if job.id == "match-wake"]
         assert len(wakes) == 1, "a second save must replace the pending run, not queue another"
+    finally:
+        scheduler.shutdown()
+
+
+def test_wake_is_scheduled_for_now_not_shifted_by_the_utc_offset(session: Session):
+    """A naive UTC run_date is read as local time by APScheduler, delaying the wake by hours
+    on UTC-negative machines. Pause the scheduler so nothing fires, then check the time."""
+    scheduler = JobScoutScheduler(session.get_bind(), _settings())
+    scheduler.start()
+    try:
+        scheduler._scheduler.pause()
+        scheduler.wake_matching()
+
+        wake = next(job for job in scheduler.get_jobs() if job.id == "match-wake")
+        drift = abs((wake.trigger.run_date - datetime.now(UTC)).total_seconds())
+        assert drift < 5
     finally:
         scheduler.shutdown()
 
@@ -443,7 +465,7 @@ def test_shutdown_is_safe_before_start(session: Session):
     JobScoutScheduler(session.get_bind(), _settings()).shutdown()
 
 
-def test_match_tick_increments_even_when_the_firing_is_skipped(session: Session, monkeypatch):
+def test_each_match_firing_gets_the_next_tick(session: Session, monkeypatch):
     """A skipped firing must still advance the counter, or a backed-off job never runs again."""
     seen: list[int] = []
     monkeypatch.setattr(

@@ -6,7 +6,7 @@ The job functions are plain callables so all logic is testable without a schedul
 
 import logging
 import threading
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.job import Job as APSJob
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -216,7 +216,7 @@ class JobScoutScheduler:
         # `tick % period` would stay at the same non-zero remainder and never run again.
         tick = self._next_match_tick()
         if not self._match_running.acquire(blocking=False):
-            log.info("match tick %s skipped: another match run is in flight", tick)
+            log.warning("match tick %s skipped: another match run is in flight", tick)
             return
         try:
             match_job(self._engine, self._settings, tick=tick)
@@ -264,7 +264,11 @@ class JobScoutScheduler:
         self._scheduler.add_job(
             self._run_match_tick,
             "date",
-            run_date=utcnow(),
+            # The one place the project's "timestamps are naive UTC" rule must NOT apply: this
+            # value crosses into APScheduler, which localizes a naive datetime into its own
+            # timezone. Naive UTC would shift the wake by the machine's UTC offset (hours late in
+            # the Americas). Pass an aware value.
+            run_date=datetime.now(UTC),
             id="match-wake",
             replace_existing=True,
             misfire_grace_time=None,
