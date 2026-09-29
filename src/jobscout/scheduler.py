@@ -7,7 +7,7 @@ The job functions are plain callables so all logic is testable without a schedul
 import logging
 from datetime import timedelta
 
-from sqlmodel import Session, col, delete
+from sqlmodel import Session, col, delete, desc, select
 
 from jobscout.config import Settings
 from jobscout.models import Run
@@ -44,3 +44,27 @@ def finish_run(
     run.finished_at = utcnow()
     session.add(run)
     session.commit()
+
+
+def should_skip_for_backoff(session: Session, settings: Settings, job: str, tick: int) -> bool:
+    """Should this firing be skipped because the job keeps failing?
+
+    Backoff triggers on consecutive failure, not on a 429 specifically: matching a provider's
+    rate-limit wording breaks when the wording changes, and it misses the other reasons to
+    stop hammering — network, auth, a daily quota. With `k` consecutive failures the job runs
+    only every `2**k`-th tick, capped by MAX_BACKOFF_TICKS.
+
+    A skipped tick writes no Run row, so skipping can never deepen the backoff by itself.
+    """
+    recent = session.exec(
+        select(Run).where(col(Run.job) == job).order_by(desc(col(Run.started_at))).limit(64)
+    ).all()
+    failures = 0
+    for run in recent:
+        if run.ok:
+            break
+        failures += 1
+    if failures == 0:
+        return False
+    every = 2 ** min(failures, settings.max_backoff_ticks)
+    return bool(tick % every != 0)
