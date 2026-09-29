@@ -99,3 +99,18 @@ def test_put_preferences_wakes_matching_without_scoring_inline(client, monkeypat
     assert response.status_code == 200
     assert response.json()["profile_summary"] == "Python LLM engineer."
     assert len(woken) == 1
+
+
+def test_put_preferences_survives_a_failing_wake(client, monkeypatch):
+    """The save is committed before the wake: a broken scheduler must not report a 500."""
+    import jobscout.api.routers.preferences as preferences_router
+
+    def _boom(_scheduler):
+        raise RuntimeError("scheduler is down")
+
+    monkeypatch.setattr(preferences_router, "wake_matching", _boom)
+
+    response = client.put("/preferences", json={"profile_summary": "Python LLM engineer."})
+
+    assert response.status_code == 200
+    assert client.get("/preferences").json()["profile_summary"] == "Python LLM engineer."

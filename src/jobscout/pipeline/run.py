@@ -99,7 +99,8 @@ def save_preferences(
 
     Scoring is the scheduler's job: this stales the affected matches, commits, and asks the
     caller's hook to run matching out of band. Nothing here calls a provider, so a save is
-    fast and cannot fail because matching is unavailable.
+    fast and cannot fail because matching is unavailable. `settings` and `deps` are unused now
+    and kept only for signature stability, so callers and tests need not change.
     """
     prefs, changed = update_preferences(session, user_id, changes)
     if not (changed & MATCHING_RELEVANT_FIELDS):
