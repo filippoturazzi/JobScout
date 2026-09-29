@@ -57,7 +57,10 @@ def should_skip_for_backoff(session: Session, settings: Settings, job: str, tick
     A skipped tick writes no Run row, so skipping can never deepen the backoff by itself.
     """
     recent = session.exec(
-        select(Run).where(col(Run.job) == job).order_by(desc(col(Run.started_at))).limit(64)
+        select(Run)
+        .where(col(Run.job) == job)
+        .order_by(desc(col(Run.started_at)), desc(col(Run.id)))
+        .limit(64)
     ).all()
     failures = 0
     for run in recent:

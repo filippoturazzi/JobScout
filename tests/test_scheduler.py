@@ -86,6 +86,28 @@ def test_a_success_resets_the_count(session: Session):
     assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
 
 
+def test_ordering_by_time_not_insertion_order(session: Session):
+    """Ordering must use started_at time, not insertion order (id).
+
+    Insert a newer success first, then an older failure, to verify that the
+    backoff walk sees the newer success and resets the count.
+    """
+    now = utcnow()
+    older_time = now - timedelta(hours=2)
+    newer_time = now - timedelta(hours=1)
+
+    # Insert the newer success FIRST
+    session.add(Run(job="match", ok=True, started_at=newer_time, finished_at=newer_time))
+    session.commit()
+
+    # Then insert the older failure
+    session.add(Run(job="match", ok=False, started_at=older_time, finished_at=older_time))
+    session.commit()
+
+    # The function should see the newer success first (by time), not the older failure (by id)
+    assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
+
+
 def test_the_backoff_is_capped(session: Session):
     for _ in range(40):
         _record(session, "match", ok=False)
