@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from sqlmodel import Session, col, select, update
+from sqlmodel import Session, col, update
 
 from jobscout.config import Settings
 from jobscout.models import Job
@@ -17,13 +17,13 @@ def deactivate_stale_jobs(session: Session, settings: Settings, source: str) -> 
     Does not commit — the caller batches this with its own bookkeeping.
     """
     cutoff = utcnow() - timedelta(days=settings.inactive_after_days)
-    stale = select(col(Job.id)).where(
-        col(Job.source) == source,
-        col(Job.is_active).is_(True),
-        col(Job.last_seen_at) < cutoff,
+    result = session.exec(
+        update(Job)
+        .where(
+            col(Job.source) == source,
+            col(Job.is_active).is_(True),
+            col(Job.last_seen_at) < cutoff,
+        )
+        .values(is_active=False)
     )
-    ids = list(session.exec(stale).all())
-    if not ids:
-        return 0
-    session.exec(update(Job).where(col(Job.id).in_(ids)).values(is_active=False))
-    return len(ids)
+    return result.rowcount
