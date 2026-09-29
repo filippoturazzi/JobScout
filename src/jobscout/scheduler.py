@@ -83,11 +83,13 @@ def ingest_job(engine: Engine, settings: Settings) -> None:
         run = start_run(session, settings, "ingest")
         counters = {"created": 0, "updated": 0, "changed": 0, "deactivated": 0}
         errors: list[str] = []
+        succeeded = 0
         try:
             for result in run_ingest(session, settings):
                 if result.error is not None:
                     errors.append(f"{result.source}: {result.error}")
                     continue
+                succeeded += 1
                 counters["created"] += result.created
                 counters["updated"] += result.updated
                 counters["changed"] += result.changed
@@ -101,7 +103,12 @@ def ingest_job(engine: Engine, settings: Settings) -> None:
                 session, run, ok=False, counters=counters, error=f"{type(exc).__name__}: {exc}"
             )
             return
-        finish_run(session, run, ok=not errors, counters=counters, error="; ".join(errors) or None)
+        # Sources are independent: partial failure is not run failure. Only a run where no source
+        # answered counts as failed, otherwise one permanently broken source would drive the
+        # consecutive-failure backoff and starve the healthy ones. Errors stay in `error`.
+        finish_run(
+            session, run, ok=succeeded > 0, counters=counters, error="; ".join(errors) or None
+        )
 
 
 def match_job(engine: Engine, settings: Settings, tick: int = 0) -> None:

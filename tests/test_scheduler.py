@@ -171,7 +171,7 @@ def test_ingest_job_records_counters_and_deactivates(session: Session, monkeypat
     ingest_job(engine, _settings(inactive_after_days=14))
 
     stored = session.exec(select(Run).where(col(Run.job) == "ingest")).one()
-    assert stored.ok is False
+    assert stored.ok is True, "partial failure is not run failure"
     assert stored.error == "remotive: HTTPStatusError: 503"
     assert stored.counters["created"] == 2
     assert stored.counters["deactivated"] == 1
@@ -221,3 +221,35 @@ def test_match_job_records_a_crash_instead_of_raising(session: Session, monkeypa
 
     stored = session.exec(select(Run).where(col(Run.job) == "match")).one()
     assert (stored.ok, stored.error) == (False, "RuntimeError: 429")
+
+
+def test_ingest_job_total_failure_is_a_failed_run(session: Session, monkeypatch):
+    """When every source errors the run fails, which is what keeps the backoff working."""
+    import jobscout.scheduler as scheduler_module
+    from jobscout.pipeline.ingest import IngestResult
+
+    monkeypatch.setattr(
+        scheduler_module,
+        "run_ingest",
+        lambda *_a, **_k: [
+            IngestResult(source="arbeitnow", error="timeout"),
+            IngestResult(source="remotive", error="503"),
+        ],
+    )
+
+    ingest_job(session.get_bind(), _settings())
+
+    stored = session.exec(select(Run)).one()
+    assert stored.ok is False
+    assert stored.error == "arbeitnow: timeout; remotive: 503"
+
+
+def test_ingest_job_with_no_results_is_a_failed_run(session: Session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    monkeypatch.setattr(scheduler_module, "run_ingest", lambda *_a, **_k: [])
+
+    ingest_job(session.get_bind(), _settings())
+
+    stored = session.exec(select(Run)).one()
+    assert stored.ok is False
