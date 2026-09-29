@@ -18,6 +18,15 @@ class Settings(BaseSettings):
     arbeitnow_max_pages: int = 2
     inactive_after_days: int = 14
     backfill_window_days: int = 30
+
+    # --- Scheduler (stage 3) ---
+    scheduler_enabled: bool = True
+    ingest_interval_minutes: int = 60
+    match_interval_minutes: int = 15
+    scheduler_jitter_seconds: int = 30
+    run_retention_days: int = 30
+    max_backoff_ticks: int = 6
+
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     llm_provider: str = "google"

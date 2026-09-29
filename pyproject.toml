@@ -17,6 +17,7 @@ dependencies = [
     "langgraph>=1.2",
     "langchain-core>=1.6",
     "langchain-google-genai>=4.4",
+    "apscheduler>=3.10,<4",
 ]
 
 [project.scripts]

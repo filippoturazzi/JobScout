@@ -46,3 +46,20 @@ def test_matching_settings_from_env(monkeypatch):
     assert s.llm_provider == "ollama"
     assert s.similarity_threshold == 0.5
     assert s.max_llm_evaluations_per_run == 3
+
+
+def test_scheduler_settings_have_operator_defaults():
+    settings = Settings(_env_file=None)
+
+    assert settings.scheduler_enabled is True
+    assert settings.ingest_interval_minutes == 60
+    assert settings.match_interval_minutes == 15
+    assert settings.scheduler_jitter_seconds == 30
+    assert settings.run_retention_days == 30
+    assert settings.max_backoff_ticks == 6
+
+
+def test_scheduler_can_be_disabled_by_env(monkeypatch):
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+
+    assert Settings(_env_file=None).scheduler_enabled is False
