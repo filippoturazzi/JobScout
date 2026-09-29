@@ -78,12 +78,25 @@ def should_skip_for_backoff(session: Session, settings: Settings, job: str, tick
 
 
 def ingest_job(engine: Engine, settings: Settings) -> None:
-    """Fetch every configured source, then expire what the answering sources stopped showing."""
+    """Fetch every configured source, then expire what the answering sources stopped showing.
+
+    Total by construction: it never raises, because an exception escaping into the scheduler's
+    thread is invisible to the operator. The inner handling records failures on the Run row;
+    this outer net covers what cannot be recorded (start_run or finish_run themselves failing).
+    """
+    try:
+        _ingest(engine, settings)
+    except Exception:
+        log.exception("ingest job crashed outside its own error handling")
+
+
+def _ingest(engine: Engine, settings: Settings) -> None:
     with Session(engine) as session:
         run = start_run(session, settings, "ingest")
         counters = {"created": 0, "updated": 0, "changed": 0, "deactivated": 0}
         errors: list[str] = []
         succeeded = 0
+        deactivated = 0
         try:
             for result in run_ingest(session, settings):
                 if result.error is not None:
@@ -94,8 +107,10 @@ def ingest_job(engine: Engine, settings: Settings) -> None:
                 counters["updated"] += result.updated
                 counters["changed"] += result.changed
                 # Only a source that answered may expire its own postings.
-                counters["deactivated"] += deactivate_stale_jobs(session, settings, result.source)
+                deactivated += deactivate_stale_jobs(session, settings, result.source)
             session.commit()
+            # Deactivation lives in this transaction: report it only once it is committed.
+            counters["deactivated"] = deactivated
         except Exception as exc:
             session.rollback()
             log.exception("ingest job failed")
@@ -112,7 +127,17 @@ def ingest_job(engine: Engine, settings: Settings) -> None:
 
 
 def match_job(engine: Engine, settings: Settings, tick: int = 0) -> None:
-    """Score what is pending, for every user, within the per-run caps."""
+    """Score what is pending, for every user, within the per-run caps.
+
+    Never raises, for the same reason as `ingest_job`.
+    """
+    try:
+        _match(engine, settings, tick)
+    except Exception:
+        log.exception("match job crashed outside its own error handling")
+
+
+def _match(engine: Engine, settings: Settings, tick: int) -> None:
     with Session(engine) as session:
         if should_skip_for_backoff(session, settings, "match", tick):
             log.info("match job skipped by backoff at tick %s", tick)
@@ -127,6 +152,7 @@ def match_job(engine: Engine, settings: Settings, tick: int = 0) -> None:
             "errors": 0,
         }
         messages: list[str] = []
+        job_errors: list[str] = []
         try:
             user_ids = [uid for uid in session.exec(select(col(User.id))).all() if uid is not None]
             for user_id in user_ids:
@@ -137,6 +163,7 @@ def match_job(engine: Engine, settings: Settings, tick: int = 0) -> None:
                 counters["embedded"] += result.embedded
                 counters["embeddings_pending"] += result.embeddings_pending
                 counters["errors"] += len(result.errors)
+                job_errors.extend(result.errors)
                 if result.error is not None:
                     messages.append(f"user {user_id}: {result.error}")
         except Exception as exc:
@@ -146,6 +173,10 @@ def match_job(engine: Engine, settings: Settings, tick: int = 0) -> None:
                 session, run, ok=False, counters=counters, error=f"{type(exc).__name__}: {exc}"
             )
             return
+        # A run that hit errors and evaluated nothing accomplished nothing: that is a failure, or
+        # the backoff never engages against a rate-limited provider. Partial success stays ok.
+        if not messages and counters["errors"] > 0 and counters["evaluated"] == 0:
+            messages.append(f"{counters['errors']} error(s), nothing evaluated: {job_errors[0]}")
         finish_run(
             session, run, ok=not messages, counters=counters, error="; ".join(messages) or None
         )

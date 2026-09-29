@@ -4,8 +4,10 @@ import pytest
 from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
-from jobscout.models import Job, Run
+from jobscout.models import Job, Run, User
 from jobscout.models.base import utcnow
+from jobscout.pipeline.matching import MatchRun
+from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.scheduler import (
     finish_run,
     ingest_job,
@@ -253,3 +255,140 @@ def test_ingest_job_with_no_results_is_a_failed_run(session: Session, monkeypatc
 
     stored = session.exec(select(Run)).one()
     assert stored.ok is False
+
+
+def test_ingest_job_does_not_report_rolled_back_deactivations(session: Session, monkeypatch):
+    """`deactivated` lives in the job's transaction: a rollback must not leave it claimed."""
+    import jobscout.scheduler as scheduler_module
+    from jobscout.pipeline.ingest import IngestResult
+
+    jobs = [
+        _add_stale_job(session, "arbeitnow", "a", days_ago=30),
+        _add_stale_job(session, "arbeitnow", "b", days_ago=30),
+        _add_stale_job(session, "remotive", "c", days_ago=30),
+    ]
+    monkeypatch.setattr(
+        scheduler_module,
+        "run_ingest",
+        lambda *_a, **_k: [
+            IngestResult(source="arbeitnow", created=1),
+            IngestResult(source="remotive", created=1),
+        ],
+    )
+    real = scheduler_module.deactivate_stale_jobs
+
+    def _second_raises(sess, settings, source):
+        if source == "remotive":
+            raise RuntimeError("disk full")
+        return real(sess, settings, source)
+
+    monkeypatch.setattr(scheduler_module, "deactivate_stale_jobs", _second_raises)
+
+    ingest_job(session.get_bind(), _settings(inactive_after_days=14))
+
+    stored = session.exec(select(Run).where(col(Run.job) == "ingest")).one()
+    assert (stored.ok, stored.error) == (False, "RuntimeError: disk full")
+    assert stored.counters["deactivated"] == 0
+    session.expire_all()
+    assert all(session.get(Job, j.id).is_active for j in jobs)
+
+
+def test_jobs_never_raise_even_when_the_run_row_cannot_be_written(
+    session: Session, monkeypatch, caplog
+):
+    import jobscout.scheduler as scheduler_module
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(scheduler_module, "start_run", _boom)
+
+    ingest_job(session.get_bind(), _settings())
+    match_job(session.get_bind(), _settings())
+
+    assert "ingest job crashed" in caplog.text
+    assert "match job crashed" in caplog.text
+
+
+def _fake_match(results: dict[int, MatchRun]):
+    def _run(_session, _settings, user_id, **_kw):
+        return results[user_id]
+
+    return _run
+
+
+def _two_users(session: Session) -> tuple[int, int]:
+    first = get_or_create_default_user(session)
+    second = User(email="second@example.com")
+    session.add(second)
+    session.commit()
+    session.refresh(second)
+    assert first.id is not None and second.id is not None
+    return first.id, second.id
+
+
+def test_match_job_aggregates_counters_across_users(session: Session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    a, b = _two_users(session)
+    monkeypatch.setattr(
+        scheduler_module,
+        "run_match",
+        _fake_match(
+            {
+                a: MatchRun(
+                    candidates=5, evaluated=3, skipped_low=2, embedded=4, embeddings_pending=1
+                ),
+                b: MatchRun(candidates=2, evaluated=1, skipped_low=1, embedded=2, errors=["x"]),
+            }
+        ),
+    )
+
+    match_job(session.get_bind(), _settings())
+
+    stored = session.exec(select(Run).where(col(Run.job) == "match")).one()
+    assert stored.ok is True
+    assert stored.error is None
+    assert stored.counters == {
+        "candidates": 7,
+        "evaluated": 4,
+        "skipped_low": 3,
+        "embedded": 6,
+        "embeddings_pending": 1,
+        "errors": 1,
+    }
+
+
+def test_match_job_where_every_evaluation_failed_is_a_failed_run(session: Session, monkeypatch):
+    """Otherwise a rate-limited provider never triggers the backoff."""
+    import jobscout.scheduler as scheduler_module
+
+    a = get_or_create_default_user(session).id
+    assert a is not None
+    monkeypatch.setattr(
+        scheduler_module,
+        "run_match",
+        _fake_match({a: MatchRun(candidates=3, errors=["RuntimeError: 429"] * 3)}),
+    )
+
+    match_job(session.get_bind(), _settings())
+
+    stored = session.exec(select(Run).where(col(Run.job) == "match")).one()
+    assert stored.ok is False
+    assert stored.error is not None and "RuntimeError: 429" in stored.error
+
+
+def test_match_job_that_only_skipped_low_similarity_is_a_success(session: Session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    a = get_or_create_default_user(session).id
+    assert a is not None
+    monkeypatch.setattr(
+        scheduler_module,
+        "run_match",
+        _fake_match({a: MatchRun(candidates=4, skipped_low=4)}),
+    )
+
+    match_job(session.get_bind(), _settings())
+
+    assert session.exec(select(Run).where(col(Run.job) == "match")).one().ok is True
