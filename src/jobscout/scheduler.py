@@ -5,8 +5,11 @@ The job functions are plain callables so all logic is testable without a schedul
 """
 
 import logging
+import threading
 from datetime import timedelta
 
+from apscheduler.job import Job as APSJob
+from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import Engine
 from sqlmodel import Session, col, delete, desc, select
 
@@ -180,3 +183,99 @@ def _match(engine: Engine, settings: Settings, tick: int) -> None:
         finish_run(
             session, run, ok=not messages, counters=counters, error="; ".join(messages) or None
         )
+
+
+class JobScoutScheduler:
+    """Owns the APScheduler instance and the per-job tick counters.
+
+    No persistent jobstore: jobs are registered from Settings at every startup, so a
+    schedule from an old configuration can never outlive the configuration that made it.
+    """
+
+    def __init__(self, engine: Engine, settings: Settings) -> None:
+        self._engine = engine
+        self._settings = settings
+        self._scheduler = BackgroundScheduler()
+        self._match_tick = 0
+        self._tick_lock = threading.Lock()
+        # `match` and `match-wake` are different APScheduler ids, so max_instances=1 cannot stop
+        # them overlapping. This guard does: start_run writes an ok=False row before the work
+        # begins, so an overlapping run would read as a failure to the backoff check.
+        self._match_running = threading.Lock()
+
+    def _run_ingest_tick(self) -> None:
+        ingest_job(self._engine, self._settings)
+
+    def _next_match_tick(self) -> int:
+        with self._tick_lock:
+            self._match_tick += 1
+            return self._match_tick
+
+    def _run_match_tick(self) -> None:
+        # Count every firing, including ones the backoff or the overlap guard skips: otherwise
+        # `tick % period` would stay at the same non-zero remainder and never run again.
+        tick = self._next_match_tick()
+        if not self._match_running.acquire(blocking=False):
+            log.info("match tick %s skipped: another match run is in flight", tick)
+            return
+        try:
+            match_job(self._engine, self._settings, tick=tick)
+        finally:
+            self._match_running.release()
+
+    def start(self) -> None:
+        if not self._settings.scheduler_enabled:
+            log.info("scheduler disabled by SCHEDULER_ENABLED")
+            return
+        jitter = self._settings.scheduler_jitter_seconds
+        self._scheduler.add_job(
+            self._run_ingest_tick,
+            "interval",
+            minutes=self._settings.ingest_interval_minutes,
+            id="ingest",
+            max_instances=1,
+            coalesce=True,
+            jitter=jitter,
+            replace_existing=True,
+        )
+        self._scheduler.add_job(
+            self._run_match_tick,
+            "interval",
+            minutes=self._settings.match_interval_minutes,
+            id="match",
+            max_instances=1,
+            coalesce=True,
+            jitter=jitter,
+            replace_existing=True,
+        )
+        self._scheduler.start()
+
+    def shutdown(self) -> None:
+        if self._scheduler.running:
+            self._scheduler.shutdown(wait=False)
+
+    def get_jobs(self) -> list[APSJob]:
+        return list(self._scheduler.get_jobs())
+
+    def wake_matching(self) -> None:
+        """Run matching now, out of band. Repeated calls collapse into one pending run."""
+        if not self._scheduler.running:
+            return
+        self._scheduler.add_job(
+            self._run_match_tick,
+            "date",
+            run_date=utcnow(),
+            id="match-wake",
+            replace_existing=True,
+            misfire_grace_time=None,
+        )
+
+
+def wake_matching(scheduler: "JobScoutScheduler | None") -> None:
+    """Ask the scheduler to match now, if there is one. A no-op otherwise.
+
+    The CLI has no scheduler, and the API runs without one when SCHEDULER_ENABLED is false.
+    Saving preferences must not fail because of that.
+    """
+    if scheduler is not None:
+        scheduler.wake_matching()

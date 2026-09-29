@@ -9,11 +9,13 @@ from jobscout.models.base import utcnow
 from jobscout.pipeline.matching import MatchRun
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.scheduler import (
+    JobScoutScheduler,
     finish_run,
     ingest_job,
     match_job,
     should_skip_for_backoff,
     start_run,
+    wake_matching,
 )
 
 
@@ -392,3 +394,84 @@ def test_match_job_that_only_skipped_low_similarity_is_a_success(session: Sessio
     match_job(session.get_bind(), _settings())
 
     assert session.exec(select(Run).where(col(Run.job) == "match")).one().ok is True
+
+
+def test_start_registers_both_jobs_at_the_configured_intervals(session: Session):
+    scheduler = JobScoutScheduler(
+        session.get_bind(), _settings(ingest_interval_minutes=42, match_interval_minutes=7)
+    )
+    scheduler.start()
+    try:
+        by_id = {job.id: job for job in scheduler.get_jobs()}
+
+        assert set(by_id) == {"ingest", "match"}
+        assert by_id["ingest"].trigger.interval.total_seconds() == 42 * 60
+        assert by_id["match"].trigger.interval.total_seconds() == 7 * 60
+    finally:
+        scheduler.shutdown()
+
+
+def test_disabled_scheduler_registers_nothing(session: Session):
+    """Otherwise every test that builds the app would start threads."""
+    scheduler = JobScoutScheduler(session.get_bind(), _settings(scheduler_enabled=False))
+    scheduler.start()
+    try:
+        assert scheduler.get_jobs() == []
+    finally:
+        scheduler.shutdown()
+
+
+def test_wake_adds_one_immediate_run_and_repeats_collapse(session: Session):
+    scheduler = JobScoutScheduler(session.get_bind(), _settings())
+    scheduler.start()
+    try:
+        scheduler.wake_matching()
+        scheduler.wake_matching()
+
+        wakes = [job for job in scheduler.get_jobs() if job.id == "match-wake"]
+        assert len(wakes) == 1, "a second save must replace the pending run, not queue another"
+    finally:
+        scheduler.shutdown()
+
+
+def test_wake_without_a_scheduler_is_a_no_op():
+    """The CLI and a scheduler-less API both call this; it must never raise."""
+    wake_matching(None)
+
+
+def test_shutdown_is_safe_before_start(session: Session):
+    JobScoutScheduler(session.get_bind(), _settings()).shutdown()
+
+
+def test_match_tick_increments_even_when_the_firing_is_skipped(session: Session, monkeypatch):
+    """A skipped firing must still advance the counter, or a backed-off job never runs again."""
+    seen: list[int] = []
+    monkeypatch.setattr(
+        "jobscout.scheduler.match_job", lambda engine, settings, tick=0: seen.append(tick)
+    )
+    scheduler = JobScoutScheduler(session.get_bind(), _settings())
+
+    scheduler._run_match_tick()
+    scheduler._run_match_tick()
+
+    assert seen == [1, 2]
+
+
+def test_an_overlapping_match_firing_is_dropped_but_still_counted(session: Session, monkeypatch):
+    """A wake must not run beside a scheduled match: the in-flight run's ok=False row would
+    read as a failure and deepen the backoff against itself."""
+    seen: list[int] = []
+    scheduler = JobScoutScheduler(session.get_bind(), _settings())
+
+    def in_flight(engine, settings, tick=0):
+        seen.append(tick)
+        scheduler._run_match_tick()  # a wake arriving while this run is executing
+
+    monkeypatch.setattr("jobscout.scheduler.match_job", in_flight)
+
+    scheduler._run_match_tick()
+
+    assert seen == [1], "the nested firing must not reach match_job"
+    assert scheduler._match_tick == 2
+    scheduler._run_match_tick()
+    assert seen == [1, 3], "the guard must be released after the run"

@@ -56,6 +56,11 @@ strict = true
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
 
+[[tool.mypy.overrides]]
+# APScheduler 3.x ships neither stubs nor py.typed.
+module = ["apscheduler.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
