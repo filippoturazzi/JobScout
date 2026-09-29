@@ -7,7 +7,6 @@ def test_defaults_work_without_env():
     assert s.source_names == ["arbeitnow"]
     assert s.arbeitnow_max_pages == 2
     assert s.inactive_after_days == 14
-    assert s.backfill_window_days == 30
 
 
 def test_env_overrides(monkeypatch):

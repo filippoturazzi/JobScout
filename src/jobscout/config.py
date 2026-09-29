@@ -17,7 +17,6 @@ class Settings(BaseSettings):
     sources: str = "arbeitnow"
     arbeitnow_max_pages: int = 2
     inactive_after_days: int = 14
-    backfill_window_days: int = 30
 
     # --- Scheduler (stage 3) ---
     scheduler_enabled: bool = True

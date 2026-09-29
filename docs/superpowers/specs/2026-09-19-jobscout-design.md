@@ -53,7 +53,7 @@ Package `src/jobscout/`. Dependencies point only "downward".
 ```
 config.py        Settings (pydantic-settings) — OPERATOR config from env:
                  DATABASE_URL, LLM_PROVIDER, LLM_MODEL, EMBEDDING_MODEL, provider keys,
-                 SCHEDULER_INTERVAL_MINUTES, BACKFILL_WINDOW_DAYS, INACTIVE_AFTER_DAYS
+                 SCHEDULER_INTERVAL_MINUTES, INACTIVE_AFTER_DAYS
 models/          SQLModel tables: User, UserPreferences, Job, Match (stage 7: Usage)
 db.py            engine + session factory; SQLite by default, Postgres via DATABASE_URL
 sources/         base.py   Protocol JobSource { name: str; fetch(prefs) -> list[RawJob] }
