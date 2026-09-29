@@ -1,6 +1,7 @@
 """Entry points used by the CLI and the API. The only place sources, DB and filters meet."""
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from sqlmodel import Session, col, select, update
@@ -8,9 +9,7 @@ from sqlmodel.sql.expression import Select
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
-from jobscout.matching.llm import MissingProviderError
 from jobscout.models import Job, Match, UserPreferences
-from jobscout.pipeline.backfill import backfill_matches
 from jobscout.pipeline.filters import filter_jobs
 from jobscout.pipeline.ingest import IngestResult, ingest
 from jobscout.pipeline.matching import MatchRun
@@ -19,15 +18,6 @@ from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.registry import build_sources
 
 log = logging.getLogger(__name__)
-
-# `PUT /preferences` runs its backfill inside the HTTP request, so the per-run cap (25 LLM
-# calls, 1-2 minutes at real provider latency) would push the response past most proxy and
-# client timeouts. This bounds the LLM half only: the same request still embeds up to
-# MAX_EMBEDDINGS_PER_RUN jobs, though that is one batched call and the vectors are cached
-# rather than spent. The real fix is moving the backfill onto the stage-3 scheduler, which
-# has no request to block; until then a preference save re-scores only this many matches
-# while staling all of them (see the stage-3 notes in docs/superpowers/notes/).
-_BACKFILL_EVALUATION_CAP = 5
 
 
 def run_ingest(
@@ -103,8 +93,14 @@ def save_preferences(
     user_id: int,
     changes: dict[str, Any],
     deps: GraphDeps | None = None,
+    on_changed: Callable[[], None] | None = None,
 ) -> tuple[UserPreferences, MatchRun]:
-    """Apply preference changes, invalidate what they affect, and backfill within the cap."""
+    """Apply preference changes and invalidate what they affect.
+
+    Scoring is the scheduler's job: this stales the affected matches, commits, and asks the
+    caller's hook to run matching out of band. Nothing here calls a provider, so a save is
+    fast and cannot fail because matching is unavailable.
+    """
     prefs, changed = update_preferences(session, user_id, changes)
     if not (changed & MATCHING_RELEVANT_FIELDS):
         return prefs, MatchRun()
@@ -115,17 +111,16 @@ def save_preferences(
         .values(status="stale")
     )
     session.commit()
-    # The preferences are already committed above: from here on, every failure is reported
-    # through `MatchRun.error`. Saving preferences must never fail because matching failed.
-    # A ceiling, never a floor: an operator who rationed the budget down keeps their number.
-    evaluation_cap = min(_BACKFILL_EVALUATION_CAP, settings.max_llm_evaluations_per_run)
+    if on_changed is None:
+        return prefs, MatchRun()
     try:
-        run = backfill_matches(session, settings, user_id, deps=deps, limit=evaluation_cap)
-    except MissingProviderError as exc:
+        on_changed()
+    except Exception as exc:
+        # Defensive: the preferences are already committed, so nothing of ours is pending —
+        # but `on_changed` is caller code and may have dirtied the session before raising.
+        # Without this, its leftovers ride along on the next commit from an unrelated
+        # request. Same failure as fd36971, reachable again through the hook.
         session.rollback()
-        run = MatchRun(error=str(exc))
-    except Exception as exc:  # 429, network, auth — anything the provider can throw
-        session.rollback()
-        log.exception("backfill after preference save failed")
-        run = MatchRun(error=f"{type(exc).__name__}: {exc}")
-    return prefs, run
+        log.exception("waking the matcher after a preference save failed")
+        return prefs, MatchRun(error=f"{type(exc).__name__}: {exc}")
+    return prefs, MatchRun()

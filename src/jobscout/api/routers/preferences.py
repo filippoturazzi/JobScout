@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session
 
 from jobscout.api.deps import get_current_user_id, get_session
@@ -8,6 +8,7 @@ from jobscout.api.schemas import PreferencesRead, PreferencesUpdate
 from jobscout.config import get_settings
 from jobscout.pipeline.run import save_preferences
 from jobscout.pipeline.users import get_preferences
+from jobscout.scheduler import wake_matching
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 
@@ -23,13 +24,17 @@ def read_preferences(
 @router.put("", response_model=PreferencesRead)
 def put_preferences(
     payload: PreferencesUpdate,
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> PreferencesRead:
     changes = payload.model_dump(exclude_unset=True)
     settings = get_settings()
+    scheduler = getattr(request.app.state, "scheduler", None)
     try:
-        prefs, _ = save_preferences(session, settings, user_id, changes)
+        prefs, _ = save_preferences(
+            session, settings, user_id, changes, on_changed=lambda: wake_matching(scheduler)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return PreferencesRead.model_validate(prefs)
