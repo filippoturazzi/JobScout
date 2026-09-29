@@ -1,12 +1,18 @@
 from datetime import timedelta
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
-from jobscout.models import Run
+from jobscout.models import Job, Run
 from jobscout.models.base import utcnow
-from jobscout.scheduler import finish_run, should_skip_for_backoff, start_run
+from jobscout.scheduler import (
+    finish_run,
+    ingest_job,
+    match_job,
+    should_skip_for_backoff,
+    start_run,
+)
 
 
 def _settings(**kw) -> Settings:
@@ -122,3 +128,96 @@ def test_another_jobs_failures_do_not_slow_this_one(session: Session):
         _record(session, "ingest", ok=False)
 
     assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
+
+
+def _add_stale_job(session: Session, source: str, external_id: str, days_ago: int) -> Job:
+    seen = utcnow() - timedelta(days=days_ago)
+    job = Job(
+        source=source,
+        external_id=external_id,
+        title="AI Engineer",
+        company="Acme",
+        remote=True,
+        url=f"https://x/{external_id}",
+        description="Python LLM work.",
+        content_hash=f"h-{external_id}",
+        first_seen_at=seen,
+        last_seen_at=seen,
+        is_active=True,
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def test_ingest_job_records_counters_and_deactivates(session: Session, monkeypatch):
+    """A source that answered expires its own stale jobs; a source that errored keeps its own."""
+    import jobscout.scheduler as scheduler_module
+    from jobscout.pipeline.ingest import IngestResult
+
+    engine = session.get_bind()
+    stale_ok = _add_stale_job(session, "arbeitnow", "gone", days_ago=30)
+    stale_broken = _add_stale_job(session, "remotive", "kept", days_ago=30)
+
+    def _fake_ingest(_session, _settings, sources=None):
+        return [
+            IngestResult(source="arbeitnow", fetched=5, created=2, updated=3),
+            IngestResult(source="remotive", error="HTTPStatusError: 503"),
+        ]
+
+    monkeypatch.setattr(scheduler_module, "run_ingest", _fake_ingest)
+
+    ingest_job(engine, _settings(inactive_after_days=14))
+
+    stored = session.exec(select(Run).where(col(Run.job) == "ingest")).one()
+    assert stored.ok is False
+    assert stored.error == "remotive: HTTPStatusError: 503"
+    assert stored.counters["created"] == 2
+    assert stored.counters["deactivated"] == 1
+    session.expire_all()
+    assert session.get(Job, stale_ok.id).is_active is False
+    assert session.get(Job, stale_broken.id).is_active is True
+
+
+def test_ingest_job_records_a_crash_instead_of_raising(session: Session, monkeypatch):
+    """A raising job must leave its Run row behind with the message, not roll it away."""
+    import jobscout.scheduler as scheduler_module
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(scheduler_module, "run_ingest", _boom)
+
+    ingest_job(session.get_bind(), _settings())
+
+    stored = session.exec(select(Run)).one()
+    assert (stored.ok, stored.error) == (False, "RuntimeError: connection reset")
+    assert stored.finished_at is not None
+
+
+def test_match_job_skipped_by_backoff_writes_no_row(session: Session):
+    """Skipping must not itself count as a failure, or the backoff would stall forever."""
+    _record(session, "match", ok=False)
+
+    match_job(session.get_bind(), _settings(), tick=1)
+
+    rows = session.exec(select(Run).where(col(Run.job) == "match")).all()
+    assert len(rows) == 1, "only the seeded failure; the skipped tick added nothing"
+
+
+def test_match_job_records_a_crash_instead_of_raising(session: Session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+    from jobscout.pipeline.users import get_or_create_default_user
+
+    get_or_create_default_user(session)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("429")
+
+    monkeypatch.setattr(scheduler_module, "run_match", _boom)
+
+    match_job(session.get_bind(), _settings())
+
+    stored = session.exec(select(Run).where(col(Run.job) == "match")).one()
+    assert (stored.ok, stored.error) == (False, "RuntimeError: 429")

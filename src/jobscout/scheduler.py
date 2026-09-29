@@ -7,11 +7,15 @@ The job functions are plain callables so all logic is testable without a schedul
 import logging
 from datetime import timedelta
 
+from sqlalchemy import Engine
 from sqlmodel import Session, col, delete, desc, select
 
 from jobscout.config import Settings
-from jobscout.models import Run
+from jobscout.models import Run, User
 from jobscout.models.base import utcnow
+from jobscout.pipeline.liveness import deactivate_stale_jobs
+from jobscout.pipeline.matching import run_match
+from jobscout.pipeline.run import run_ingest
 
 log = logging.getLogger(__name__)
 
@@ -71,3 +75,70 @@ def should_skip_for_backoff(session: Session, settings: Settings, job: str, tick
         return False
     every = 2 ** min(failures, settings.max_backoff_ticks)
     return bool(tick % every != 0)
+
+
+def ingest_job(engine: Engine, settings: Settings) -> None:
+    """Fetch every configured source, then expire what the answering sources stopped showing."""
+    with Session(engine) as session:
+        run = start_run(session, settings, "ingest")
+        counters = {"created": 0, "updated": 0, "changed": 0, "deactivated": 0}
+        errors: list[str] = []
+        try:
+            for result in run_ingest(session, settings):
+                if result.error is not None:
+                    errors.append(f"{result.source}: {result.error}")
+                    continue
+                counters["created"] += result.created
+                counters["updated"] += result.updated
+                counters["changed"] += result.changed
+                # Only a source that answered may expire its own postings.
+                counters["deactivated"] += deactivate_stale_jobs(session, settings, result.source)
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            log.exception("ingest job failed")
+            finish_run(
+                session, run, ok=False, counters=counters, error=f"{type(exc).__name__}: {exc}"
+            )
+            return
+        finish_run(session, run, ok=not errors, counters=counters, error="; ".join(errors) or None)
+
+
+def match_job(engine: Engine, settings: Settings, tick: int = 0) -> None:
+    """Score what is pending, for every user, within the per-run caps."""
+    with Session(engine) as session:
+        if should_skip_for_backoff(session, settings, "match", tick):
+            log.info("match job skipped by backoff at tick %s", tick)
+            return
+        run = start_run(session, settings, "match")
+        counters = {
+            "candidates": 0,
+            "evaluated": 0,
+            "skipped_low": 0,
+            "embedded": 0,
+            "embeddings_pending": 0,
+            "errors": 0,
+        }
+        messages: list[str] = []
+        try:
+            user_ids = [uid for uid in session.exec(select(col(User.id))).all() if uid is not None]
+            for user_id in user_ids:
+                result = run_match(session, settings, user_id)
+                counters["candidates"] += result.candidates
+                counters["evaluated"] += result.evaluated
+                counters["skipped_low"] += result.skipped_low
+                counters["embedded"] += result.embedded
+                counters["embeddings_pending"] += result.embeddings_pending
+                counters["errors"] += len(result.errors)
+                if result.error is not None:
+                    messages.append(f"user {user_id}: {result.error}")
+        except Exception as exc:
+            session.rollback()
+            log.exception("match job failed")
+            finish_run(
+                session, run, ok=False, counters=counters, error=f"{type(exc).__name__}: {exc}"
+            )
+            return
+        finish_run(
+            session, run, ok=not messages, counters=counters, error="; ".join(messages) or None
+        )
