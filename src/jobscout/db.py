@@ -1,5 +1,6 @@
 """Engine and session helpers. SQLite by default; any SQLAlchemy URL via DATABASE_URL."""
 
+import threading
 from typing import Any
 
 from sqlalchemy import Engine
@@ -25,18 +26,21 @@ def init_db(engine: Engine) -> None:
 
 
 _engines: dict[str, Engine] = {}
+_engines_lock = threading.Lock()
 
 
 def get_engine(settings: Settings | None = None) -> Engine:
     """One engine per DATABASE_URL, shared by the CLI, the API lifespan and the scheduler."""
     url = (settings or get_settings()).database_url
-    if url not in _engines:
-        _engines[url] = create_engine_from_url(url)
-    return _engines[url]
+    with _engines_lock:
+        if url not in _engines:
+            _engines[url] = create_engine_from_url(url)
+        return _engines[url]
 
 
 def reset_engines() -> None:
     """Dispose and forget every cached engine (tests, or after changing settings)."""
-    for engine in _engines.values():
-        engine.dispose()
-    _engines.clear()
+    with _engines_lock:
+        for engine in _engines.values():
+            engine.dispose()
+        _engines.clear()
