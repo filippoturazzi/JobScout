@@ -51,6 +51,7 @@ def test_runs_rejects_an_unknown_job_name(client):
 
 
 def test_runs_break_started_at_ties_by_id(client, session):
+    # Behavioural smoke test: does not pin the query plan (see test_list_runs_orders_by...).
     """Two rows sharing a timestamp must come back newest-id first, so `limit` keeps the newer."""
     stamp = utcnow()
     session.add(Run(job="ingest", started_at=stamp, ok=True))
@@ -81,6 +82,7 @@ def test_runs_round_trips_empty_counters(client, session):
 
 
 def test_runs_break_ties_by_id_under_a_job_filter(client, session):
+    # Behavioural smoke test: does not pin the query plan (see test_list_runs_orders_by...).
     """Filtering by job changes the query plan; the tie-break must hold there too."""
     stamp = utcnow()
     for _ in range(3):

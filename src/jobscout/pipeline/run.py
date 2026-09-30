@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from sqlmodel import Session, col, desc, select, update
-from sqlmodel.sql.expression import Select
+from sqlmodel.sql.expression import Select, SelectOfScalar
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
@@ -87,12 +87,18 @@ def list_matches(
     return list(session.exec(statement.limit(limit)).all())
 
 
-def list_runs(session: Session, job: str | None = None, limit: int = 50) -> list[Run]:
-    """Scheduled executions, newest first."""
+def run_listing_statement(job: str | None = None) -> SelectOfScalar[Run]:
+    """The `list_runs` query, separated so a test can compile it and pin its ordering."""
+    # The id tie-break keeps same-timestamp rows newest-first; scheduler.py does the same.
     statement = select(Run).order_by(desc(col(Run.started_at)), desc(col(Run.id)))
     if job is not None:
         statement = statement.where(col(Run.job) == job)
-    return list(session.exec(statement.limit(limit)).all())
+    return statement
+
+
+def list_runs(session: Session, job: str | None = None, limit: int = 50) -> list[Run]:
+    """Scheduled executions, newest first."""
+    return list(session.exec(run_listing_statement(job).limit(limit)).all())
 
 
 def save_preferences(
