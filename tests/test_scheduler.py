@@ -6,9 +6,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
-from jobscout.models import Job, Run, User
+from jobscout.models import Job, Match, Run, User
 from jobscout.models.base import utcnow
 from jobscout.pipeline.matching import MatchRun
+from jobscout.pipeline.run import save_preferences
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.scheduler import (
     JobScoutScheduler,
@@ -19,6 +20,7 @@ from jobscout.scheduler import (
     start_run,
     wake_matching,
 )
+from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 
 def _settings(**kw) -> Settings:
@@ -508,3 +510,37 @@ def test_an_overlapping_match_firing_is_dropped_but_still_counted(session: Sessi
     assert scheduler._match_tick == 2
     scheduler._run_match_tick()
     assert seen == [1, 3], "the guard must be released after the run"
+
+
+def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch):
+    """The stage's headline: save preferences, the scheduler wakes, matches get scored.
+
+    Drives the real path — save_preferences -> wake -> match_job -> run_match -> Match rows
+    — with fake models standing in only for the provider.
+    """
+    import jobscout.pipeline.matching as matching_module
+
+    monkeypatch.setattr(matching_module, "chat_model", lambda _s: CountingChatModel())
+    monkeypatch.setattr(matching_module, "embeddings", lambda _s: DeterministicFakeEmbedding(8))
+    settings = _settings(embedding_dim=8, similarity_threshold=-1.0, scheduler_enabled=False)
+    engine = session.get_bind()
+    user = get_or_create_default_user(session)
+    _add_stale_job(session, "arbeitnow", "live", days_ago=0)
+
+    woken: list[bool] = []
+    save_preferences(
+        session,
+        settings,
+        user.id,
+        {"profile_summary": "Python LLM engineer."},
+        on_changed=lambda: woken.append(True),
+    )
+    assert woken == [True], "the save asks for a run"
+
+    match_job(engine, settings, tick=1)
+
+    session.expire_all()
+    stored = session.exec(select(Match)).one()
+    assert stored.score is not None
+    run = session.exec(select(Run).where(col(Run.job) == "match")).one()
+    assert (run.ok, run.counters["evaluated"]) == (True, 1)
