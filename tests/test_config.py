@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from jobscout.config import Settings, get_settings
 
 
@@ -63,3 +66,16 @@ def test_scheduler_can_be_disabled_by_env(monkeypatch):
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
 
     assert Settings(_env_file=None).scheduler_enabled is False
+
+
+def test_log_level_is_case_insensitive():
+    assert Settings(_env_file=None, log_level="info").log_level == "INFO"
+
+
+@pytest.mark.parametrize("bad", ["chatty", "", "20"])
+def test_invalid_log_level_names_the_valid_values(bad):
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, log_level=bad)
+
+    message = str(excinfo.value)
+    assert "WARNING" in message and "CRITICAL" in message

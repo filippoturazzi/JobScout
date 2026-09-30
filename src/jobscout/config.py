@@ -6,7 +6,9 @@ provider keys) belongs here. Anything that describes *what a user wants* belongs
 """
 
 from functools import lru_cache
+from typing import Any, Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +28,14 @@ class Settings(BaseSettings):
     run_retention_days: int = 30
     max_backoff_ticks: int = 6
 
-    log_level: str = "WARNING"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "WARNING"
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalise_log_level(cls, value: Any) -> Any:
+        # Accept `info`; anything else is rejected with the valid names, never silently
+        # replaced, so a typo cannot hide the output the operator asked for.
+        return value.strip().upper() if isinstance(value, str) else value
 
     api_host: str = "127.0.0.1"
     api_port: int = 8000
