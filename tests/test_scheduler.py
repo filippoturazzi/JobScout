@@ -513,10 +513,12 @@ def test_an_overlapping_match_firing_is_dropped_but_still_counted(session: Sessi
 
 
 def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch):
-    """The stage's headline: save preferences, the scheduler wakes, matches get scored.
+    """The stage's headline: save preferences -> stale -> re-score, through the real path.
 
-    Drives the real path — save_preferences -> wake -> match_job -> run_match -> Match rows
-    — with fake models standing in only for the provider.
+    A match scored under the old preferences exists. save_preferences must stale it and call
+    the `on_changed` hook (here a recorder; the real wake_matching and the scheduler wiring
+    are covered by other tests). match_job then re-scores the row and records a Run, with
+    fake models standing in only for the provider.
     """
     import jobscout.pipeline.matching as matching_module
 
@@ -525,7 +527,10 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
     settings = _settings(embedding_dim=8, similarity_threshold=-1.0, scheduler_enabled=False)
     engine = session.get_bind()
     user = get_or_create_default_user(session)
-    _add_stale_job(session, "arbeitnow", "live", days_ago=0)
+    job = _add_stale_job(session, "arbeitnow", "live", days_ago=0)
+    assert job.id is not None and user.id is not None
+    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.5, score=10, status="new"))
+    session.commit()
 
     woken: list[bool] = []
     save_preferences(
@@ -541,6 +546,7 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
 
     session.expire_all()
     stored = session.exec(select(Match)).one()
-    assert stored.score is not None
+    assert stored.score == 75, "re-scored by the fake model, not the old score of 10"
+    assert stored.status != "stale", "the save staled the row and the run cleared it"
     run = session.exec(select(Run).where(col(Run.job) == "match")).one()
     assert (run.ok, run.counters["evaluated"]) == (True, 1)
