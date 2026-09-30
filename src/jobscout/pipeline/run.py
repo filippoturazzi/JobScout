@@ -4,12 +4,12 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from sqlmodel import Session, col, select, update
+from sqlmodel import Session, col, desc, select, update
 from sqlmodel.sql.expression import Select
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
-from jobscout.models import Job, Match, UserPreferences
+from jobscout.models import Job, Match, Run, UserPreferences
 from jobscout.pipeline.filters import filter_jobs
 from jobscout.pipeline.ingest import IngestResult, ingest
 from jobscout.pipeline.matching import MatchRun
@@ -84,6 +84,14 @@ def list_matches(
     rows, because a row with no score cannot clear a floor.
     """
     statement = match_listing_statement(user_id, min_score=min_score, status=status)
+    return list(session.exec(statement.limit(limit)).all())
+
+
+def list_runs(session: Session, job: str | None = None, limit: int = 50) -> list[Run]:
+    """Scheduled executions, newest first."""
+    statement = select(Run).order_by(desc(col(Run.started_at)))
+    if job is not None:
+        statement = statement.where(col(Run.job) == job)
     return list(session.exec(statement.limit(limit)).all())
 
 
