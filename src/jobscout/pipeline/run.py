@@ -89,7 +89,7 @@ def list_matches(
 
 def list_runs(session: Session, job: str | None = None, limit: int = 50) -> list[Run]:
     """Scheduled executions, newest first."""
-    statement = select(Run).order_by(desc(col(Run.started_at)))
+    statement = select(Run).order_by(desc(col(Run.started_at)), desc(col(Run.id)))
     if job is not None:
         statement = statement.where(col(Run.job) == job)
     return list(session.exec(statement.limit(limit)).all())
