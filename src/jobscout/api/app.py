@@ -8,17 +8,27 @@ from sqlmodel import Session
 
 from jobscout import __version__
 from jobscout.api.routers import jobs, matches, preferences
+from jobscout.config import get_settings
 from jobscout.db import get_engine, init_db
 from jobscout.pipeline.users import get_or_create_default_user
+from jobscout.scheduler import JobScoutScheduler
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    engine = get_engine()
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    engine = get_engine(settings)
     init_db(engine)
     with Session(engine) as session:
         get_or_create_default_user(session)
-    yield
+    # A fresh scheduler per lifespan, so start() can never run twice on one instance.
+    scheduler = JobScoutScheduler(engine, settings)
+    application.state.scheduler = scheduler
+    try:
+        scheduler.start()
+        yield
+    finally:
+        scheduler.shutdown()
 
 
 def create_app() -> FastAPI:

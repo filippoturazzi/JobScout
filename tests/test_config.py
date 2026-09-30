@@ -47,7 +47,8 @@ def test_matching_settings_from_env(monkeypatch):
     assert s.max_llm_evaluations_per_run == 3
 
 
-def test_scheduler_settings_have_operator_defaults():
+def test_scheduler_settings_have_operator_defaults(monkeypatch):
+    monkeypatch.delenv("SCHEDULER_ENABLED")  # conftest disables it for the whole suite
     settings = Settings(_env_file=None)
 
     assert settings.scheduler_enabled is True

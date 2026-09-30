@@ -22,6 +22,7 @@ from jobscout.scheduler import (
 
 
 def _settings(**kw) -> Settings:
+    kw.setdefault("scheduler_enabled", True)  # the suite-wide env default is off
     return Settings(_env_file=None, **kw)
 
 
