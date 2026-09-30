@@ -205,7 +205,8 @@ Carried to stage 4:
 - **`saved`/`notified` re-evaluation** (see the Stage 4 item above) is still open, and the
   scheduler makes it more likely: matches are now re-evaluated continuously, not only on a
   manual `jobscout match`.
-- **Calibrate `SIMILARITY_THRESHOLD`** from the logged `similarity over N candidates: min/p50/max`
-  line. Relevant and irrelevant postings overlap (-0.020 on a 5-vs-5 control set), so no
+- **Calibrate `SIMILARITY_THRESHOLD`** from the `similarity over N candidates: min/p50/max`
+  line, which is logged at INFO and only appears with `LOG_LEVEL=INFO` (default WARNING), so
+  it must be enabled to collect data. Relevant and irrelevant postings overlap (-0.020 on a 5-vs-5 control set), so no
   absolute threshold separates them and 0.45 never firing is the safe behaviour; the log
   says whether that holds at scale. Do not change the threshold without that data.

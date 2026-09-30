@@ -144,12 +144,12 @@ Non-persisted contracts:
 ## 9. Testing and CI
 
 - **Sources:** unit tests with recorded JSON fixtures (`tests/fixtures/<source>_sample.json`) and `respx` for HTTP mocking. A generic contract test runs against every source in the registry (returns `RawJob`s, stable `external_id`, required fields present).
-- **Pipeline:** in-memory SQLite; asserts dedup, idempotency, liveness fields, content-hash change handling, backfill selection.
+- **Pipeline:** in-memory SQLite; asserts dedup, idempotency, liveness fields, content-hash change handling, matching selection.
 - **Matching:** LangChain `FakeEmbeddings` and `FakeListChatModel`; full graph runs without any key, including the path where prefilter rejects and the LLM is never invoked (asserted via a counting fake).
 - **API:** `TestClient` with in-memory DB.
 - **Integration** tests (real Arbeitnow, real LLM) behind `pytest -m integration`, off by default, not in CI.
 - **CI:** GitHub Actions on push/PR — `ruff check`, `ruff format --check`, `pytest`, Python 3.12. `mypy` added in stage 6.
-- **Method:** TDD for all logic (sources, ingest, graph, backfill). Shells (CLI, routers) get tests after.
+- **Method:** TDD for all logic (sources, ingest, graph, matching). Shells (CLI, routers) get tests after.
 
 ## 10. Out of scope for stages 0–2
 

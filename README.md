@@ -47,12 +47,15 @@ Without a provider key, everything except matching still works.
 (cheap HTTP) every `INGEST_INTERVAL_MINUTES` (default 60) and matching (spends LLM and
 embedding quota) every `MATCH_INTERVAL_MINUTES` (default 15). Set them in `.env`. Set
 `SCHEDULER_ENABLED=false` to turn the scheduler off; the CLI always stays manual. A failing
-job backs off exponentially, capped by `MAX_BACKOFF_TICKS`. `GET /runs` lists what each run
+matching job backs off exponentially, capped by `MAX_BACKOFF_TICKS`; ingest does not back
+off, since it is cheap keyless HTTP with no quota to protect. `GET /runs` lists what each run
 did and whether it succeeded.
 
 A preference save (`PUT /preferences`) no longer scores anything inline. It marks the
 affected matches stale and wakes the matcher, which re-scores them out of band; the
-scheduler drains whatever is left on its interval.
+scheduler drains whatever is left on its interval. With `SCHEDULER_ENABLED=false`, or when
+using the CLI, a preference save wakes nothing and matches stay `stale` until you run
+`jobscout match`.
 
 ## API
 

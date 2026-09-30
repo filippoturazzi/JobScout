@@ -14,7 +14,9 @@ from jobscout.pipeline.repair import repair_descriptions as repair
 from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.users import get_or_create_default_user
 
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=get_settings().log_level.upper(), format="%(levelname)s %(name)s: %(message)s"
+)
 log = logging.getLogger(__name__)
 
 app = typer.Typer(

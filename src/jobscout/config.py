@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     run_retention_days: int = 30
     max_backoff_ticks: int = 6
 
+    log_level: str = "WARNING"
+
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     llm_provider: str = "google"

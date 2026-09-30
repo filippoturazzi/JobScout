@@ -375,10 +375,20 @@ def test_a_cached_profile_embedding_is_not_recomputed_on_the_next_run(session):
 def test_run_match_logs_the_similarity_distribution(session, caplog):
     """Stage 4 calibrates SIMILARITY_THRESHOLD from this; 0.45 is currently inert."""
     user = _user_with_profile(session)
-    for i in range(3):
-        _add_job(session, f"j{i}")
+    titles = ["AI Engineer", "Data Scientist", "Backend Developer"]
+    update_preferences(session, user.id, {"titles": titles})
+    jobs = [_add_job(session, f"j{i}", title=title) for i, title in enumerate(titles)]
+    fake = DeterministicFakeEmbedding(size=DIM)
+    profile_vector = fake.embed_query(profile_text(get_preferences(session, user.id)))
+    sims = sorted(cosine(fake.embed_query(job_embedding_text(job)), profile_vector) for job in jobs)
+    assert len(set(sims)) == 3, "the fixture must not produce ties"
 
     with caplog.at_level(logging.INFO, logger="jobscout.pipeline.matching"):
         run_match(session, _settings(), user.id, deps=_deps(CountingChatModel()))
 
-    assert any("similarity" in record.message for record in caplog.records)
+    lines = [r.getMessage() for r in caplog.records if "similarity over" in r.getMessage()]
+    assert len(lines) == 1
+    assert "over 3 candidates" in lines[0]
+    assert f"min={sims[0]:.3f}" in lines[0]
+    assert f"p50={sims[1]:.3f}" in lines[0]
+    assert f"max={sims[2]:.3f}" in lines[0]
