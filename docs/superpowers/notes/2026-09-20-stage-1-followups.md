@@ -191,3 +191,21 @@ separates better, and whether another embedding model behaves differently.
 without changing `content_hash`, so neither ingest nor `repair-descriptions` notices. This
 time it was handled with a manual UPDATE. Storing a hash of the embedding input beside the
 vector would make it self-healing; worth doing before a third renderer change.
+
+## Stage 3 resolution (2026-09-30)
+
+Resolved in stage 3: the backfill moved off the request onto the scheduler
+(`_BACKFILL_EVALUATION_CAP` and `backfill_matches` are gone); matching and ingest run as
+scheduled jobs with jitter and failure backoff; the scheduler drains the stale tail after a
+preference save; `PUT /preferences` no longer embeds or scores inline; `match(user_id,
+status)` is indexed (`ix_match_user_status`); the per-run similarity distribution is logged.
+
+Carried to stage 4:
+
+- **`saved`/`notified` re-evaluation** (see the Stage 4 item above) is still open, and the
+  scheduler makes it more likely: matches are now re-evaluated continuously, not only on a
+  manual `jobscout match`.
+- **Calibrate `SIMILARITY_THRESHOLD`** from the logged `similarity over N candidates: min/p50/max`
+  line. Relevant and irrelevant postings overlap (-0.020 on a 5-vs-5 control set), so no
+  absolute threshold separates them and 0.45 never firing is the safe behaviour; the log
+  says whether that holds at scale. Do not change the threshold without that data.

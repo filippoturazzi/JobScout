@@ -53,14 +53,13 @@ Package `src/jobscout/`. Dependencies point only "downward".
 ```
 config.py        Settings (pydantic-settings) — OPERATOR config from env:
                  DATABASE_URL, LLM_PROVIDER, LLM_MODEL, EMBEDDING_MODEL, provider keys,
-                 SCHEDULER_INTERVAL_MINUTES, INACTIVE_AFTER_DAYS
+                 INGEST_INTERVAL_MINUTES, MATCH_INTERVAL_MINUTES, INACTIVE_AFTER_DAYS
 models/          SQLModel tables: User, UserPreferences, Job, Match (stage 7: Usage)
 db.py            engine + session factory; SQLite by default, Postgres via DATABASE_URL
 sources/         base.py   Protocol JobSource { name: str; fetch(prefs) -> list[RawJob] }
                  arbeitnow.py, remoteok.py, ...  HTTP + parsing to RawJob only; no DB access
                  registry.py  active sources (from settings)
 pipeline/        ingest.py    fetch all sources -> normalize -> upsert Job (dedup + liveness + content hash)
-                 backfill.py  backfill_matches(user_id, window_days)
                  run.py       run_ingest(session, settings) [global]; run_pipeline = ingest -> match new/changed jobs per user -> notify
                  plain Python; no LangGraph here
 matching/        llm.py        factory: chat model + embeddings from Settings
@@ -95,8 +94,8 @@ cli.py           Typer: fetch, match, run, jobs, serve
    - `UpsertStats` reports `created_ids` / `changed_ids` so downstream matching targets exactly those rows
 3. For each new (or stale) `Job` × each user, a deterministic pre-filter (`pipeline/filters.py`: work mode, region, hard keyword exclusions from preferences) drops obvious non-candidates without writing anything; the rest go through `matching.graph`, which writes a `Match`. In stage 1, before the graph exists, this filter alone decides what `jobs` lists.
 4. `Notifier.send(match)` fires when `match.score >= prefs.min_score_to_notify` and `status == new`.
-5. Periodically (stage 3), jobs with `last_seen_at` older than `INACTIVE_AFTER_DAYS` are marked `is_active = False`. Matching and backfill consider only active jobs.
-6. When preferences are created or updated, `backfill_matches(user_id, BACKFILL_WINDOW_DAYS)` runs the graph over active jobs first seen within the window that have no `Match` for that user yet.
+5. Periodically (stage 3), jobs with `last_seen_at` older than `INACTIVE_AFTER_DAYS` are marked `is_active = False`. Matching considers only active jobs.
+6. When preferences are created or updated, the save marks the user's affected matches `stale`, commits, and asks the scheduler to run matching out of band; the request never scores anything inline. The scheduler's match job drains the rest on its interval.
 
 ## 6. Matching graph (stage 2)
 

@@ -370,3 +370,15 @@ def test_a_cached_profile_embedding_is_not_recomputed_on_the_next_run(session):
 
     assert embed.query_calls == 1, "the second run must reuse the stored profile vector"
     assert embed.document_calls == 2, "but it still embeds the job left over from run one"
+
+
+def test_run_match_logs_the_similarity_distribution(session, caplog):
+    """Stage 4 calibrates SIMILARITY_THRESHOLD from this; 0.45 is currently inert."""
+    user = _user_with_profile(session)
+    for i in range(3):
+        _add_job(session, f"j{i}")
+
+    with caplog.at_level(logging.INFO, logger="jobscout.pipeline.matching"):
+        run_match(session, _settings(), user.id, deps=_deps(CountingChatModel()))
+
+    assert any("similarity" in record.message for record in caplog.records)

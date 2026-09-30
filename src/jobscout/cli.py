@@ -17,7 +17,13 @@ from jobscout.pipeline.users import get_or_create_default_user
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
 
-app = typer.Typer(help="JobScout: find jobs that match your profile.", no_args_is_help=True)
+app = typer.Typer(
+    help="JobScout: find jobs that match your profile.",
+    no_args_is_help=True,
+    # Unattended runs land in log files and Windows consoles, where a colourised
+    # traceback is unreadable.
+    pretty_exceptions_enable=False,
+)
 
 
 def _session() -> Session:

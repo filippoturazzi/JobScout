@@ -208,6 +208,16 @@ def run_match(
         key=lambda pair: pair[0],
         reverse=True,
     )
+    if ranked:
+        scores = [similarity for similarity, _job in ranked]
+        log.info(
+            "similarity over %d candidates: min=%.3f p50=%.3f max=%.3f threshold=%.3f",
+            len(scores),
+            scores[-1],
+            scores[len(scores) // 2],
+            scores[0],
+            settings.similarity_threshold,
+        )
     cap = limit if limit is not None else settings.max_llm_evaluations_per_run
     selected = ranked[:cap]
 
