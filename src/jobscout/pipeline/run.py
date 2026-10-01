@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlmodel import Session, col, desc, select, update
 from sqlmodel.sql.expression import Select, SelectOfScalar
@@ -15,6 +15,9 @@ from jobscout.pipeline.matching import MatchRun
 from jobscout.pipeline.users import MATCHING_RELEVANT_FIELDS, get_preferences, update_preferences
 from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.registry import build_sources
+
+if TYPE_CHECKING:
+    from jobscout.matching.graph import GraphDeps
 
 log = logging.getLogger(__name__)
 
@@ -105,7 +108,7 @@ def save_preferences(
     settings: Settings,
     user_id: int,
     changes: dict[str, Any],
-    deps: object | None = None,
+    deps: "GraphDeps | None" = None,
     on_changed: Callable[[], None] | None = None,
 ) -> tuple[UserPreferences, MatchRun]:
     """Apply preference changes and invalidate what they affect.

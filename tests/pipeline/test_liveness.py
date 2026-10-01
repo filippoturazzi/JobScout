@@ -81,7 +81,9 @@ def test_does_not_commit_on_its_own(session: Session):
     assert session.get(Job, job.id).is_active is True
 
 
-def test_boundary_exactly_at_cutoff_survives(session: Session):
+def test_job_one_second_inside_cutoff_survives_and_one_second_outside_is_deactivated(
+    session: Session,
+):
     """A job last seen less than inactive_after_days ago must survive (< comparison).
     A job one second older than that must be deactivated."""
     now = utcnow()

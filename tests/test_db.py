@@ -51,4 +51,5 @@ def test_get_engine_returns_one_engine_under_concurrent_callers():
     for thread in threads:
         thread.join()
 
+    assert len(engines) == 8  # a thread that died inside get_engine must not pass silently
     assert len({id(engine) for engine in engines}) == 1

@@ -51,7 +51,9 @@ def test_matching_settings_from_env(monkeypatch):
 
 
 def test_scheduler_settings_have_operator_defaults(monkeypatch):
-    monkeypatch.delenv("SCHEDULER_ENABLED")  # conftest disables it for the whole suite
+    monkeypatch.delenv(
+        "SCHEDULER_ENABLED", raising=False
+    )  # conftest disables it for the whole suite
     settings = Settings(_env_file=None)
 
     assert settings.scheduler_enabled is True
@@ -63,8 +65,10 @@ def test_scheduler_settings_have_operator_defaults(monkeypatch):
 
 
 def test_scheduler_can_be_disabled_by_env(monkeypatch):
-    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    monkeypatch.setenv("SCHEDULER_ENABLED", "true")
+    assert Settings(_env_file=None).scheduler_enabled is True
 
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     assert Settings(_env_file=None).scheduler_enabled is False
 
 

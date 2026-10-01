@@ -38,7 +38,7 @@ Every stage ends with something that runs end to end.
 | 0 Foundation | `git init`, `uv init` (src-layout), `pyproject.toml` with ruff + pytest, GitHub Actions (lint + tests), MIT license, README skeleton (EN), `.env.example`, updated `CLAUDE.md` | CI is green on an empty package |
 | 1 Vertical slice, no AI | SQLModel models + SQLite; `JobSource` protocol + `ArbeitnowSource`; upsert ingest with dedup and liveness tracking; deterministic pre-filter (work mode/region/keywords); CLI `fetch`, `jobs`; API `GET /jobs`, `GET/PUT /preferences`. Operator config (env) strictly separated from user preferences (DB) | `uv run jobscout fetch` stores real jobs in SQLite and they appear in Swagger |
 | 2 AI matching | LangGraph matching graph; `Match` model; provider factory from settings; backfill on preference save; CLI `match`; API `GET /matches`; tests with fake LLM/embeddings | Score + reasoning on real jobs; fake-LLM tests pass, including the "prefilter rejects, LLM not called" path |
-| 3 Continuous run | APScheduler in lifespan calling `run_pipeline(user_id)`; only new jobs are matched; jobs unseen for N days marked inactive; interval configurable | Left running for an hour, new jobs appear on their own |
+| 3 Continuous run | APScheduler in lifespan running the ingest and match jobs; only new jobs are matched; jobs unseen for N days marked inactive; interval configurable | Left running for an hour, new jobs appear on their own |
 | 4 Notification | `Notifier` protocol + first channel (Telegram, e-mail, push/PWA — decided at that time); `min_score_to_notify` threshold | A notification arrives |
 | 5 Multi-source | RemoteOK, Adzuna (key), Jooble, The Muse — one PR each; "How to add a source" guide; generic contract test runs against every registered source | At least 3 sources live |
 | 6 Product | Reflex UI (config wizard, dashboard); real auth and multi-user; Postgres in `docker-compose.yml`; i18n (READMEs + UI, en/pt/es) | Someone signs up and uses it without the author |
@@ -53,14 +53,18 @@ Package `src/jobscout/`. Dependencies point only "downward".
 ```
 config.py        Settings (pydantic-settings) — OPERATOR config from env:
                  DATABASE_URL, LLM_PROVIDER, LLM_MODEL, EMBEDDING_MODEL, provider keys,
-                 INGEST_INTERVAL_MINUTES, MATCH_INTERVAL_MINUTES, INACTIVE_AFTER_DAYS
-models/          SQLModel tables: User, UserPreferences, Job, Match (stage 7: Usage)
+                 INGEST_INTERVAL_MINUTES, MATCH_INTERVAL_MINUTES, INACTIVE_AFTER_DAYS,
+                 SCHEDULER_ENABLED, SCHEDULER_JITTER_SECONDS, RUN_RETENTION_DAYS,
+                 MAX_BACKOFF_TICKS, LOG_LEVEL
+models/          SQLModel tables: User, UserPreferences, Job, Match, Run (stage 7: Usage)
+                 run.py  Run: one row per scheduled execution (see section 7)
 db.py            engine + session factory; SQLite by default, Postgres via DATABASE_URL
 sources/         base.py   Protocol JobSource { name: str; fetch(prefs) -> list[RawJob] }
                  arbeitnow.py, remoteok.py, ...  HTTP + parsing to RawJob only; no DB access
                  registry.py  active sources (from settings)
 pipeline/        ingest.py    fetch all sources -> normalize -> upsert Job (dedup + liveness + content hash)
-                 run.py       run_ingest(session, settings) [global]; run_pipeline = ingest -> match new/changed jobs per user -> notify
+                 liveness.py  deactivate_stale_jobs: marks jobs unseen for INACTIVE_AFTER_DAYS inactive
+                 run.py       run_ingest(session, settings) [global]; list/save helpers shared by API and CLI (list_runs, save_preferences)
                  plain Python; no LangGraph here
 matching/        llm.py        factory: chat model + embeddings from Settings
                  embeddings.py embed profile and job text
@@ -68,16 +72,17 @@ matching/        llm.py        factory: chat model + embeddings from Settings
                  prompts.py
                  graph.py      LangGraph StateGraph, one run per (job, user)
 notifiers/       base.py  Protocol Notifier { send(match) }; implementations from stage 4
-scheduler.py     APScheduler wired into FastAPI lifespan (stage 3)
-api/             FastAPI app; routers jobs, preferences, matches; deps.py with get_session, get_current_user
-cli.py           Typer: fetch, match, run, jobs, serve
+scheduler.py     APScheduler wired into FastAPI lifespan (stage 3): ingest and match jobs, Run bookkeeping, backoff
+logs.py          logging setup from LOG_LEVEL
+api/             FastAPI app; routers jobs, preferences, matches, runs; deps.py with get_session, get_current_user
+cli.py           Typer: fetch, jobs, match, matches, repair-descriptions, serve
 ```
 
 **Dependency rules**
 - `sources` knows nothing about the database.
 - `matching` knows nothing about HTTP or sources.
 - `pipeline` is the only module that composes the others.
-- `api` and `cli` are thin shells over `pipeline`; no business logic.
+- `api`, `cli` and `scheduler` are thin shells over `pipeline`; no business logic.
 - `notifiers` depend only on `models`.
 
 **Current user before auth:** `api/deps.py::get_current_user()` returns the fixed user (id 1, created at startup if missing). In stage 6 only this function changes.
@@ -117,7 +122,7 @@ embed_job -> prefilter --(similarity < threshold)--> record_low   -> END
 
 ## 7. Data model
 
-All tables have `id`, `created_at`, `updated_at`. Lists are stored as JSON columns.
+All tables have `id`, `created_at`, `updated_at` (except `Run`, which has `started_at`/`finished_at` instead). Lists are stored as JSON columns.
 
 **User** — `email` (unique), `locale` (`en`|`pt`|`es`). No password until stage 6.
 
@@ -126,6 +131,8 @@ All tables have `id`, `created_at`, `updated_at`. Lists are stored as JSON colum
 **Job** (global, not per user) — `source: str`, `external_id: str` (unique together with `source`), `title`, `company`, `location`, `remote: bool`, `url`, `description`, `salary_min`, `salary_max`, `salary_currency` (optional), `tags: list[str]`, `posted_at: datetime | None`, `first_seen_at`, `last_seen_at`, `is_active: bool`, `content_hash: str`, `embedding: bytes | None`, `raw: dict` (original payload, for reprocessing without refetching).
 
 **Match** (unique on `job_id`, `user_id`) — `job_id`, `user_id`, `similarity: float`, `score: int | None` (null when prefilter rejected), `reasoning: str | None`, `matched_skills`, `missing_skills`, `red_flags: list[str]`, `status: new|notified|seen|dismissed|saved|stale`, `llm_model: str | None`.
+
+**Run** — `job: str` (`"ingest"` or `"match"`), `started_at: datetime`, `finished_at: datetime | None`, `ok: bool`, `error: str | None`, `counters: dict[str, int]` (JSON column). The row is written *before* the work starts and defaults to `ok=False`, so a process killed mid-run leaves a trace that reads as a failure (no `finished_at`). Rows older than `RUN_RETENTION_DAYS` are pruned when a new run starts.
 
 **Usage** (stage 7) — `user_id`, `date`, `llm_calls`, `jobs_evaluated`.
 
