@@ -8,7 +8,6 @@ from sqlmodel import Session, col, desc, select, update
 from sqlmodel.sql.expression import Select, SelectOfScalar
 
 from jobscout.config import Settings
-from jobscout.matching.graph import GraphDeps
 from jobscout.models import Job, Match, Run, UserPreferences
 from jobscout.pipeline.filters import filter_jobs
 from jobscout.pipeline.ingest import IngestResult, ingest
@@ -106,7 +105,7 @@ def save_preferences(
     settings: Settings,
     user_id: int,
     changes: dict[str, Any],
-    deps: GraphDeps | None = None,
+    deps: object | None = None,
     on_changed: Callable[[], None] | None = None,
 ) -> tuple[UserPreferences, MatchRun]:
     """Apply preference changes and invalidate what they affect.

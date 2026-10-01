@@ -62,10 +62,13 @@ def should_skip_for_backoff(session: Session, settings: Settings, job: str, tick
     only every `2**k`-th tick, capped by MAX_BACKOFF_TICKS.
 
     A skipped tick writes no Run row, so skipping can never deepen the backoff by itself.
+    Unfinished rows (`finished_at IS NULL`) are ignored: a run killed mid-flight by a process
+    exit is not evidence about the provider, and counting it would turn unclean restarts
+    into an ever-longer backoff.
     """
     recent = session.exec(
         select(Run)
-        .where(col(Run.job) == job)
+        .where(col(Run.job) == job, col(Run.finished_at).is_not(None))
         .order_by(desc(col(Run.started_at)), desc(col(Run.id)))
         .limit(64)
     ).all()
@@ -129,20 +132,30 @@ def _ingest(engine: Engine, settings: Settings) -> None:
         )
 
 
-def match_job(engine: Engine, settings: Settings, tick: int = 0) -> None:
+def match_job(
+    engine: Engine, settings: Settings, tick: int | None = None, force: bool = False
+) -> None:
     """Score what is pending, for every user, within the per-run caps.
+
+    `tick` is the firing's sequence number, used only by the backoff. `None` means "not a
+    counted firing" (an ad-hoc call): the backoff is not consulted, deliberately and visibly,
+    rather than by `0 % n == 0` accident. `force` bypasses the backoff for an explicit wake.
 
     Never raises, for the same reason as `ingest_job`.
     """
     try:
-        _match(engine, settings, tick)
+        _match(engine, settings, tick, force)
     except Exception:
         log.exception("match job crashed outside its own error handling")
 
 
-def _match(engine: Engine, settings: Settings, tick: int) -> None:
+def _match(engine: Engine, settings: Settings, tick: int | None, force: bool) -> None:
     with Session(engine) as session:
-        if should_skip_for_backoff(session, settings, "match", tick):
+        if (
+            not force
+            and tick is not None
+            and should_skip_for_backoff(session, settings, "match", tick)
+        ):
             log.info("match job skipped by backoff at tick %s", tick)
             return
         run = start_run(session, settings, "match")
@@ -154,10 +167,13 @@ def _match(engine: Engine, settings: Settings, tick: int) -> None:
             "embeddings_pending": 0,
             "errors": 0,
         }
-        messages: list[str] = []
+        # Notes explain a run that did nothing; they never make it a failure.
+        notes: list[str] = []
         job_errors: list[str] = []
         try:
             user_ids = [uid for uid in session.exec(select(col(User.id))).all() if uid is not None]
+            if not user_ids:
+                notes.append("no users to match")
             for user_id in user_ids:
                 result = run_match(session, settings, user_id)
                 counters["candidates"] += result.candidates
@@ -168,7 +184,7 @@ def _match(engine: Engine, settings: Settings, tick: int) -> None:
                 counters["errors"] += len(result.errors)
                 job_errors.extend(result.errors)
                 if result.error is not None:
-                    messages.append(f"user {user_id}: {result.error}")
+                    notes.append(f"user {user_id}: {result.error}")
         except Exception as exc:
             session.rollback()
             log.exception("match job failed")
@@ -176,13 +192,15 @@ def _match(engine: Engine, settings: Settings, tick: int) -> None:
                 session, run, ok=False, counters=counters, error=f"{type(exc).__name__}: {exc}"
             )
             return
-        # A run that hit errors and evaluated nothing accomplished nothing: that is a failure, or
-        # the backoff never engages against a rate-limited provider. Partial success stays ok.
-        if not messages and counters["errors"] > 0 and counters["evaluated"] == 0:
-            messages.append(f"{counters['errors']} error(s), nothing evaluated: {job_errors[0]}")
-        finish_run(
-            session, run, ok=not messages, counters=counters, error="; ".join(messages) or None
-        )
+        # Nothing attempted != everything failed. An empty profile or no users calls no provider,
+        # so there is nothing to back off from: such a run is ok, and the note stays in `error`
+        # so /runs still says why nothing happened. Only a run that hit provider errors and
+        # evaluated nothing is a failure, or the backoff never engages against a rate-limited
+        # provider. Partial success stays ok.
+        failed = counters["errors"] > 0 and counters["evaluated"] == 0
+        if failed:
+            notes.append(f"{counters['errors']} error(s), nothing evaluated: {job_errors[0]}")
+        finish_run(session, run, ok=not failed, counters=counters, error="; ".join(notes) or None)
 
 
 class JobScoutScheduler:
@@ -211,7 +229,7 @@ class JobScoutScheduler:
             self._match_tick += 1
             return self._match_tick
 
-    def _run_match_tick(self) -> None:
+    def _run_match_tick(self, force: bool = False) -> None:
         # Count every firing, including ones the backoff or the overlap guard skips: otherwise
         # `tick % period` would stay at the same non-zero remainder and never run again.
         tick = self._next_match_tick()
@@ -219,7 +237,7 @@ class JobScoutScheduler:
             log.warning("match tick %s skipped: another match run is in flight", tick)
             return
         try:
-            match_job(self._engine, self._settings, tick=tick)
+            match_job(self._engine, self._settings, tick=tick, force=force)
         finally:
             self._match_running.release()
 
@@ -269,6 +287,9 @@ class JobScoutScheduler:
             # timezone. Naive UTC would shift the wake by the machine's UTC offset (hours late in
             # the Americas). Pass an aware value.
             run_date=datetime.now(UTC),
+            # A wake is a user action: new information about whether the failure that drove
+            # the backoff still holds. It must not be swallowed by that backoff.
+            kwargs={"force": True},
             id="match-wake",
             replace_existing=True,
             misfire_grace_time=None,

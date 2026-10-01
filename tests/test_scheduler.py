@@ -56,16 +56,40 @@ def test_finish_run_records_the_failure_message(session: Session):
 
 
 def test_start_run_prunes_rows_past_the_retention_window(session: Session):
-    old = Run(job="ingest", started_at=utcnow() - timedelta(days=40), ok=True)
-    recent = Run(job="ingest", started_at=utcnow() - timedelta(days=5), ok=True)
-    session.add(old)
-    session.add(recent)
+    """Assert WHICH rows survive: an inverted predicate also leaves two rows behind."""
+    now = utcnow()
+    days = 30
+    ages = {
+        "old": timedelta(days=40),
+        "just_past": timedelta(days=days, seconds=5),
+        "recent": timedelta(days=5),
+    }
+    for label, age in ages.items():
+        session.add(Run(job=label, started_at=now - age, ok=True))
+    session.commit()
+
+    new_run = start_run(session, _settings(run_retention_days=days), "ingest")
+
+    survivors = {run.job for run in session.exec(select(Run)).all()}
+    assert survivors == {"recent", "ingest"}, "expired rows go, recent ones and the new one stay"
+    assert new_run.id is not None
+
+
+def test_a_row_exactly_at_the_retention_limit_is_kept(session: Session, monkeypatch):
+    """The predicate is a strict `<`: at exactly RUN_RETENTION_DAYS old, the row stays."""
+    import jobscout.scheduler as scheduler_module
+
+    frozen = utcnow()
+    monkeypatch.setattr(scheduler_module, "utcnow", lambda: frozen)
+    session.add(Run(job="boundary", started_at=frozen - timedelta(days=30), ok=True))
+    session.add(Run(job="past", started_at=frozen - timedelta(days=30, microseconds=1), ok=True))
     session.commit()
 
     start_run(session, _settings(run_retention_days=30), "ingest")
 
-    remaining = session.exec(select(Run)).all()
-    assert len(remaining) == 2, "the 40-day-old row is gone; the 5-day-old one and the new one stay"
+    survivors = {run.job for run in session.exec(select(Run)).all()}
+    assert "boundary" in survivors
+    assert "past" not in survivors
 
 
 def _record(session: Session, job: str, ok: bool) -> None:
@@ -482,7 +506,8 @@ def test_each_match_firing_gets_the_next_tick(session: Session, monkeypatch):
     """A skipped firing must still advance the counter, or a backed-off job never runs again."""
     seen: list[int] = []
     monkeypatch.setattr(
-        "jobscout.scheduler.match_job", lambda engine, settings, tick=0: seen.append(tick)
+        "jobscout.scheduler.match_job",
+        lambda engine, settings, tick=None, force=False: seen.append(tick),
     )
     scheduler = JobScoutScheduler(session.get_bind(), _settings())
 
@@ -498,7 +523,7 @@ def test_an_overlapping_match_firing_is_dropped_but_still_counted(session: Sessi
     seen: list[int] = []
     scheduler = JobScoutScheduler(session.get_bind(), _settings())
 
-    def in_flight(engine, settings, tick=0):
+    def in_flight(engine, settings, tick=None, force=False):
         seen.append(tick)
         scheduler._run_match_tick()  # a wake arriving while this run is executing
 
@@ -550,3 +575,117 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
     assert stored.status != "stale", "the save staled the row and the run cleared it"
     run = session.exec(select(Run).where(col(Run.job) == "match")).one()
     assert (run.ok, run.counters["evaluated"]) == (True, 1)
+
+
+# --- C1: the wake must not be swallowed by the backoff on a fresh install ---
+
+
+def test_a_fresh_install_does_not_accumulate_failed_match_runs(session: Session):
+    """No profile means nothing was attempted, and nothing attempted is not everything failed."""
+    get_or_create_default_user(session)
+    engine = session.get_bind()
+
+    for tick in range(1, 9):
+        match_job(engine, _settings(), tick=tick)
+
+    rows = session.exec(select(Run).where(col(Run.job) == "match")).all()
+    assert len(rows) == 8, "no failure streak, so the backoff never skipped a tick"
+    assert all(row.ok for row in rows)
+    assert all(row.error is not None and "No profile summary" in row.error for row in rows)
+
+
+def test_a_run_with_no_users_is_ok_and_says_why(session: Session):
+    match_job(session.get_bind(), _settings(), tick=1)
+
+    stored = session.exec(select(Run).where(col(Run.job) == "match")).one()
+    assert stored.ok is True
+    assert stored.error is not None and "no users" in stored.error.lower()
+
+
+def test_a_forced_match_runs_even_when_deep_in_backoff(session: Session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    a = get_or_create_default_user(session).id
+    assert a is not None
+    for _ in range(5):
+        _record(session, "match", ok=False)
+    monkeypatch.setattr(
+        scheduler_module, "run_match", _fake_match({a: MatchRun(candidates=1, evaluated=1)})
+    )
+    engine = session.get_bind()
+
+    match_job(engine, _settings(), tick=1)
+    assert len(session.exec(select(Run).where(col(Run.job) == "match")).all()) == 5, "backed off"
+
+    match_job(engine, _settings(), tick=1, force=True)
+
+    session.expire_all()
+    rows = session.exec(select(Run).where(col(Run.job) == "match")).all()
+    assert len(rows) == 6, "the forced run bypassed the backoff"
+
+
+def test_the_wake_job_forces_and_the_interval_job_does_not(session: Session, monkeypatch):
+    seen: list[bool] = []
+    monkeypatch.setattr(
+        "jobscout.scheduler.match_job",
+        lambda engine, settings, tick=None, force=False: seen.append(force),
+    )
+    scheduler = JobScoutScheduler(session.get_bind(), _settings())
+
+    scheduler._run_match_tick()
+    scheduler._run_match_tick(force=True)
+
+    assert seen == [False, True]
+
+
+def test_wake_registers_a_forced_run(session: Session):
+    scheduler = JobScoutScheduler(session.get_bind(), _settings())
+    scheduler.start()
+    try:
+        scheduler.wake_matching()
+        wake = next(job for job in scheduler.get_jobs() if job.id == "match-wake")
+        assert wake.kwargs == {"force": True}
+    finally:
+        scheduler.shutdown()
+
+
+def test_a_genuine_all_errors_run_still_fails_and_still_backs_off(session: Session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    a = get_or_create_default_user(session).id
+    assert a is not None
+    monkeypatch.setattr(
+        scheduler_module,
+        "run_match",
+        _fake_match({a: MatchRun(candidates=3, errors=["RuntimeError: 429"] * 3)}),
+    )
+    engine = session.get_bind()
+
+    match_job(engine, _settings(), tick=1)
+    match_job(engine, _settings(), tick=1)  # odd tick after one failure: skipped
+
+    rows = session.exec(select(Run).where(col(Run.job) == "match")).all()
+    assert [row.ok for row in rows] == [False], "failed once, then the backoff skipped tick 1"
+
+
+# --- m4 / m7 ---
+
+
+def test_match_job_without_a_tick_is_never_silently_backed_off_or_skipped(session: Session):
+    """tick=None means "no tick known", which must not read as tick 0 (0 % n == 0 for all n)."""
+    _record(session, "match", ok=False)
+    get_or_create_default_user(session)
+
+    match_job(session.get_bind(), _settings())
+
+    session.expire_all()
+    assert len(session.exec(select(Run).where(col(Run.job) == "match")).all()) == 2
+
+
+def test_an_unfinished_run_does_not_count_toward_the_backoff(session: Session):
+    """A run killed mid-flight leaves ok=False, finished_at=NULL; it is not a provider failure."""
+    for _ in range(6):
+        session.add(Run(job="match", ok=False, finished_at=None))
+    session.commit()
+
+    assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
