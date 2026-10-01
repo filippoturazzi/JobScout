@@ -79,8 +79,6 @@ def test_put_preferences_marks_stale_matches_on_matching_relevant_change(client,
     session.add(match)
     session.commit()
 
-    # profile_summary stays empty, so the resulting backfill has nothing to evaluate
-    # and never needs an LLM/embeddings provider — see pipeline.matching.run_match.
     r = client.put("/preferences", json={"titles": ["AI Engineer"]})
     assert r.status_code == 200
 
@@ -88,65 +86,31 @@ def test_put_preferences_marks_stale_matches_on_matching_relevant_change(client,
     assert match.status == "stale"
 
 
-def test_put_preferences_succeeds_without_a_configured_provider(client, session, monkeypatch):
-    import jobscout.pipeline.matching as matching_module
-    from jobscout.matching.llm import MissingProviderError
+def test_put_preferences_wakes_matching_without_scoring_inline(client, monkeypatch):
+    import jobscout.api.routers.preferences as preferences_router
 
-    # A job must exist and pass the preference filter so the backfill actually reaches
-    # `select_candidates` -> `embeddings(settings)`; otherwise the provider is never touched
-    # and this test would pass even without the fix.
-    client.get("/preferences")  # creates the default user
-    session.add(
-        Job(
-            source="t",
-            external_id="a",
-            title="AI Engineer",
-            company="Acme",
-            remote=True,
-            url="https://x/a",
-            description="d",
-            content_hash="h-a",
-        )
+    woken = []
+    monkeypatch.setattr(
+        preferences_router, "wake_matching", lambda scheduler: woken.append(scheduler)
     )
-    session.commit()
-
-    def _no_provider(_settings):
-        raise MissingProviderError("GOOGLE_API_KEY is not set.")
-
-    monkeypatch.setattr(matching_module, "embeddings", _no_provider)
-    client.put("/preferences", json={"profile_summary": "Python LLM engineer."})
-
-    response = client.put("/preferences", json={"titles": ["AI Engineer"]})
-
-    assert response.status_code == 200
-    assert response.json()["titles"] == ["AI Engineer"]
-
-
-def test_put_preferences_survives_a_provider_runtime_error(client, session, monkeypatch):
-    """The preferences commit happens before the backfill; a 429 must not report a 500."""
-    import jobscout.pipeline.matching as matching_module
-
-    client.get("/preferences")  # creates the default user
-    session.add(
-        Job(
-            source="t",
-            external_id="a",
-            title="AI Engineer",
-            company="Acme",
-            remote=True,
-            url="https://x/a",
-            description="d",
-            content_hash="h-a",
-        )
-    )
-    session.commit()
-
-    def _rate_limited(_settings):
-        raise RuntimeError("429 RESOURCE_EXHAUSTED")
-
-    monkeypatch.setattr(matching_module, "embeddings", _rate_limited)
 
     response = client.put("/preferences", json={"profile_summary": "Python LLM engineer."})
 
     assert response.status_code == 200
     assert response.json()["profile_summary"] == "Python LLM engineer."
+    assert len(woken) == 1
+
+
+def test_put_preferences_survives_a_failing_wake(client, monkeypatch):
+    """The save is committed before the wake: a broken scheduler must not report a 500."""
+    import jobscout.api.routers.preferences as preferences_router
+
+    def _boom(_scheduler):
+        raise RuntimeError("scheduler is down")
+
+    monkeypatch.setattr(preferences_router, "wake_matching", _boom)
+
+    response = client.put("/preferences", json={"profile_summary": "Python LLM engineer."})
+
+    assert response.status_code == 200
+    assert client.get("/preferences").json()["profile_summary"] == "Python LLM engineer."

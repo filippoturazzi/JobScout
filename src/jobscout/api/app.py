@@ -7,25 +7,40 @@ from fastapi import FastAPI
 from sqlmodel import Session
 
 from jobscout import __version__
-from jobscout.api.routers import jobs, matches, preferences
+from jobscout.api.routers import jobs, matches, preferences, runs
+from jobscout.config import get_settings
 from jobscout.db import get_engine, init_db
+from jobscout.logs import configure_logging
 from jobscout.pipeline.users import get_or_create_default_user
+from jobscout.scheduler import JobScoutScheduler
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    engine = get_engine()
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    engine = get_engine(settings)
     init_db(engine)
     with Session(engine) as session:
         get_or_create_default_user(session)
-    yield
+    # A fresh scheduler per lifespan, so start() can never run twice on one instance.
+    scheduler = JobScoutScheduler(engine, settings)
+    application.state.scheduler = scheduler
+    try:
+        scheduler.start()
+        yield
+    finally:
+        scheduler.shutdown()
 
 
 def create_app() -> FastAPI:
+    # Here, not only in the CLI: every way of serving this app builds it through this function,
+    # so every way gets LOG_LEVEL applied and an invalid config stops the process.
+    configure_logging()
     application = FastAPI(title="JobScout", version=__version__, lifespan=lifespan)
     application.include_router(jobs.router)
     application.include_router(matches.router)
     application.include_router(preferences.router)
+    application.include_router(runs.router)
 
     @application.get("/health", tags=["meta"])
     def health() -> dict[str, str]:

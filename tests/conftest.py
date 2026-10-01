@@ -28,11 +28,16 @@ def load_fixture(name: str) -> dict:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_engines():
-    """Every test starts and ends without cached engines or cached settings."""
+def _isolate_engines(monkeypatch):
+    """Every test starts and ends without cached engines or cached settings.
+
+    The scheduler is disabled by default: otherwise every test that builds the app would
+    spawn background threads, and a wake would run the real pipeline on a pool thread.
+    """
     from jobscout.config import get_settings
     from jobscout.db import reset_engines
 
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     reset_engines()
     get_settings.cache_clear()
     yield

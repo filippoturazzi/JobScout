@@ -59,3 +59,10 @@ def test_status_sets_are_consistent():
     )
     assert frozenset({"stale"}) == REEVALUATABLE_STATUSES
     assert "dismissed" not in REEVALUATABLE_STATUSES
+
+
+def test_match_has_a_composite_index_for_the_hot_queries():
+    """select_candidates and list_matches both filter on (user_id, status)."""
+    names = {index.name for index in Match.__table__.indexes}
+
+    assert "ix_match_user_status" in names

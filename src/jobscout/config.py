@@ -6,7 +6,9 @@ provider keys) belongs here. Anything that describes *what a user wants* belongs
 """
 
 from functools import lru_cache
+from typing import Any, Literal
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +19,26 @@ class Settings(BaseSettings):
     sources: str = "arbeitnow"
     arbeitnow_max_pages: int = 2
     inactive_after_days: int = 14
-    backfill_window_days: int = 30
+
+    # --- Scheduler (stage 3) ---
+    scheduler_enabled: bool = True
+    # ge=1: APScheduler coerces a 0-minute interval into one second, which would hammer a
+    # keyless public API. A typo must stop the process, not start a 1 Hz fetch loop.
+    ingest_interval_minutes: int = Field(default=60, ge=1)
+    match_interval_minutes: int = Field(default=15, ge=1)
+    scheduler_jitter_seconds: int = Field(default=30, ge=0)
+    run_retention_days: int = Field(default=30, ge=0)
+    max_backoff_ticks: int = Field(default=6, ge=0)
+
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "WARNING"
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalise_log_level(cls, value: Any) -> Any:
+        # Accept `info`; anything else is rejected with the valid names, never silently
+        # replaced, so a typo cannot hide the output the operator asked for.
+        return value.strip().upper() if isinstance(value, str) else value
+
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     llm_provider: str = "google"

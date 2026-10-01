@@ -85,3 +85,15 @@ class MatchRead(BaseModel):
     status: str
     llm_model: str | None
     job: JobRead
+
+
+class RunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    job: str
+    started_at: datetime
+    finished_at: datetime | None
+    ok: bool
+    error: str | None
+    counters: dict[str, int]

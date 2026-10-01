@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0, 1, 2a and 2b are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 3 (scheduler + inactive marking). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0 through 3 are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 4 (`Notifier` + first channel). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -26,7 +26,7 @@ Stages 0, 1, 2a and 2b are implemented (see the plans in `docs/superpowers/plans
 
 ## Architecture rules
 
-Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `pipeline` (the only composer: ingest/upsert, filters, backfill, run) · `api` and `cli` are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.
+Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `pipeline` (the only composer: ingest/upsert, filters, liveness, matching, repair, run) · `api`, `cli` and `scheduler` (APScheduler jobs; `scheduler.py` sits beside `api`/`cli`) are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.
 
 Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_seen_at`/`last_seen_at`/`is_active`/`content_hash` on `Job`, and a changed hash clears the embedding and marks existing matches `stale`. Running ingest twice with the same data must be a no-op besides `last_seen_at`.
 
@@ -43,6 +43,7 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv run pytest -m integration` — opt-in tests against real APIs (off by default via `addopts`).
 - `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
 - `uv run mypy src` — strict type check of `src/`; must be clean before committing (CI enforces it).
-- `uv run jobscout fetch|jobs|serve` — CLI. `serve` runs uvicorn on `jobscout.api.app:app`.
+- `uv run jobscout fetch|jobs|repair-descriptions|serve` — CLI. `serve` runs uvicorn on `jobscout.api.app:app`.
+- `GET /runs` — history of scheduled ingest/match runs (the scheduler runs inside `serve`; `SCHEDULER_ENABLED=false` turns it off).
 - `uv run jobscout match|matches` — run the matching graph / list scored matches (needs a provider key).
 - CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy and pytest.

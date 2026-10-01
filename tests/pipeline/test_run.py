@@ -5,7 +5,13 @@ from sqlmodel import select
 from jobscout.config import Settings
 from jobscout.models import Job, Match, User
 from jobscout.pipeline.ingest import upsert_jobs
-from jobscout.pipeline.run import list_jobs, list_matches, match_listing_statement, run_ingest
+from jobscout.pipeline.run import (
+    list_jobs,
+    list_matches,
+    match_listing_statement,
+    run_ingest,
+    run_listing_statement,
+)
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from jobscout.sources.base import RawJob, SearchQuery
 
@@ -156,3 +162,17 @@ def test_list_matches_spells_nulls_last_for_databases_that_need_it():
     compiled = str(statement.compile(dialect=postgresql.dialect()))
 
     assert "NULLS LAST" in compiled
+
+
+def test_list_runs_orders_by_started_at_then_id_descending():
+    """Only the SQL pins the tie-break: row-order tests depend on which index SQLite picks."""
+    from sqlalchemy.dialects import postgresql
+
+    for job in (None, "ingest"):
+        statement = run_listing_statement(job)
+        compiled = str(statement.compile(dialect=postgresql.dialect()))
+        order_by = compiled.split("ORDER BY", 1)[1]
+
+        started_at = order_by.find("started_at DESC")
+        run_id = order_by.find(".id DESC")
+        assert 0 <= started_at < run_id

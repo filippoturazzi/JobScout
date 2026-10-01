@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, UniqueConstraint
+from sqlalchemy import JSON, Column, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from jobscout.models.base import utcnow
@@ -20,7 +20,10 @@ and `dismissed` is deliberately absent, so a dismissal is never re-evaluated."""
 class Match(SQLModel, table=True):
     """One evaluated (job, user) pair."""
 
-    __table_args__ = (UniqueConstraint("job_id", "user_id", name="uq_match_job_user"),)
+    __table_args__ = (
+        UniqueConstraint("job_id", "user_id", name="uq_match_job_user"),
+        Index("ix_match_user_status", "user_id", "status"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="job.id", index=True)

@@ -1186,9 +1186,34 @@ def test_save_preferences_survives_a_failing_wake(session):
     assert run.error == "RuntimeError: scheduler is down"
 ```
 
-Delete `test_save_preferences_caps_the_backfill_so_the_request_stays_interactive` and `test_save_preferences_never_spends_more_than_the_operator_allowed`: both pin the inline backfill this task removes. Keep the two parametrized rollback tests but retarget them at the `on_changed` failure path.
+Delete `test_save_preferences_caps_the_backfill_so_the_request_stays_interactive` and `test_save_preferences_never_spends_more_than_the_operator_allowed`: both pin the inline backfill this task removes. Delete the now-unused `_BACKFILL_EVALUATION_CAP` from the import on line 12 of that file — it is referenced in five places, and removing only the two tests leaves the import broken.
 
-Check whether `min_score_to_notify` is in `MATCHING_RELEVANT_FIELDS` in `pipeline/users.py`; if it is, use a different irrelevant field in the third test.
+`min_score_to_notify` is **not** in `MATCHING_RELEVANT_FIELDS` (verified 2026-09-27: the set is titles, seniority, required_skills, nice_to_have_skills, min_salary, profile_summary), so the third test above is correct as written.
+
+**Replace** the two parametrized rollback tests with the single test below. They pinned the inline backfill dirtying the session, which no longer happens — but the guarantee still matters, because `on_changed` is supplied by the caller and stage 6 may pass a hook that touches the database. A dirty session leaking into the response path is the bug fixed in `fd36971`, and it must not become reachable again through the hook:
+
+```python
+def test_save_preferences_leaves_no_pending_rows_when_the_hook_fails(session):
+    """A caller-supplied hook must not be able to leave half-written rows behind.
+
+    `on_changed` is arbitrary caller code. If it dirties the session and then raises,
+    the next commit on that session — an unrelated request — would flush its leftovers.
+    """
+    user = get_or_create_default_user(session)
+    job = _add_job(session, "a")
+
+    def _dirty_then_fail() -> None:
+        session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=90))
+        raise RuntimeError("scheduler is down")
+
+    _prefs, run = save_preferences(
+        session, _settings(), user.id, {"profile_summary": "Python."}, on_changed=_dirty_then_fail
+    )
+
+    assert run.error == "RuntimeError: scheduler is down"
+    session.commit()
+    assert session.exec(select(Match)).all() == []
+```
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1229,6 +1254,11 @@ def save_preferences(
     try:
         on_changed()
     except Exception as exc:
+        # Defensive: the preferences are already committed, so nothing of ours is pending —
+        # but `on_changed` is caller code and may have dirtied the session before raising.
+        # Without this, its leftovers ride along on the next commit from an unrelated
+        # request. Same failure as fd36971, reachable again through the hook.
+        session.rollback()
         log.exception("waking the matcher after a preference save failed")
         return prefs, MatchRun(error=f"{type(exc).__name__}: {exc}")
     return prefs, MatchRun()

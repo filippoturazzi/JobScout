@@ -41,6 +41,22 @@ embedding quota. A real run ends with a summary line whose `pending=` counter is
 candidates are still waiting for a vector — run `jobscout match` again to score the rest.
 Without a provider key, everything except matching still works.
 
+## Running continuously
+
+`jobscout serve` also starts a scheduler inside the API process, with two jobs: ingest
+(cheap HTTP) every `INGEST_INTERVAL_MINUTES` (default 60) and matching (spends LLM and
+embedding quota) every `MATCH_INTERVAL_MINUTES` (default 15). Set them in `.env`. Set
+`SCHEDULER_ENABLED=false` to turn the scheduler off; the CLI always stays manual. A failing
+matching job backs off exponentially, capped by `MAX_BACKOFF_TICKS`; ingest does not back
+off, since it is cheap keyless HTTP with no quota to protect. `GET /runs` lists what each run
+did and whether it succeeded.
+
+A preference save (`PUT /preferences`) no longer scores anything inline. It marks the
+affected matches stale and wakes the matcher, which re-scores them out of band; the
+scheduler drains whatever is left on its interval. With `SCHEDULER_ENABLED=false`, or when
+using the CLI, a preference save wakes nothing and matches stay `stale` until you run
+`jobscout match`.
+
 ## API
 
 | Method | Path            | Description                                   |
@@ -50,6 +66,7 @@ Without a provider key, everything except matching still works.
 | GET    | `/preferences`  | Current preferences                           |
 | PUT    | `/preferences`  | Partial update; only sent fields change       |
 | GET    | `/matches`      | Scored matches, best first (`?min_score=`, `?status=`, `?limit=`) |
+| GET    | `/runs`         | Scheduled ingest/match run history, newest first |
 
 ## Development
 
