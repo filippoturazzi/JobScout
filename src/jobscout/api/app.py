@@ -10,6 +10,7 @@ from jobscout import __version__
 from jobscout.api.routers import jobs, matches, preferences, runs
 from jobscout.config import get_settings
 from jobscout.db import get_engine, init_db
+from jobscout.logs import configure_logging
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.scheduler import JobScoutScheduler
 
@@ -32,6 +33,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
+    # Here, not only in the CLI: every way of serving this app builds it through this function,
+    # so every way gets LOG_LEVEL applied and an invalid config stops the process.
+    configure_logging()
     application = FastAPI(title="JobScout", version=__version__, lifespan=lifespan)
     application.include_router(jobs.router)
     application.include_router(matches.router)
