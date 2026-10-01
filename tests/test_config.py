@@ -79,3 +79,45 @@ def test_invalid_log_level_names_the_valid_values(bad):
 
     message = str(excinfo.value)
     assert "WARNING" in message and "CRITICAL" in message
+
+
+@pytest.mark.parametrize("name", ["ingest_interval_minutes", "match_interval_minutes"])
+@pytest.mark.parametrize("bad", [0, -5])
+def test_intervals_below_one_minute_are_rejected(name, bad):
+    """0 would be coerced by APScheduler into a one-second interval against a public API."""
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{name: bad})
+
+    assert name in str(excinfo.value)
+    assert "greater than or equal to 1" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "name", ["scheduler_jitter_seconds", "run_retention_days", "max_backoff_ticks"]
+)
+def test_counters_reject_negatives_but_accept_zero(name):
+    assert getattr(Settings(_env_file=None, **{name: 0}), name) == 0
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{name: -1})
+
+
+def test_valid_intervals_are_accepted():
+    s = Settings(_env_file=None, ingest_interval_minutes=1, match_interval_minutes=240)
+
+    assert (s.ingest_interval_minutes, s.match_interval_minutes) == (1, 240)
+
+
+def test_intervals_parse_as_integers_from_the_environment(monkeypatch):
+    monkeypatch.setenv("INGEST_INTERVAL_MINUTES", "120")
+    monkeypatch.setenv("MATCH_INTERVAL_MINUTES", "5")
+
+    s = Settings(_env_file=None)
+
+    assert (s.ingest_interval_minutes, s.match_interval_minutes) == (120, 5)
+
+
+def test_an_interval_of_zero_from_the_environment_is_rejected(monkeypatch):
+    monkeypatch.setenv("INGEST_INTERVAL_MINUTES", "0")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

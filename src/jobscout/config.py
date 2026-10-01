@@ -8,7 +8,7 @@ provider keys) belongs here. Anything that describes *what a user wants* belongs
 from functools import lru_cache
 from typing import Any, Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,11 +22,13 @@ class Settings(BaseSettings):
 
     # --- Scheduler (stage 3) ---
     scheduler_enabled: bool = True
-    ingest_interval_minutes: int = 60
-    match_interval_minutes: int = 15
-    scheduler_jitter_seconds: int = 30
-    run_retention_days: int = 30
-    max_backoff_ticks: int = 6
+    # ge=1: APScheduler coerces a 0-minute interval into one second, which would hammer a
+    # keyless public API. A typo must stop the process, not start a 1 Hz fetch loop.
+    ingest_interval_minutes: int = Field(default=60, ge=1)
+    match_interval_minutes: int = Field(default=15, ge=1)
+    scheduler_jitter_seconds: int = Field(default=30, ge=0)
+    run_retention_days: int = Field(default=30, ge=0)
+    max_backoff_ticks: int = Field(default=6, ge=0)
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "WARNING"
 
