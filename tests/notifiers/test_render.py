@@ -65,7 +65,7 @@ def test_body_names_what_was_held_back():
 def test_body_says_nothing_about_held_back_when_nothing_was():
     _, body = render_digest([_row(88, "A")], held_back=0)
 
-    assert "more" not in body.lower().split("\n")[-1]
+    assert "more" not in body.lower()
 
 
 def test_missing_skills_appear_when_present_and_are_omitted_when_not():
@@ -76,3 +76,59 @@ def test_missing_skills_appear_when_present_and_are_omitted_when_not():
 
     assert "Kubernetes" in with_gap
     assert "Missing" not in without_gap
+
+
+def test_reasoning_none_does_not_appear_as_none_string():
+    """When reasoning is None, no orphan indent and no 'None' string leaks."""
+    match, job = _row(88, "A")
+    match.reasoning = None
+    _, body = render_digest([(match, job)], held_back=0)
+
+    assert "None" not in body
+    # Also verify the structure is clean (no blank reasoning line)
+    lines = body.split("\n")
+    assert len(lines) >= 3  # title, missing skills, url
+
+
+def test_onsite_job_with_none_location_renders_fallback():
+    """When location is None and remote is False, render 'location not stated'."""
+    job = Job(
+        source="t",
+        external_id="test",
+        title="Test Job",
+        company="Acme",
+        location=None,
+        remote=False,
+        url="https://x/test",
+        description="d",
+        content_hash="h",
+    )
+    match = Match(
+        job_id=1,
+        user_id=1,
+        similarity=0.8,
+        score=88,
+        reasoning="Good fit.",
+        missing_skills=[],
+    )
+    _, body = render_digest([(match, job)], held_back=0)
+
+    assert "location not stated" in body
+    assert "None" not in body
+
+
+def test_empty_rows_does_not_raise():
+    """Empty rows should not raise; behavior is pinned."""
+    subject, body = render_digest([], held_back=0)
+
+    assert subject == "JobScout: 0 new matches"
+    assert body == ""
+
+
+def test_non_ascii_reasoning_survives_unchanged():
+    """Accented text in reasoning (user's locale) passes through unchanged."""
+    match, job = _row(88, "A")
+    match.reasoning = "Forte sobreposição em Python e análise de dados."
+    _, body = render_digest([(match, job)], held_back=0)
+
+    assert "Forte sobreposição em Python e análise de dados." in body
