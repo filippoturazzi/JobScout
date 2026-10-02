@@ -904,6 +904,15 @@ class _RecordingNotifier:
         self.sent.append((subject, body))
 
 
+def _digest_settings(**kw) -> Settings:
+    """Settings for a digest test: SMTP is configured, so `digest_job` gets past its
+    "can this instance send at all" guard. The notifier itself is still faked — these
+    values are never dialled."""
+    kw.setdefault("smtp_host", "smtp.test")
+    kw.setdefault("smtp_from", "bot@test")
+    return _settings(**kw)
+
+
 def _digest_fixture(session, score: int = 80):
     """A user who wants mail and one match worth announcing."""
     from jobscout.pipeline.users import update_preferences
@@ -935,7 +944,7 @@ def test_digest_job_sends_and_marks_notified(session, monkeypatch):
     notifier = _RecordingNotifier()
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
 
-    digest_job(session.get_bind(), _settings(digest_hour=0), tick=1)
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
 
     assert len(notifier.sent) == 1
     session.expire_all()
@@ -950,7 +959,7 @@ def test_digest_job_sends_once_a_day(session, monkeypatch):
     _digest_fixture(session)
     notifier = _RecordingNotifier()
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
-    settings = _settings(digest_hour=0)
+    settings = _digest_settings(digest_hour=0)
 
     digest_job(session.get_bind(), settings, tick=1)
     digest_job(session.get_bind(), settings, tick=2)
@@ -965,7 +974,7 @@ def test_a_failed_send_marks_nothing_and_retries_next_firing(session, monkeypatc
     _digest_fixture(session)
     failing = _RecordingNotifier(error=RuntimeError("smtp down"))
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: failing)
-    settings = _settings(digest_hour=0)
+    settings = _digest_settings(digest_hour=0)
 
     digest_job(session.get_bind(), settings, tick=1)
 
@@ -990,7 +999,7 @@ def test_digest_job_is_a_no_op_before_the_send_hour(session, monkeypatch):
     notifier = _RecordingNotifier()
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
 
-    digest_job(session.get_bind(), _settings(digest_hour=23), tick=1)
+    digest_job(session.get_bind(), _digest_settings(digest_hour=23), tick=1)
 
     assert notifier.sent == []
     assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
@@ -1005,7 +1014,7 @@ def test_digest_job_writes_no_run_row_when_there_is_nothing_to_send(session, mon
     update_preferences(session, user.id, {"notify_email": "me@example.com"})
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: _RecordingNotifier())
 
-    digest_job(session.get_bind(), _settings(digest_hour=0), tick=1)
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
 
     assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
 
@@ -1017,22 +1026,25 @@ def test_digest_job_skips_a_user_without_an_address(session, monkeypatch):
     notifier = _RecordingNotifier()
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
 
-    digest_job(session.get_bind(), _settings(digest_hour=0), tick=1)
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
 
     assert notifier.sent == []
 
 
-def test_digest_job_is_a_no_op_without_smtp(session, monkeypatch):
-    """No SMTP configured is a normal state, not an error."""
-    import jobscout.scheduler as scheduler_module
+def test_digest_job_is_a_no_op_without_smtp(session):
+    """No SMTP configured is a normal state, not an error — and writes no Run row.
 
+    Deliberately does NOT monkeypatch `build_notifier`: the guard under test reads the
+    settings directly, so faking the factory would make this test pass without ever
+    exercising it.
+    """
     _digest_fixture(session)
-    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: None)
 
-    digest_job(session.get_bind(), _settings(digest_hour=0), tick=1)
+    digest_job(session.get_bind(), _settings(digest_hour=0, smtp_host=None), tick=1)
 
     session.expire_all()
     assert session.exec(select(Match)).one().notified_at is None
+    assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1188,7 +1200,7 @@ def test_a_scored_match_reaches_a_digest_and_is_never_sent_twice(session, monkey
     user = _digest_fixture(session, score=88)
     notifier = _RecordingNotifier()
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
-    settings = _settings(digest_hour=0)
+    settings = _digest_settings(digest_hour=0)
 
     digest_job(session.get_bind(), settings, tick=1)
 
