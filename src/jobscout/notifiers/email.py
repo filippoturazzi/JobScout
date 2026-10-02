@@ -5,6 +5,7 @@ import ssl
 from email.message import EmailMessage
 
 from jobscout.config import Settings
+from jobscout.models import Job, Match
 
 
 class SmtpNotifier:
@@ -41,3 +42,30 @@ class SmtpNotifier:
             if settings.smtp_user and settings.smtp_password:
                 smtp.login(settings.smtp_user, settings.smtp_password)
             smtp.send_message(message)
+
+
+def render_digest(rows: list[tuple[Match, Job]], held_back: int) -> tuple[str, str]:
+    """Plain text, because it survives spam filters better and needs no template engine.
+
+    Labels are English while `reasoning` arrives in the user's locale, so the message
+    reads as mixed. That is a deliberate, visible debt: a label dictionary would start
+    i18n before stage 6 decides where translations live.
+    """
+    plural = "match" if len(rows) == 1 else "matches"
+    subject = f"JobScout: {len(rows)} new {plural}"
+
+    blocks: list[str] = []
+    for match, job in rows:
+        where = "remote" if job.remote else (job.location or "location not stated")
+        lines = [f"[{match.score}] {job.title} — {job.company} ({where})"]
+        if match.reasoning:
+            lines.append(f"     {match.reasoning}")
+        if match.missing_skills:
+            lines.append(f"     Missing: {', '.join(match.missing_skills)}")
+        lines.append(f"     {job.url}")
+        blocks.append("\n".join(lines))
+
+    body = "\n\n".join(blocks)
+    if held_back:
+        body += f"\n\n{held_back} more — see /matches"
+    return subject, body
