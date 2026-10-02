@@ -39,6 +39,7 @@ class UserPreferences(SQLModel, table=True):
     profile_summary: str = Field(default="")
     profile_embedding: bytes | None = None
     min_score_to_notify: int = Field(default=70)
+    notify_email: str | None = None
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
     updated_at: datetime = Field(
         default_factory=utcnow, nullable=False, sa_column_kwargs={"onupdate": utcnow}

@@ -44,6 +44,7 @@ class PreferencesRead(BaseModel):
     excluded_keywords: list[str]
     profile_summary: str
     min_score_to_notify: int
+    notify_email: str | None
     updated_at: datetime
 
 
@@ -63,6 +64,7 @@ class PreferencesUpdate(BaseModel):
     excluded_keywords: list[str] | None = None
     profile_summary: str | None = None
     min_score_to_notify: int | None = Field(default=None, ge=0, le=100)
+    notify_email: str | None = None
 
     @field_validator(*sorted(non_nullable_preference_fields()), mode="before")
     @classmethod

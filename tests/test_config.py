@@ -125,3 +125,25 @@ def test_an_interval_of_zero_from_the_environment_is_rejected(monkeypatch):
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_notifier_settings_have_operator_defaults():
+    settings = Settings(_env_file=None)
+
+    assert settings.smtp_host is None
+    assert settings.smtp_port == 587
+    assert settings.smtp_starttls is True
+    assert settings.digest_hour == 9
+    assert settings.digest_interval_minutes == 60
+
+
+def test_digest_hour_must_be_a_real_hour():
+    """A typo here silently moves the daily send, so reject it loudly instead."""
+    for bad in (-1, 24):
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, digest_hour=bad)
+
+
+def test_digest_interval_must_be_at_least_one_minute():
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, digest_interval_minutes=0)
