@@ -172,6 +172,24 @@ def test_already_sent_today_reads_the_stored_utc_in_the_callers_zone(session: Se
     assert already_sent_today(session, user.id, datetime(2026, 9, 30, 12, 0, tzinfo=tz)) is False
 
 
+def test_already_sent_today_converts_stored_utc_regardless_of_machine_zone(session: Session):
+    """Stored naive 2026-10-02 01:00 UTC is 21:00 on Oct 1 in New York (UTC-4).
+
+    The wrong readings differ from the right one on any host: treating the naive value
+    as UTC and taking its raw date says Oct 2; treating it as machine-local shifts it by
+    an unknown offset. Only the UTC-then-convert order gives Oct 1.
+    """
+    user = get_or_create_default_user(session)
+    tz = ZoneInfo("America/New_York")
+    match = _match(session, user.id, 80)
+    match.notified_at = datetime(2026, 10, 2, 1, 0)
+    session.add(match)
+    session.commit()
+
+    assert already_sent_today(session, user.id, datetime(2026, 10, 1, 23, 0, tzinfo=tz)) is True
+    assert already_sent_today(session, user.id, datetime(2026, 10, 2, 9, 0, tzinfo=tz)) is False
+
+
 def test_already_sent_today_is_false_when_nothing_was_ever_sent(session: Session):
     user = get_or_create_default_user(session)
     _match(session, user.id, 80)
@@ -203,3 +221,25 @@ def test_send_window_opens_at_the_hour_and_stays_open():
     assert is_send_window(settings, datetime(2026, 10, 1, 8, 59, tzinfo=tz)) is False
     assert is_send_window(settings, datetime(2026, 10, 1, 9, 0, tzinfo=tz)) is True
     assert is_send_window(settings, datetime(2026, 10, 1, 23, 30, tzinfo=tz)) is True
+
+
+def test_a_score_equal_to_the_threshold_is_included(session: Session):
+    user = get_or_create_default_user(session)
+    at = _match(session, user.id, 70)
+    _match(session, user.id, 69)
+
+    rows, held = select_unnotified(session, user.id, min_score=70)
+
+    assert [m.id for m, _ in rows] == [at.id]
+    assert held == 0
+
+
+def test_equal_scores_come_back_newest_first(session: Session):
+    user = get_or_create_default_user(session)
+    first = _match(session, user.id, 80)
+    second = _match(session, user.id, 80)
+    third = _match(session, user.id, 80)
+
+    rows, _ = select_unnotified(session, user.id, min_score=70)
+
+    assert [m.id for m, _ in rows] == [third.id, second.id, first.id]
