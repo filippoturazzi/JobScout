@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0 through 3 are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 4 (`Notifier` + first channel). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 5 (more sources). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -26,7 +26,7 @@ Stages 0 through 3 are implemented (see the plans in `docs/superpowers/plans/`).
 
 ## Architecture rules
 
-Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `pipeline` (the only composer: ingest/upsert, filters, liveness, matching, repair, run) · `api`, `cli` and `scheduler` (APScheduler jobs; `scheduler.py` sits beside `api`/`cli`) are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.
+Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `notifiers` (depend only on `models`) · `pipeline` (the only composer: ingest/upsert, filters, liveness, matching, repair, run) · `api`, `cli` and `scheduler` (APScheduler jobs; `scheduler.py` sits beside `api`/`cli`) are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.
 
 Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_seen_at`/`last_seen_at`/`is_active`/`content_hash` on `Job`, and a changed hash clears the embedding and marks existing matches `stale`. Running ingest twice with the same data must be a no-op besides `last_seen_at`.
 

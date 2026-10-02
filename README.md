@@ -57,6 +57,38 @@ scheduler drains whatever is left on its interval. With `SCHEDULER_ENABLED=false
 using the CLI, a preference save wakes nothing and matches stay `stale` until you run
 `jobscout match`.
 
+## Notifications
+
+JobScout can e-mail you a daily digest of good matches. Set the `SMTP_*` settings and
+`DIGEST_HOUR` in the environment (they are documented, commented out, in `.env.example`),
+then set your address with `PUT /preferences` (`{"notify_email": "you@example.com"}`); the
+address is a per-user preference, not operator config.
+
+The digest is a scheduler job. It sends at most one message a day per user, at or after
+`DIGEST_HOUR` in the server's local time, with at most 20 matches per message. Nothing is
+sent when no match clears your `min_score_to_notify`. Each match is announced once: it is
+stamped with `notified_at`, so re-scoring it later does not announce it again. If a send
+fails, nothing is marked and the next firing retries. `GET /runs?job=digest` shows what each
+digest run did.
+
+Leaving `SMTP_HOST` unset disables e-mail; everything else keeps working.
+
+### Upgrading an existing database
+
+Stage 4 adds columns to tables that already exist, and `create_all` only creates missing
+tables, so an install created before stage 4 fails with "no such column" until you run these
+statements once:
+
+```sql
+ALTER TABLE "match" ADD COLUMN notified_at DATETIME;
+CREATE INDEX ix_match_notified_at ON "match" (notified_at);
+ALTER TABLE user_preferences ADD COLUMN notify_email VARCHAR;
+```
+
+The index is not optional: every digest selection filters on `notified_at`, so skipping the
+`CREATE INDEX` leaves the install correct but progressively slower. A fresh database needs
+none of this.
+
 ## API
 
 | Method | Path            | Description                                   |

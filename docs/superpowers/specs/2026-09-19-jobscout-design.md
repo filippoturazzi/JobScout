@@ -64,6 +64,7 @@ sources/         base.py   Protocol JobSource { name: str; fetch(prefs) -> list[
                  registry.py  active sources (from settings)
 pipeline/        ingest.py    fetch all sources -> normalize -> upsert Job (dedup + liveness + content hash)
                  liveness.py  deactivate_stale_jobs: marks jobs unseen for INACTIVE_AFTER_DAYS inactive
+                 digest.py    daily digest: select un-notified matches, compose the message, mark `notified_at`
                  run.py       run_ingest(session, settings) [global]; list/save helpers shared by API and CLI (list_runs, save_preferences)
                  plain Python; no LangGraph here
 matching/        llm.py        factory: chat model + embeddings from Settings
@@ -71,7 +72,8 @@ matching/        llm.py        factory: chat model + embeddings from Settings
                  schemas.py    MatchState (graph state), EvaluationResult (LLM structured output)
                  prompts.py
                  graph.py      LangGraph StateGraph, one run per (job, user)
-notifiers/       base.py  Protocol Notifier { send(match) }; implementations from stage 4
+notifiers/       base.py   Protocol Notifier { send(subject, body) }; takes rendered text, not matches
+                 email.py  SMTP implementation (stage 4); built from the SMTP_* settings
 scheduler.py     APScheduler wired into FastAPI lifespan (stage 3): ingest and match jobs, Run bookkeeping, backoff
 logs.py          logging setup from LOG_LEVEL
 api/             FastAPI app; routers jobs, preferences, matches, runs; deps.py with get_session, get_current_user
@@ -84,6 +86,8 @@ cli.py           Typer: fetch, jobs, match, matches, repair-descriptions, serve
 - `pipeline` is the only module that composes the others.
 - `api`, `cli` and `scheduler` are thin shells over `pipeline`; no business logic.
 - `notifiers` depend only on `models`.
+
+**Stage 4 settings** (operator config, env): `SMTP_HOST` (unset disables e-mail), `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_STARTTLS`, `DIGEST_HOUR` (local hour at or after which the daily digest goes out), `DIGEST_INTERVAL_MINUTES` (how often the digest job wakes; also its retry cadence). The recipient is a per-user preference (`notify_email`), never env.
 
 **Current user before auth:** `api/deps.py::get_current_user()` returns the fixed user (id 1, created at startup if missing). In stage 6 only this function changes.
 
@@ -98,7 +102,7 @@ cli.py           Typer: fetch, jobs, match, matches, repair-descriptions, serve
    - known and `content_hash` (title + description) differs → also update title/description, clear `embedding`, mark existing `Match` rows `stale` (stage 2b)
    - `UpsertStats` reports `created_ids` / `changed_ids` so downstream matching targets exactly those rows
 3. For each new (or stale) `Job` × each user, a deterministic pre-filter (`pipeline/filters.py`: work mode, region, hard keyword exclusions from preferences) drops obvious non-candidates without writing anything; the rest go through `matching.graph`, which writes a `Match`. In stage 1, before the graph exists, this filter alone decides what `jobs` lists.
-4. `Notifier.send(match)` fires when `match.score >= prefs.min_score_to_notify` and `status == new`.
+4. *(Replaced 2026-10-01, stage 4:)* a scheduled digest job, at most once per user per local day, at or after `DIGEST_HOUR`, selects the user's matches with `score >= prefs.min_score_to_notify` and `notified_at IS NULL`, sends them as one message (at most 20, best first) through `Notifier.send(subject, body)`, and only then stamps `notified_at`. A failed send marks nothing and is retried on the next firing. `notified_at`, not `status`, decides whether a match was announced, so re-evaluation (which resets `status`) never re-notifies. No SMTP configured, or no `notify_email`, means no digest and no error.
 5. Periodically (stage 3), jobs with `last_seen_at` older than `INACTIVE_AFTER_DAYS` are marked `is_active = False`. Matching considers only active jobs.
 6. When preferences are created or updated, the save marks the user's affected matches `stale`, commits, and asks the scheduler to run matching out of band; the request never scores anything inline. The scheduler's match job drains the rest on its interval.
 
@@ -126,13 +130,13 @@ All tables have `id`, `created_at`, `updated_at` (except `Run`, which has `start
 
 **User** — `email` (unique), `locale` (`en`|`pt`|`es`). No password until stage 6.
 
-**UserPreferences** (1:1 User) — `user_id`, `titles: list[str]`, `seniority: list[str]`, `work_modes: list[remote|hybrid|onsite]`, `regions: list[str]`, `min_salary: int | None`, `salary_currency: str | None`, `required_skills: list[str]`, `nice_to_have_skills: list[str]`, `profile_summary: str` (free text; source of the profile embedding), `profile_embedding: bytes | None`, `min_score_to_notify: int` (default 70). Stage 7 adds encrypted `llm_api_key` for BYOK.
+**UserPreferences** (1:1 User) — `user_id`, `titles: list[str]`, `seniority: list[str]`, `work_modes: list[remote|hybrid|onsite]`, `regions: list[str]`, `min_salary: int | None`, `salary_currency: str | None`, `required_skills: list[str]`, `nice_to_have_skills: list[str]`, `profile_summary: str` (free text; source of the profile embedding), `profile_embedding: bytes | None`, `min_score_to_notify: int` (default 70), `notify_email: str | None` (digest recipient; none means no digest). Stage 7 adds encrypted `llm_api_key` for BYOK.
 
 **Job** (global, not per user) — `source: str`, `external_id: str` (unique together with `source`), `title`, `company`, `location`, `remote: bool`, `url`, `description`, `salary_min`, `salary_max`, `salary_currency` (optional), `tags: list[str]`, `posted_at: datetime | None`, `first_seen_at`, `last_seen_at`, `is_active: bool`, `content_hash: str`, `embedding: bytes | None`, `raw: dict` (original payload, for reprocessing without refetching).
 
-**Match** (unique on `job_id`, `user_id`) — `job_id`, `user_id`, `similarity: float`, `score: int | None` (null when prefilter rejected), `reasoning: str | None`, `matched_skills`, `missing_skills`, `red_flags: list[str]`, `status: new|notified|seen|dismissed|saved|stale`, `llm_model: str | None`.
+**Match** (unique on `job_id`, `user_id`) — `job_id`, `user_id`, `similarity: float`, `score: int | None` (null when prefilter rejected), `reasoning: str | None`, `matched_skills`, `missing_skills`, `red_flags: list[str]`, `status: new|notified|seen|dismissed|saved|stale`, `llm_model: str | None`, `notified_at: datetime | None` (indexed; set when a digest announced the match, independent of `status`).
 
-**Run** — `job: str` (`"ingest"` or `"match"`), `started_at: datetime`, `finished_at: datetime | None`, `ok: bool`, `error: str | None`, `counters: dict[str, int]` (JSON column). The row is written *before* the work starts and defaults to `ok=False`, so a process killed mid-run leaves a trace that reads as a failure (no `finished_at`). Rows older than `RUN_RETENTION_DAYS` are pruned when a new run starts.
+**Run** — `job: str` (`"ingest"`, `"match"` or `"digest"`), `started_at: datetime`, `finished_at: datetime | None`, `ok: bool`, `error: str | None`, `counters: dict[str, int]` (JSON column). The row is written *before* the work starts and defaults to `ok=False`, so a process killed mid-run leaves a trace that reads as a failure (no `finished_at`). Rows older than `RUN_RETENTION_DAYS` are pruned when a new run starts.
 
 **Usage** (stage 7) — `user_id`, `date`, `llm_calls`, `jobs_evaluated`.
 

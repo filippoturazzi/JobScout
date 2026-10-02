@@ -1015,3 +1015,34 @@ def test_digest_job_is_a_no_op_without_smtp(session, clock):
     session.expire_all()
     assert session.exec(select(Match)).one().notified_at is None
     assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
+
+
+def test_a_scored_match_reaches_a_digest_and_is_never_sent_twice(session, monkeypatch, clock):
+    """Stage 4's headline: score -> digest -> marked -> never again.
+
+    Drives the real `digest_job`, with a double standing in only for SMTP.
+    """
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session, score=88)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+    settings = _digest_settings(digest_hour=0)
+
+    digest_job(session.get_bind(), settings, tick=1)
+
+    subject, body = notifier.sent[0]
+    assert subject == "JobScout: 1 new match"
+    assert "[88] Job a — Acme" in body
+
+    # A later day must not re-announce it, even though staling would reset `status`.
+    session.expire_all()
+    match = session.exec(select(Match)).one()
+    match.status = "stale"
+    match.notified_at = utcnow() - timedelta(days=2)
+    session.add(match)
+    session.commit()
+
+    digest_job(session.get_bind(), settings, tick=2)
+
+    assert len(notifier.sent) == 1, "notified_at, not status, decides"

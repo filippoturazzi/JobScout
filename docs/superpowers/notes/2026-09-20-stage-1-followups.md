@@ -80,9 +80,10 @@ evaluations). Everything here was ruled out of that wave and deferred.
 
 ### Stage 4 (notifier)
 
-- **Decide what re-evaluation does to user state.** Today a staled `notified` or `saved`
-  match is rewritten to `new`, so stage 4 will re-notify and stage 6 will lose "saved".
-  Either preserve user-set status across re-evaluation or add a `notified_at` column.
+- **Resolved (2026-10-01).** `Match.notified_at` separates the system's record (was it
+  announced) from the user's `status`, so re-evaluation no longer causes a re-notify. The
+  stage-6 half is still open: a staled `saved` match is still rewritten to `new`, so
+  preserving user-set status across re-evaluation belongs to the UI stage.
 
 ### Stage 5 (more sources)
 
@@ -210,3 +211,20 @@ Carried to stage 4:
   it must be enabled to collect data. Relevant and irrelevant postings overlap (-0.020 on a 5-vs-5 control set), so no
   absolute threshold separates them and 0.45 never firing is the safe behaviour; the log
   says whether that holds at scale. Do not change the threshold without that data.
+
+## Stage 4 resolution (2026-10-01)
+
+Resolved in stage 4: the `Notifier` protocol, an SMTP channel, and a once-a-day digest
+scheduled job; `notified_at` replaced status as the record of what was announced.
+
+Carried forward:
+
+- **Stage 5/6 - no migration tooling.** `create_all` never adds columns to existing tables,
+  so stage 4 needs a manual `ALTER` on already-running installs (documented in the README).
+  Alembic is stage 6's job; until then every column added to an existing table breaks
+  upgrades the same way.
+- **Stage 6 - preserve `saved` across re-evaluation** (see the Stage 4 item above).
+- **Matching quality - unmeasured against the threshold.** The live SMTP check was deferred
+  to the human partner. With `min_score_to_notify` at 70 and an LLM that scores most of the
+  corpus 0-35, the digest may legitimately send nothing; that is a finding about matching
+  quality, not a defect of the digest.
