@@ -172,12 +172,16 @@ def test_already_sent_today_reads_the_stored_utc_in_the_callers_zone(session: Se
     assert already_sent_today(session, user.id, datetime(2026, 9, 30, 12, 0, tzinfo=tz)) is False
 
 
-def test_already_sent_today_converts_stored_utc_regardless_of_machine_zone(session: Session):
+def test_already_sent_today_converts_stored_utc_before_comparing_days(session: Session):
     """Stored naive 2026-10-02 01:00 UTC is 21:00 on Oct 1 in New York (UTC-4).
 
-    The wrong readings differ from the right one on any host: treating the naive value
-    as UTC and taking its raw date says Oct 2; treating it as machine-local shifts it by
-    an unknown offset. Only the UTC-then-convert order gives Oct 1.
+    What this kills, honestly:
+    - the raw-`.date()` mutant (compare the naive value's date directly): on every host;
+    - the `.replace(tzinfo=UTC)` mutant (let astimezone read the naive value as machine
+      local time): only on hosts west of about UTC-3. On a UTC host the two readings
+      coincide, so no fixture can separate them.
+    CI runs UTC, so the suite cannot catch removal of `.replace`; anyone editing
+    already_sent_today must keep that call deliberately.
     """
     user = get_or_create_default_user(session)
     tz = ZoneInfo("America/New_York")

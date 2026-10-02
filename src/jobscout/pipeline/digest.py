@@ -62,6 +62,8 @@ def already_sent_today(session: Session, user_id: int, now_local: datetime) -> b
     ).one()
     if latest is None:
         return False
+    # Keep .replace(tzinfo=UTC): without it astimezone reads the naive value as machine-local
+    # time. Tests cannot catch its removal on a UTC host (CI), so keep it deliberately.
     local = latest.replace(tzinfo=UTC).astimezone(now_local.tzinfo)
     return local.date() == now_local.date()
 
