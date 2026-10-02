@@ -20,7 +20,7 @@ Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`).
 - **LangGraph is used only for the per-job matching graph** (`matching/graph.py`): embed → prefilter by cosine similarity → LLM structured evaluation → decide. The prefilter's conditional edge must skip the LLM for low-similarity jobs. Collection, dedup, and notification are plain Python in `pipeline/`.
 - APScheduler inside the FastAPI lifespan (no Celery/Redis).
 - Interface until stage 6 is FastAPI + Typer CLI only. Stage 6 frontend is Reflex.
-- Notification channel is undecided (stage 4); code against the `Notifier` protocol, never a concrete channel.
+- Notification channel is e-mail over SMTP (stdlib `smtplib`), chosen in stage 4 as the first channel; code still depends on the `Notifier` protocol, never a concrete channel.
 - Distribution is hybrid: built for self-hosting, with a hosted demo (quotas + BYOK) in stage 7.
 - English for code, comments, README; READMEs also in pt-BR and es later.
 

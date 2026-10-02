@@ -66,12 +66,15 @@ address is a per-user preference, not operator config.
 
 The digest is a scheduler job. It sends at most one message a day per user, at or after
 `DIGEST_HOUR` in the server's local time, with at most 20 matches per message. Nothing is
-sent when no match clears your `min_score_to_notify`. Each match is announced once: it is
+sent when no match clears your `min_score_to_notify`; dismissed matches and inactive jobs
+are skipped. Each match is announced once: it is
 stamped with `notified_at`, so re-scoring it later does not announce it again. If a send
 fails, nothing is marked and the next firing retries. `GET /runs?job=digest` shows what each
 digest run did.
 
-Leaving `SMTP_HOST` unset disables e-mail; everything else keeps working.
+E-mail needs both `SMTP_HOST` and `SMTP_FROM`; if either is unset it is disabled, silently
+(no `Run` row, only an INFO log line), and everything else keeps working. The digest runs only
+inside the scheduler, so it never fires from the CLI alone or with `SCHEDULER_ENABLED=false`.
 
 ### Upgrading an existing database
 
