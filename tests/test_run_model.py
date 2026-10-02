@@ -24,5 +24,5 @@ def test_run_round_trips_counters(session: Session):
     assert stored.started_at <= utcnow()
 
 
-def test_run_jobs_lists_both_scheduled_jobs():
+def test_run_jobs_lists_every_scheduled_job():
     assert frozenset({"ingest", "match", "digest"}) == RUN_JOBS

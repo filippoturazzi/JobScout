@@ -6,7 +6,7 @@ from sqlmodel import Field, SQLModel
 from jobscout.models.base import utcnow
 
 RUN_JOBS: frozenset[str] = frozenset({"ingest", "match", "digest"})
-"""The scheduled jobs that record a run. Stage 4 adds the notifier."""
+"""The scheduled jobs that record a run."""
 
 
 class Run(SQLModel, table=True):
@@ -14,7 +14,7 @@ class Run(SQLModel, table=True):
 
     The row is created before the work starts and finished afterwards, so `ok=False` with
     no `finished_at` is what a killed process leaves behind. `counters` is a JSON blob
-    because the two jobs report different things.
+    because each job reports different things.
     """
 
     id: int | None = Field(default=None, primary_key=True)

@@ -244,7 +244,7 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
             return
 
         users = list(session.exec(select(User)).all())
-        pending: list[tuple[int, str, list[int], str, str]] = []
+        pending: list[tuple[int, str, list[int], int, str, str]] = []
         for user in users:
             if user.id is None:
                 continue
@@ -258,7 +258,7 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
                 continue
             subject, body = render_digest(rows, held_back)
             ids = [m.id for m, _ in rows if m.id is not None]
-            pending.append((user.id, prefs.notify_email, ids, subject, body))
+            pending.append((user.id, prefs.notify_email, ids, held_back, subject, body))
 
         if not pending:
             return
@@ -266,7 +266,7 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
         run = start_run(session, settings, "digest")
         counters = {"users": 0, "sent": 0, "held_back": 0}
         errors: list[str] = []
-        for user_id, address, ids, subject, body in pending:
+        for user_id, address, ids, held, subject, body in pending:
             notifier = build_notifier(settings, address)
             assert notifier is not None, "the no-SMTP case returned before the run opened"
             try:
@@ -277,7 +277,18 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
             mark_notified(session, ids)
             counters["users"] += 1
             counters["sent"] += len(ids)
-        finish_run(session, run, ok=not errors, counters=counters, error="; ".join(errors) or None)
+            counters["held_back"] += held
+        # Users are independent: one dead address is not a failed run. Only a run that served
+        # nobody counts as failed, otherwise a single typo'd address would drive the
+        # consecutive-failure backoff and starve every other user's digest. Errors stay in
+        # `error` so /runs still shows who could not be reached.
+        finish_run(
+            session,
+            run,
+            ok=counters["users"] > 0,
+            counters=counters,
+            error="; ".join(errors) or None,
+        )
 
 
 class JobScoutScheduler:
