@@ -66,3 +66,20 @@ def test_match_has_a_composite_index_for_the_hot_queries():
     names = {index.name for index in Match.__table__.indexes}
 
     assert "ix_match_user_status" in names
+
+
+def test_match_starts_unnotified():
+    """`notified_at` records what the system did; `status` records what the user thinks.
+
+    They are separate columns because staling rewrites `status` to "new", and an
+    already-announced job must not return to the next digest because of that.
+    """
+    match = Match(job_id=1, user_id=1, similarity=0.5)
+
+    assert match.notified_at is None
+
+
+def test_notified_at_is_indexed_for_the_digest_query():
+    names = {column.name for index in Match.__table__.indexes for column in index.columns}
+
+    assert "notified_at" in names

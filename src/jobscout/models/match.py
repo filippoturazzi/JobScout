@@ -36,6 +36,9 @@ class Match(SQLModel, table=True):
     red_flags: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     status: str = Field(default="new", index=True)
     llm_model: str | None = None
+    notified_at: datetime | None = Field(default=None, index=True)
+    """When the digest announced this match. Separate from `status` on purpose: staling
+    rewrites `status`, and an already-announced job must not return to the next digest."""
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
     updated_at: datetime = Field(
         default_factory=utcnow, nullable=False, sa_column_kwargs={"onupdate": utcnow}
