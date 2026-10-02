@@ -1,4 +1,8 @@
+import ssl
 from email import message_from_string
+from email.message import EmailMessage
+from email.parser import Parser
+from email.policy import default
 
 import pytest
 
@@ -15,6 +19,8 @@ class _FakeSMTP:
     def __init__(self, host: str, port: int, timeout: float | None = None) -> None:
         self.host, self.port = host, port
         self.started_tls = False
+        self.tls_context: ssl.SSLContext | None = None
+        self.message: object = None
         self.logged_in: tuple[str, str] | None = None
         self.sent: str | None = None
         _FakeSMTP.instances.append(self)
@@ -25,13 +31,15 @@ class _FakeSMTP:
     def __exit__(self, *_exc: object) -> None:
         return None
 
-    def starttls(self) -> None:
+    def starttls(self, context: ssl.SSLContext | None = None) -> None:
         self.started_tls = True
+        self.tls_context = context
 
     def login(self, user: str, password: str) -> None:
         self.logged_in = (user, password)
 
     def send_message(self, message: object) -> None:
+        self.message = message
         self.sent = str(message)
 
 
@@ -47,9 +55,17 @@ def _settings(**kw: object) -> Settings:
     return Settings(_env_file=None, **base)  # type: ignore[arg-type]
 
 
+class _ForbiddenSMTP:
+    """Default for every test: a forgotten patch fails at once instead of hanging."""
+
+    def __init__(self, *_a: object, **_k: object) -> None:
+        raise AssertionError("test tried to open a real SMTP connection")
+
+
 @pytest.fixture(autouse=True)
-def _reset() -> None:
+def _reset(monkeypatch: pytest.MonkeyPatch) -> None:
     _FakeSMTP.instances.clear()
+    monkeypatch.setattr("jobscout.notifiers.email.smtplib.SMTP", _ForbiddenSMTP)
 
 
 def test_send_builds_a_message_to_the_recipient(monkeypatch):
@@ -73,6 +89,31 @@ def test_send_uses_starttls_and_credentials_when_given(monkeypatch):
     assert (smtp.host, smtp.port) == ("smtp.test", 2525)
     assert smtp.started_tls is True
     assert smtp.logged_in == ("bot@test", "secret")
+
+
+def test_starttls_uses_a_verifying_context(monkeypatch):
+    """The default (context=None) accepts any certificate, then login sends the password."""
+    monkeypatch.setattr("jobscout.notifiers.email.smtplib.SMTP", _FakeSMTP)
+
+    SmtpNotifier(_settings(), "me@example.com").send("s", "b")
+
+    context = _FakeSMTP.instances[0].tls_context
+    assert context is not None
+    assert context.check_hostname is True
+    assert context.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_send_round_trips_non_ascii_text(monkeypatch):
+    monkeypatch.setattr("jobscout.notifiers.email.smtplib.SMTP", _FakeSMTP)
+
+    SmtpNotifier(_settings(), "me@example.com").send(
+        "JobScout: Olá — três vagas", "Boa correspondência: ação"
+    )
+
+    sent = Parser(policy=default).parsestr(_FakeSMTP.instances[0].sent or "")
+    assert isinstance(sent, EmailMessage)
+    assert sent["Subject"] == "JobScout: Olá — três vagas"
+    assert "ação" in sent.get_content()
 
 
 def test_send_skips_login_when_no_credentials(monkeypatch):
