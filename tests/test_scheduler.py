@@ -692,6 +692,35 @@ def test_an_unfinished_run_does_not_count_toward_the_backoff(session: Session):
     assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
 
 
+PINNED_HOUR = 15
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Pin the digest's notion of "now" to 15:00 local on a fixed date.
+
+    Both clocks the digest reads are pinned to the same instant: `datetime.now()` in the
+    scheduler (the send window and the day comparison) and `utcnow()` in `pipeline.digest`
+    (the `notified_at` stamp). The "sent today" guard therefore compares real values, just
+    ones that cannot straddle midnight whenever the suite happens to run.
+    """
+    import jobscout.pipeline.digest as digest_module
+    import jobscout.scheduler as scheduler_module
+
+    pinned = datetime(2026, 6, 15, PINNED_HOUR, 0).astimezone()
+
+    class _PinnedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return pinned if tz is None else pinned.astimezone(tz)
+
+    monkeypatch.setattr(scheduler_module, "datetime", _PinnedDatetime)
+    monkeypatch.setattr(
+        digest_module, "utcnow", lambda: pinned.astimezone(UTC).replace(tzinfo=None)
+    )
+    return pinned
+
+
 class _RecordingNotifier:
     """Project-owned double. Records sends; optionally fails like a dead SMTP server."""
 
@@ -738,7 +767,7 @@ def _digest_fixture(session, score: int = 80):
     return user
 
 
-def test_digest_job_sends_and_marks_notified(session, monkeypatch):
+def test_digest_job_sends_and_marks_notified(session, monkeypatch, clock):
     import jobscout.scheduler as scheduler_module
 
     _digest_fixture(session)
@@ -754,7 +783,7 @@ def test_digest_job_sends_and_marks_notified(session, monkeypatch):
     assert (run.ok, run.counters["sent"]) == (True, 1)
 
 
-def test_digest_job_sends_once_a_day(session, monkeypatch):
+def test_digest_job_sends_once_a_day(session, monkeypatch, clock):
     import jobscout.scheduler as scheduler_module
 
     _digest_fixture(session)
@@ -763,12 +792,33 @@ def test_digest_job_sends_once_a_day(session, monkeypatch):
     settings = _digest_settings(digest_hour=0)
 
     digest_job(session.get_bind(), settings, tick=1)
+
+    # A fresh unannounced match arrives after the send. Without it the second firing would
+    # find nothing to send and the test would pass even with no once-a-day guard at all:
+    # only `already_sent_today` stands between this match and a second e-mail.
+    user = session.exec(select(User)).one()
+    job = Job(
+        source="t",
+        external_id="b",
+        title="ML Engineer",
+        company="Beta",
+        remote=True,
+        url="https://x/b",
+        description="d",
+        content_hash="h2",
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=90))
+    session.commit()
+
     digest_job(session.get_bind(), settings, tick=2)
 
     assert len(notifier.sent) == 1, "a second firing the same day must not send again"
 
 
-def test_a_failed_send_marks_nothing_and_retries_next_firing(session, monkeypatch):
+def test_a_failed_send_marks_nothing_and_retries_next_firing(session, monkeypatch, clock):
     """The matches must survive a dead SMTP server; losing them silently is the worst case."""
     import jobscout.scheduler as scheduler_module
 
@@ -793,28 +843,21 @@ def test_a_failed_send_marks_nothing_and_retries_next_firing(session, monkeypatc
     assert session.exec(select(Match)).one().notified_at is not None
 
 
-def test_digest_job_is_a_no_op_before_the_send_hour(session, monkeypatch):
+def test_digest_job_is_a_no_op_before_the_send_hour(session, monkeypatch, clock):
     import jobscout.scheduler as scheduler_module
 
-    class _NoonClock(datetime):
-        """Local time pinned to 12:00 today, so the test cannot depend on when it runs."""
-
-        @classmethod
-        def now(cls, tz=None):
-            return datetime.now(tz).replace(hour=12, minute=0)
-
-    monkeypatch.setattr(scheduler_module, "datetime", _NoonClock)
     _digest_fixture(session)
     notifier = _RecordingNotifier()
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
 
-    digest_job(session.get_bind(), _digest_settings(digest_hour=13), tick=1)
+    # The pinned clock reads 15:00, so a 16:00 send hour has not arrived yet.
+    digest_job(session.get_bind(), _digest_settings(digest_hour=PINNED_HOUR + 1), tick=1)
 
     assert notifier.sent == []
     assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
 
 
-def test_digest_job_writes_no_run_row_when_there_is_nothing_to_send(session, monkeypatch):
+def test_digest_job_writes_no_run_row_when_there_is_nothing_to_send(session, monkeypatch, clock):
     import jobscout.scheduler as scheduler_module
     from jobscout.pipeline.users import update_preferences
 
@@ -827,7 +870,7 @@ def test_digest_job_writes_no_run_row_when_there_is_nothing_to_send(session, mon
     assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
 
 
-def test_digest_job_skips_a_user_without_an_address(session, monkeypatch):
+def test_digest_job_skips_a_user_without_an_address(session, monkeypatch, clock):
     import jobscout.scheduler as scheduler_module
 
     get_or_create_default_user(session)
@@ -839,7 +882,7 @@ def test_digest_job_skips_a_user_without_an_address(session, monkeypatch):
     assert notifier.sent == []
 
 
-def test_digest_job_is_a_no_op_without_smtp(session):
+def test_digest_job_is_a_no_op_without_smtp(session, clock):
     """No SMTP configured is a normal state, not an error — and writes no Run row.
 
     Deliberately does NOT monkeypatch `build_notifier`: the guard under test reads the
