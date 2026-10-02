@@ -5,7 +5,7 @@ from sqlmodel import Field, SQLModel
 
 from jobscout.models.base import utcnow
 
-RUN_JOBS: frozenset[str] = frozenset({"ingest", "match"})
+RUN_JOBS: frozenset[str] = frozenset({"ingest", "match", "digest"})
 """The scheduled jobs that record a run. Stage 4 adds the notifier."""
 
 

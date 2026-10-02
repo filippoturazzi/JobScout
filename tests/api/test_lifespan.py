@@ -33,7 +33,7 @@ def test_lifespan_starts_and_stops_the_scheduler(tmp_path, monkeypatch):
 
     with TestClient(app) as client:
         scheduler = client.app.state.scheduler
-        assert {job.id for job in scheduler.get_jobs()} == {"ingest", "match"}
+        assert {job.id for job in scheduler.get_jobs()} == {"ingest", "match", "digest"}
 
     assert scheduler.get_jobs() == [], "shutdown must leave no jobs armed"
 

@@ -13,6 +13,7 @@ from jobscout.pipeline.run import save_preferences
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.scheduler import (
     JobScoutScheduler,
+    digest_job,
     finish_run,
     ingest_job,
     match_job,
@@ -436,7 +437,7 @@ def test_start_registers_both_jobs_at_the_configured_intervals(session: Session)
     try:
         by_id = {job.id: job for job in scheduler.get_jobs()}
 
-        assert set(by_id) == {"ingest", "match"}
+        assert set(by_id) == {"ingest", "match", "digest"}
         for job in by_id.values():
             assert job.max_instances == 1
             assert job.coalesce is True
@@ -689,3 +690,166 @@ def test_an_unfinished_run_does_not_count_toward_the_backoff(session: Session):
     session.commit()
 
     assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
+
+
+class _RecordingNotifier:
+    """Project-owned double. Records sends; optionally fails like a dead SMTP server."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.sent: list[tuple[str, str]] = []
+
+    def send(self, subject: str, body: str) -> None:
+        if self.error is not None:
+            raise self.error
+        self.sent.append((subject, body))
+
+
+def _digest_settings(**kw) -> Settings:
+    """Settings for a digest test: SMTP is configured, so `digest_job` gets past its
+    "can this instance send at all" guard. The notifier itself is still faked — these
+    values are never dialled."""
+    kw.setdefault("smtp_host", "smtp.test")
+    kw.setdefault("smtp_from", "bot@test")
+    return _settings(**kw)
+
+
+def _digest_fixture(session, score: int = 80):
+    """A user who wants mail and one match worth announcing."""
+    from jobscout.pipeline.users import update_preferences
+
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"notify_email": "me@example.com"})
+    job = Job(
+        source="t",
+        external_id="a",
+        title="AI Engineer",
+        company="Acme",
+        remote=True,
+        url="https://x/a",
+        description="d",
+        content_hash="h",
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=score))
+    session.commit()
+    return user
+
+
+def test_digest_job_sends_and_marks_notified(session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert len(notifier.sent) == 1
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is not None
+    run = session.exec(select(Run).where(col(Run.job) == "digest")).one()
+    assert (run.ok, run.counters["sent"]) == (True, 1)
+
+
+def test_digest_job_sends_once_a_day(session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+    settings = _digest_settings(digest_hour=0)
+
+    digest_job(session.get_bind(), settings, tick=1)
+    digest_job(session.get_bind(), settings, tick=2)
+
+    assert len(notifier.sent) == 1, "a second firing the same day must not send again"
+
+
+def test_a_failed_send_marks_nothing_and_retries_next_firing(session, monkeypatch):
+    """The matches must survive a dead SMTP server; losing them silently is the worst case."""
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    failing = _RecordingNotifier(error=RuntimeError("smtp down"))
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: failing)
+    settings = _digest_settings(digest_hour=0)
+
+    digest_job(session.get_bind(), settings, tick=1)
+
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is None
+    run = session.exec(select(Run).where(col(Run.job) == "digest")).one()
+    assert run.ok is False and "smtp down" in (run.error or "")
+
+    working = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: working)
+    digest_job(session.get_bind(), settings, tick=2)
+
+    assert len(working.sent) == 1
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is not None
+
+
+def test_digest_job_is_a_no_op_before_the_send_hour(session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    class _NoonClock(datetime):
+        """Local time pinned to 12:00 today, so the test cannot depend on when it runs."""
+
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz).replace(hour=12, minute=0)
+
+    monkeypatch.setattr(scheduler_module, "datetime", _NoonClock)
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=13), tick=1)
+
+    assert notifier.sent == []
+    assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
+
+
+def test_digest_job_writes_no_run_row_when_there_is_nothing_to_send(session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+    from jobscout.pipeline.users import update_preferences
+
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"notify_email": "me@example.com"})
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: _RecordingNotifier())
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
+
+
+def test_digest_job_skips_a_user_without_an_address(session, monkeypatch):
+    import jobscout.scheduler as scheduler_module
+
+    get_or_create_default_user(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert notifier.sent == []
+
+
+def test_digest_job_is_a_no_op_without_smtp(session):
+    """No SMTP configured is a normal state, not an error — and writes no Run row.
+
+    Deliberately does NOT monkeypatch `build_notifier`: the guard under test reads the
+    settings directly, so faking the factory would make this test pass without ever
+    exercising it.
+    """
+    _digest_fixture(session)
+
+    digest_job(session.get_bind(), _settings(digest_hour=0, smtp_host=None), tick=1)
+
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is None
+    assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []

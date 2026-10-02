@@ -25,4 +25,4 @@ def test_run_round_trips_counters(session: Session):
 
 
 def test_run_jobs_lists_both_scheduled_jobs():
-    assert frozenset({"ingest", "match"}) == RUN_JOBS
+    assert frozenset({"ingest", "match", "digest"}) == RUN_JOBS
