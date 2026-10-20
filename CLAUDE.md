@@ -20,13 +20,13 @@ Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`).
 - **LangGraph is used only for the per-job matching graph** (`matching/graph.py`): embed → prefilter by cosine similarity → LLM structured evaluation → decide. The prefilter's conditional edge must skip the LLM for low-similarity jobs. Collection, dedup, and notification are plain Python in `pipeline/`.
 - APScheduler inside the FastAPI lifespan (no Celery/Redis).
 - Interface until stage 6 is FastAPI + Typer CLI only. Stage 6 frontend is Reflex.
-- Notification channel is e-mail over SMTP (stdlib `smtplib`), chosen in stage 4 as the first channel; code still depends on the `Notifier` protocol, never a concrete channel.
+- Notification channel is e-mail over SMTP (stdlib `smtplib`), chosen in stage 4 as the first channel; *sending* always goes through the `Notifier` protocol, never a concrete channel. Rendering is the channel's own business: `render_digest` lives in `notifiers/email.py` and callers import it from there.
 - Distribution is hybrid: built for self-hosting, with a hosted demo (quotas + BYOK) in stage 7.
 - English for code, comments, README; READMEs also in pt-BR and es later.
 
 ## Architecture rules
 
-Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `notifiers` (depend only on `models`) · `pipeline` (the only composer: ingest/upsert, filters, liveness, matching, repair, run) · `api`, `cli` and `scheduler` (APScheduler jobs; `scheduler.py` sits beside `api`/`cli`) are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.
+Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `notifiers` (depend only on `config` and `models`) · `pipeline` (the only composer: ingest/upsert, filters, liveness, matching, repair, run) · `api`, `cli` and `scheduler` (APScheduler jobs; `scheduler.py` sits beside `api`/`cli`) are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.
 
 Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_seen_at`/`last_seen_at`/`is_active`/`content_hash` on `Job`, and a changed hash clears the embedding and marks existing matches `stale`. Running ingest twice with the same data must be a no-op besides `last_seen_at`.
 

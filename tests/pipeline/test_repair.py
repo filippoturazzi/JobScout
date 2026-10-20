@@ -66,7 +66,7 @@ def test_repair_stales_matches_but_never_a_dismissal(session: Session):
     user = get_or_create_default_user(session)
     job = _add_job(session, "a", DIRTY, MIXED)
     other = _add_job(session, "b", DIRTY, MIXED)
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=80, status="notified"))
+    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=80, status="seen"))
     session.add(
         Match(job_id=other.id, user_id=user.id, similarity=0.4, score=10, status="dismissed")
     )

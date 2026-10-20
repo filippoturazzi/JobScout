@@ -5,9 +5,7 @@ from sqlmodel import Field, SQLModel
 
 from jobscout.models.base import utcnow
 
-MATCH_STATUSES: frozenset[str] = frozenset(
-    {"new", "seen", "saved", "dismissed", "notified", "low", "stale"}
-)
+MATCH_STATUSES: frozenset[str] = frozenset({"new", "seen", "saved", "dismissed", "low", "stale"})
 """`low` = rejected by the cosine prefilter, terminal until something stales it;
 `stale` = needs re-evaluation; `dismissed` = the user said no, and it sticks."""
 

@@ -164,6 +164,41 @@ def test_another_jobs_failures_do_not_slow_this_one(session: Session):
     assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
 
 
+def _record_aged(session: Session, job: str, ok: bool, age: timedelta) -> None:
+    """A finished run that started (and ended) `age` ago."""
+    when = utcnow() - age
+    session.add(Run(job=job, ok=ok, started_at=when, finished_at=when))
+    session.commit()
+
+
+def test_failures_older_than_the_window_do_not_back_off(session: Session):
+    """The digest writes no row when nothing qualifies, so a stale streak would otherwise
+    stay the newest evidence until the retention prune drops it 30 days later."""
+    for _ in range(6):
+        _record_aged(session, "digest", ok=False, age=timedelta(hours=48))
+
+    assert should_skip_for_backoff(session, _settings(), "digest", tick=1) is False
+    assert should_skip_for_backoff(session, _settings(), "digest", tick=63) is False
+
+
+def test_only_failures_inside_the_window_count(session: Session):
+    """Three old failures plus one recent one must back off like one failure (every 2nd
+    tick), not like four (every 16th)."""
+    for _ in range(3):
+        _record_aged(session, "digest", ok=False, age=timedelta(hours=48))
+    _record(session, "digest", ok=False)
+
+    assert should_skip_for_backoff(session, _settings(), "digest", tick=1) is True
+    assert should_skip_for_backoff(session, _settings(), "digest", tick=2) is False
+
+
+def test_a_failure_just_inside_the_window_still_backs_off(session: Session):
+    """The boundary belongs to the window: 23 hours old is still evidence about now."""
+    _record_aged(session, "match", ok=False, age=timedelta(hours=23))
+
+    assert should_skip_for_backoff(session, _settings(), "match", tick=1) is True
+
+
 def _add_stale_job(session: Session, source: str, external_id: str, days_ago: int) -> Job:
     seen = utcnow() - timedelta(days=days_ago)
     job = Job(
@@ -1046,3 +1081,78 @@ def test_a_scored_match_reaches_a_digest_and_is_never_sent_twice(session, monkey
     digest_job(session.get_bind(), settings, tick=2)
 
     assert len(notifier.sent) == 1, "notified_at, not status, decides"
+
+
+def test_a_crash_after_a_successful_send_finishes_the_run_and_says_the_mail_went_out(
+    session, monkeypatch, clock
+):
+    """The send cannot be un-sent. A crash in the marking must still finish the Run row,
+    and /runs must distinguish "nobody got mail" from "they got mail and may get it again".
+    """
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(scheduler_module, "mark_notified", _boom)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert len(notifier.sent) == 1, "the mail really did go out"
+    run = _digest_run(session)
+    assert run.ok is False
+    assert run.finished_at is not None, "a finished row, not one that reads as a killed process"
+    assert "database is locked" in (run.error or "")
+    assert "SENT BUT NOT MARKED" in (run.error or "")
+    assert "me@example.com" in (run.error or "")
+    assert session.exec(select(Match)).one().notified_at is None
+    # The operator's warning is only useful if the backoff can also see the failure.
+    assert should_skip_for_backoff(session, _digest_settings(), "digest", tick=1) is True
+
+
+def test_a_crash_while_building_the_digest_still_finishes_a_run(session, monkeypatch, clock):
+    """The pending-build phase runs before the Run row is opened; a crash there must not
+    vanish from /runs."""
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("no such column: notified_at")
+
+    monkeypatch.setattr(scheduler_module, "select_unnotified", _boom)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert notifier.sent == [], "nothing was sent, so nothing may be marked"
+    run = _digest_run(session)
+    assert (run.ok, run.finished_at is None) == (False, False)
+    assert "no such column: notified_at" in (run.error or "")
+    assert "SENT BUT NOT MARKED" not in (run.error or ""), "no mail went out this time"
+
+
+def test_a_user_without_an_address_does_not_stop_another_users_digest(session, monkeypatch, clock):
+    """The single-user case already pins the skip; this pins that it is a skip and not an
+    abort, which is the only way the guard can starve someone else."""
+    import jobscout.scheduler as scheduler_module
+
+    wanted = _digest_fixture(session)
+    silent = _second_user(session, address=None)
+    router = _PerRecipient()
+    monkeypatch.setattr(scheduler_module, "build_notifier", router)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert set(router.by_address) == {"me@example.com"}, "no notifier built for the silent user"
+    assert len(router.by_address["me@example.com"].sent) == 1
+    session.expire_all()
+    notified = {m.user_id: m.notified_at for m in session.exec(select(Match)).all()}
+    assert notified[wanted.id] is not None and notified[silent.id] is None
+    run = _digest_run(session)
+    assert (run.ok, run.counters["users"]) == (True, 1)

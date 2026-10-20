@@ -31,6 +31,19 @@ from jobscout.pipeline.users import get_preferences
 
 log = logging.getLogger(__name__)
 
+BACKOFF_WINDOW = timedelta(hours=24)
+"""How far back the failure streak is read, applied to all three jobs alike.
+
+The digest needs it: it deliberately writes no Run row when nothing qualifies, so without
+a window a failed streak stays the most recent digest evidence until the retention prune
+drops it (30 days by default). A misconfigured SMTP that fails six times in one day would
+then skip 63 of the next 64 hourly ticks for weeks, including the first real digest.
+
+Ingest and match are unaffected: both write a row on every firing, so their most recent
+rows are always within the hour and the window never changes what they see. One rule for
+three jobs is simpler than a per-job exception.
+"""
+
 
 def start_run(session: Session, settings: Settings, job: str) -> Run:
     """Open a run and prune expired history in the same transaction.
@@ -73,11 +86,17 @@ def should_skip_for_backoff(session: Session, settings: Settings, job: str, tick
     A skipped tick writes no Run row, so skipping can never deepen the backoff by itself.
     Unfinished rows (`finished_at IS NULL`) are ignored: a run killed mid-flight by a process
     exit is not evidence about the provider, and counting it would turn unclean restarts
-    into an ever-longer backoff.
+    into an ever-longer backoff. Rows older than BACKOFF_WINDOW are ignored too: a failure
+    from last week is not evidence about now.
     """
+    since = utcnow() - BACKOFF_WINDOW
     recent = session.exec(
         select(Run)
-        .where(col(Run.job) == job, col(Run.finished_at).is_not(None))
+        .where(
+            col(Run.job) == job,
+            col(Run.finished_at).is_not(None),
+            col(Run.started_at) >= since,
+        )
         .order_by(desc(col(Run.started_at)), desc(col(Run.id)))
         .limit(64)
     ).all()
@@ -222,7 +241,30 @@ def digest_job(engine: Engine, settings: Settings, tick: int | None = None) -> N
     try:
         _digest(engine, settings, tick)
     except Exception:
-        log.exception("digest job failed")
+        log.exception("digest job crashed outside its own error handling")
+
+
+def _collect_pending(
+    session: Session, settings: Settings, now_local: datetime
+) -> list[tuple[int, str, list[int], int, str, str]]:
+    """Everything that would be sent this firing: (user, address, match ids, held back,
+    subject, body). Reads only — nothing here is a commitment to send."""
+    pending: list[tuple[int, str, list[int], int, str, str]] = []
+    for user in session.exec(select(User)).all():
+        if user.id is None:
+            continue
+        prefs = get_preferences(session, user.id)
+        if not prefs.notify_email:
+            continue
+        if already_sent_today(session, user.id, now_local):
+            continue
+        rows, held_back = select_unnotified(session, user.id, prefs.min_score_to_notify)
+        if not rows:
+            continue
+        subject, body = render_digest(rows, held_back)
+        ids = [m.id for m, _ in rows if m.id is not None]
+        pending.append((user.id, prefs.notify_email, ids, held_back, subject, body))
+    return pending
 
 
 def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
@@ -243,45 +285,56 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
             log.info("no SMTP configured; digest is a no-op")
             return
 
-        users = list(session.exec(select(User)).all())
-        pending: list[tuple[int, str, list[int], int, str, str]] = []
-        for user in users:
-            if user.id is None:
-                continue
-            prefs = get_preferences(session, user.id)
-            if not prefs.notify_email:
-                continue
-            if already_sent_today(session, user.id, now_local):
-                continue
-            rows, held_back = select_unnotified(session, user.id, prefs.min_score_to_notify)
-            if not rows:
-                continue
-            subject, body = render_digest(rows, held_back)
-            ids = [m.id for m, _ in rows if m.id is not None]
-            pending.append((user.id, prefs.notify_email, ids, held_back, subject, body))
-
-        if not pending:
-            return
-
-        run = start_run(session, settings, "digest")
+        run: Run | None = None
         counters = {"users": 0, "sent": 0, "held_back": 0}
         errors: list[str] = []
-        for user_id, address, ids, held, subject, body in pending:
-            notifier = build_notifier(settings, address)
-            assert notifier is not None, "the no-SMTP case returned before the run opened"
-            try:
-                notifier.send(subject, body)
-            except Exception as exc:
-                errors.append(f"user {user_id}: {type(exc).__name__}: {exc}")
-                continue
-            mark_notified(session, ids)
-            counters["users"] += 1
-            counters["sent"] += len(ids)
-            counters["held_back"] += held
+        # Addresses whose message the server accepted but whose matches are not marked yet.
+        # A send cannot be un-sent, so this is a materially different failure from "nobody
+        # got mail": those people will get the same digest again.
+        delivered_unmarked: list[str] = []
+        try:
+            pending = _collect_pending(session, settings, now_local)
+            if not pending:
+                return
+
+            run = start_run(session, settings, "digest")
+            for user_id, address, ids, held, subject, body in pending:
+                notifier = build_notifier(settings, address)
+                assert notifier is not None, "the no-SMTP case returned before the run opened"
+                try:
+                    notifier.send(subject, body)
+                except Exception as exc:
+                    errors.append(f"user {user_id}: {type(exc).__name__}: {exc}")
+                    continue
+                delivered_unmarked.append(address)
+                mark_notified(session, ids)
+                delivered_unmarked.remove(address)
+                counters["users"] += 1
+                counters["sent"] += len(ids)
+                counters["held_back"] += held
+        except Exception as exc:
+            # The whole body is covered, like ingest and match: a crash that leaves no
+            # finished row is indistinguishable from a killed process, carries no reason
+            # into /runs, and never engages the backoff.
+            session.rollback()
+            log.exception("digest job failed")
+            errors.append(f"{type(exc).__name__}: {exc}")
+            if delivered_unmarked:
+                # Make the state legible rather than trying to recover from it.
+                errors.append(
+                    "SENT BUT NOT MARKED: "
+                    + ", ".join(delivered_unmarked)
+                    + " received mail that is not recorded as notified and will be sent again"
+                )
+            if run is None:
+                run = start_run(session, settings, "digest")
+            finish_run(session, run, ok=False, counters=counters, error="; ".join(errors))
+            return
         # Users are independent: one dead address is not a failed run. Only a run that served
         # nobody counts as failed, otherwise a single typo'd address would drive the
         # consecutive-failure backoff and starve every other user's digest. Errors stay in
         # `error` so /runs still shows who could not be reached.
+        assert run is not None, "the empty-pending case returned before the loop"
         finish_run(
             session,
             run,
