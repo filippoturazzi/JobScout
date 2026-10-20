@@ -14,7 +14,9 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 @router.get("", response_model=list[RunRead])
 def read_runs(
     session: Annotated[Session, Depends(get_session)],
-    job: Annotated[str | None, Query(description="Filter by job name: ingest or match.")] = None,
+    job: Annotated[
+        str | None, Query(description="Filter by job name: ingest, match or digest.")
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[RunRead]:
     """Scheduled executions, newest first. Instance-wide, not per user."""

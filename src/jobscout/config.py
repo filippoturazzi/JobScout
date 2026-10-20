@@ -30,6 +30,22 @@ class Settings(BaseSettings):
     run_retention_days: int = Field(default=30, ge=0)
     max_backoff_ticks: int = Field(default=6, ge=0)
 
+    # --- Notifications (stage 4) ---
+    # SMTP credentials identify who runs the instance, so they are operator config.
+    # The recipient address is a user preference — that is what lets a hosted demo
+    # work without the operator registering anyone.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_starttls: bool = True
+    # Local hour (server timezone) at or after which the daily digest is sent.
+    digest_hour: int = Field(default=9, ge=0, le=23)
+    # The digest job polls at this interval; that is also its retry cadence, which is
+    # why there is no separate retry setting.
+    digest_interval_minutes: int = Field(default=60, ge=1)
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "WARNING"
 
     @field_validator("log_level", mode="before")

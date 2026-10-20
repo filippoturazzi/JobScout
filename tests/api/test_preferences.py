@@ -114,3 +114,11 @@ def test_put_preferences_survives_a_failing_wake(client, monkeypatch):
 
     assert response.status_code == 200
     assert client.get("/preferences").json()["profile_summary"] == "Python LLM engineer."
+
+
+def test_notify_email_is_a_user_preference(client):
+    """The recipient is per-user so the hosted demo needs no operator setup."""
+    response = client.put("/preferences", json={"notify_email": "me@example.com"})
+
+    assert response.status_code == 200
+    assert client.get("/preferences").json()["notify_email"] == "me@example.com"

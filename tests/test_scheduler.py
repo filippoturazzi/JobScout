@@ -6,13 +6,14 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
-from jobscout.models import Job, Match, Run, User
+from jobscout.models import Job, Match, Run, User, UserPreferences
 from jobscout.models.base import utcnow
 from jobscout.pipeline.matching import MatchRun
 from jobscout.pipeline.run import save_preferences
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.scheduler import (
     JobScoutScheduler,
+    digest_job,
     finish_run,
     ingest_job,
     match_job,
@@ -161,6 +162,41 @@ def test_another_jobs_failures_do_not_slow_this_one(session: Session):
         _record(session, "ingest", ok=False)
 
     assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
+
+
+def _record_aged(session: Session, job: str, ok: bool, age: timedelta) -> None:
+    """A finished run that started (and ended) `age` ago."""
+    when = utcnow() - age
+    session.add(Run(job=job, ok=ok, started_at=when, finished_at=when))
+    session.commit()
+
+
+def test_failures_older_than_the_window_do_not_back_off(session: Session):
+    """The digest writes no row when nothing qualifies, so a stale streak would otherwise
+    stay the newest evidence until the retention prune drops it 30 days later."""
+    for _ in range(6):
+        _record_aged(session, "digest", ok=False, age=timedelta(hours=48))
+
+    assert should_skip_for_backoff(session, _settings(), "digest", tick=1) is False
+    assert should_skip_for_backoff(session, _settings(), "digest", tick=63) is False
+
+
+def test_only_failures_inside_the_window_count(session: Session):
+    """Three old failures plus one recent one must back off like one failure (every 2nd
+    tick), not like four (every 16th)."""
+    for _ in range(3):
+        _record_aged(session, "digest", ok=False, age=timedelta(hours=48))
+    _record(session, "digest", ok=False)
+
+    assert should_skip_for_backoff(session, _settings(), "digest", tick=1) is True
+    assert should_skip_for_backoff(session, _settings(), "digest", tick=2) is False
+
+
+def test_a_failure_just_inside_the_window_still_backs_off(session: Session):
+    """The boundary belongs to the window: 23 hours old is still evidence about now."""
+    _record_aged(session, "match", ok=False, age=timedelta(hours=23))
+
+    assert should_skip_for_backoff(session, _settings(), "match", tick=1) is True
 
 
 def _add_stale_job(session: Session, source: str, external_id: str, days_ago: int) -> Job:
@@ -425,24 +461,28 @@ def test_match_job_that_only_skipped_low_similarity_is_a_success(session: Sessio
     assert session.exec(select(Run).where(col(Run.job) == "match")).one().ok is True
 
 
-def test_start_registers_both_jobs_at_the_configured_intervals(session: Session):
+def test_start_registers_every_job_at_the_configured_intervals(session: Session):
     scheduler = JobScoutScheduler(
         session.get_bind(),
         _settings(
-            ingest_interval_minutes=42, match_interval_minutes=7, scheduler_jitter_seconds=13
+            ingest_interval_minutes=42,
+            match_interval_minutes=7,
+            digest_interval_minutes=29,
+            scheduler_jitter_seconds=13,
         ),
     )
     scheduler.start()
     try:
         by_id = {job.id: job for job in scheduler.get_jobs()}
 
-        assert set(by_id) == {"ingest", "match"}
+        assert set(by_id) == {"ingest", "match", "digest"}
         for job in by_id.values():
             assert job.max_instances == 1
             assert job.coalesce is True
             assert job.trigger.jitter == 13
         assert by_id["ingest"].trigger.interval.total_seconds() == 42 * 60
         assert by_id["match"].trigger.interval.total_seconds() == 7 * 60
+        assert by_id["digest"].trigger.interval.total_seconds() == 29 * 60
     finally:
         scheduler.shutdown()
 
@@ -513,6 +553,21 @@ def test_each_match_firing_gets_the_next_tick(session: Session, monkeypatch):
 
     scheduler._run_match_tick()
     scheduler._run_match_tick()
+
+    assert seen == [1, 2]
+
+
+def test_each_digest_firing_gets_the_next_tick(session: Session, monkeypatch):
+    """Every firing is counted, so a backed-off digest still reaches its next due tick."""
+    seen: list[int | None] = []
+    monkeypatch.setattr(
+        "jobscout.scheduler.digest_job",
+        lambda engine, settings, tick=None: seen.append(tick),
+    )
+    scheduler = JobScoutScheduler(session.get_bind(), _settings())
+
+    scheduler._run_digest_tick()
+    scheduler._run_digest_tick()
 
     assert seen == [1, 2]
 
@@ -689,3 +744,415 @@ def test_an_unfinished_run_does_not_count_toward_the_backoff(session: Session):
     session.commit()
 
     assert should_skip_for_backoff(session, _settings(), "match", tick=1) is False
+
+
+PINNED_HOUR = 15
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Pin the digest's notion of "now" to 15:00 local on a fixed date.
+
+    Both clocks the digest reads are pinned to the same instant: `datetime.now()` in the
+    scheduler (the send window and the day comparison) and `utcnow()` in `pipeline.digest`
+    (the `notified_at` stamp). The "sent today" guard therefore compares real values, just
+    ones that cannot straddle midnight whenever the suite happens to run.
+    """
+    import jobscout.pipeline.digest as digest_module
+    import jobscout.scheduler as scheduler_module
+
+    pinned = datetime(2026, 6, 15, PINNED_HOUR, 0).astimezone()
+
+    class _PinnedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return pinned if tz is None else pinned.astimezone(tz)
+
+    monkeypatch.setattr(scheduler_module, "datetime", _PinnedDatetime)
+    monkeypatch.setattr(
+        digest_module, "utcnow", lambda: pinned.astimezone(UTC).replace(tzinfo=None)
+    )
+    return pinned
+
+
+class _RecordingNotifier:
+    """Project-owned double. Records sends; optionally fails like a dead SMTP server."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.sent: list[tuple[str, str]] = []
+
+    def send(self, subject: str, body: str) -> None:
+        if self.error is not None:
+            raise self.error
+        self.sent.append((subject, body))
+
+
+def _digest_settings(**kw) -> Settings:
+    """Settings for a digest test: SMTP is configured, so `digest_job` gets past its
+    "can this instance send at all" guard. The notifier itself is still faked — these
+    values are never dialled."""
+    kw.setdefault("smtp_host", "smtp.test")
+    kw.setdefault("smtp_from", "bot@test")
+    return _settings(**kw)
+
+
+def _add_match(session, user_id: int, external_id: str, score: int = 80) -> Match:
+    job = Job(
+        source="t",
+        external_id=external_id,
+        title=f"Job {external_id}",
+        company="Acme",
+        remote=True,
+        url=f"https://x/{external_id}",
+        description="d",
+        content_hash=f"h-{external_id}",
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    match = Match(job_id=job.id, user_id=user_id, similarity=0.9, score=score)
+    session.add(match)
+    session.commit()
+    session.refresh(match)
+    return match
+
+
+def _digest_fixture(session, score: int = 80):
+    """A user who wants mail and one match worth announcing."""
+    from jobscout.pipeline.users import update_preferences
+
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"notify_email": "me@example.com"})
+    _add_match(session, user.id, "a", score)
+    return user
+
+
+def _second_user(session, address: str | None = "b@example.com") -> User:
+    """A second user with one match waiting, and (optionally) an address."""
+    from jobscout.pipeline.users import update_preferences
+
+    user = User(email="second@example.com")
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    session.add(UserPreferences(user_id=user.id))
+    session.commit()
+    if address:
+        update_preferences(session, user.id, {"notify_email": address})
+    _add_match(session, user.id, "b")
+    return user
+
+
+class _PerRecipient:
+    """`build_notifier` double: one recording notifier per address, some of them dead."""
+
+    def __init__(self, dead: frozenset[str] = frozenset()) -> None:
+        self.dead = dead
+        self.by_address: dict[str, _RecordingNotifier] = {}
+
+    def __call__(self, _settings, recipient):
+        error = RuntimeError(f"{recipient} refused") if recipient in self.dead else None
+        return self.by_address.setdefault(recipient, _RecordingNotifier(error=error))
+
+
+def test_digest_job_sends_and_marks_notified(session, monkeypatch, clock):
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert len(notifier.sent) == 1
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is not None
+    run = session.exec(select(Run).where(col(Run.job) == "digest")).one()
+    assert (run.ok, run.counters["sent"]) == (True, 1)
+
+
+def test_digest_job_sends_once_a_day(session, monkeypatch, clock):
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+    settings = _digest_settings(digest_hour=0)
+
+    digest_job(session.get_bind(), settings, tick=1)
+
+    # A fresh unannounced match arrives after the send. Without it the second firing would
+    # find nothing to send and the test would pass even with no once-a-day guard at all:
+    # only `already_sent_today` stands between this match and a second e-mail.
+    user = session.exec(select(User)).one()
+    _add_match(session, user.id, "b", score=90)
+
+    digest_job(session.get_bind(), settings, tick=2)
+
+    assert len(notifier.sent) == 1, "a second firing the same day must not send again"
+
+
+def test_a_failed_send_marks_nothing_and_retries_next_firing(session, monkeypatch, clock):
+    """The matches must survive a dead SMTP server; losing them silently is the worst case."""
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    failing = _RecordingNotifier(error=RuntimeError("smtp down"))
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: failing)
+    settings = _digest_settings(digest_hour=0)
+
+    digest_job(session.get_bind(), settings, tick=1)
+
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is None
+    run = session.exec(select(Run).where(col(Run.job) == "digest")).one()
+    assert run.ok is False and "smtp down" in (run.error or "")
+
+    working = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: working)
+    digest_job(session.get_bind(), settings, tick=2)
+
+    assert len(working.sent) == 1
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is not None
+
+
+def test_digest_job_is_a_no_op_before_the_send_hour(session, monkeypatch, clock):
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    # The pinned clock reads 15:00, so a 16:00 send hour has not arrived yet.
+    digest_job(session.get_bind(), _digest_settings(digest_hour=PINNED_HOUR + 1), tick=1)
+
+    assert notifier.sent == []
+    assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
+
+
+def test_digest_job_writes_no_run_row_when_there_is_nothing_to_send(session, monkeypatch, clock):
+    import jobscout.scheduler as scheduler_module
+    from jobscout.pipeline.users import update_preferences
+
+    user = get_or_create_default_user(session)
+    update_preferences(session, user.id, {"notify_email": "me@example.com"})
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: _RecordingNotifier())
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
+
+
+def test_digest_job_skips_a_user_without_an_address(session, monkeypatch, clock):
+    """The user has a qualifying match, so the address guard is the only thing that can
+    suppress the send."""
+    import jobscout.scheduler as scheduler_module
+
+    user = get_or_create_default_user(session)
+    _add_match(session, user.id, "a")
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert notifier.sent == []
+    assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is None
+
+
+def _digest_run(session) -> Run:
+    session.expire_all()
+    return session.exec(select(Run).where(col(Run.job) == "digest")).one()
+
+
+def test_one_dead_address_does_not_fail_the_run_or_starve_the_others(session, monkeypatch, clock):
+    import jobscout.scheduler as scheduler_module
+
+    first = _digest_fixture(session)
+    second = _second_user(session)
+    router = _PerRecipient(dead=frozenset({"me@example.com"}))
+    monkeypatch.setattr(scheduler_module, "build_notifier", router)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert router.by_address["me@example.com"].sent == []
+    assert len(router.by_address["b@example.com"].sent) == 1
+    session.expire_all()
+    notified = {m.user_id: m.notified_at for m in session.exec(select(Match)).all()}
+    assert notified[first.id] is None and notified[second.id] is not None
+    run = _digest_run(session)
+    assert run.ok is True, "one served user makes the run ok, or one typo starves everyone"
+    assert "me@example.com refused" in (run.error or "")
+    assert run.counters["users"] == 1
+
+
+def test_a_run_where_every_user_failed_is_a_failed_run(session, monkeypatch, clock):
+    """The other end: without it the digest backoff could never engage."""
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    _second_user(session)
+    router = _PerRecipient(dead=frozenset({"me@example.com", "b@example.com"}))
+    monkeypatch.setattr(scheduler_module, "build_notifier", router)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    run = _digest_run(session)
+    assert run.ok is False
+    assert run.counters["users"] == 0
+    assert should_skip_for_backoff(session, _digest_settings(), "digest", tick=1) is True
+
+
+def test_digest_run_reports_how_many_rows_the_cap_held_back(session, monkeypatch, clock):
+    import jobscout.scheduler as scheduler_module
+    from jobscout.pipeline.digest import DIGEST_CAP
+
+    user = _digest_fixture(session)
+    for i in range(DIGEST_CAP + 1):  # one already exists: 22 qualify, 20 fit
+        _add_match(session, user.id, f"extra{i}")
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    counters = _digest_run(session).counters
+    assert (counters["sent"], counters["held_back"]) == (DIGEST_CAP, 2)
+
+
+def test_digest_job_without_a_tick_is_never_silently_backed_off(session, monkeypatch, clock):
+    """tick=None means "no tick known"; it must not read as tick 0 (0 % n == 0 for all n)."""
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    _record(session, "digest", ok=False)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0))
+
+    assert len(notifier.sent) == 1
+
+
+def test_digest_job_is_a_no_op_without_smtp(session, clock):
+    """No SMTP configured is a normal state, not an error — and writes no Run row.
+
+    Deliberately does NOT monkeypatch `build_notifier`: the guard under test reads the
+    settings directly, so faking the factory would make this test pass without ever
+    exercising it.
+    """
+    _digest_fixture(session)
+
+    digest_job(session.get_bind(), _settings(digest_hour=0, smtp_host=None), tick=1)
+
+    session.expire_all()
+    assert session.exec(select(Match)).one().notified_at is None
+    assert session.exec(select(Run).where(col(Run.job) == "digest")).all() == []
+
+
+def test_a_scored_match_reaches_a_digest_and_is_never_sent_twice(session, monkeypatch, clock):
+    """Stage 4's headline: score -> digest -> marked -> never again.
+
+    Drives the real `digest_job`, with a double standing in only for SMTP.
+    """
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session, score=88)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+    settings = _digest_settings(digest_hour=0)
+
+    digest_job(session.get_bind(), settings, tick=1)
+
+    subject, body = notifier.sent[0]
+    assert subject == "JobScout: 1 new match"
+    assert "[88] Job a — Acme" in body
+
+    # A later day must not re-announce it, even though staling would reset `status`.
+    session.expire_all()
+    match = session.exec(select(Match)).one()
+    match.status = "stale"
+    match.notified_at = utcnow() - timedelta(days=2)
+    session.add(match)
+    session.commit()
+
+    digest_job(session.get_bind(), settings, tick=2)
+
+    assert len(notifier.sent) == 1, "notified_at, not status, decides"
+
+
+def test_a_crash_after_a_successful_send_finishes_the_run_and_says_the_mail_went_out(
+    session, monkeypatch, clock
+):
+    """The send cannot be un-sent. A crash in the marking must still finish the Run row,
+    and /runs must distinguish "nobody got mail" from "they got mail and may get it again".
+    """
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(scheduler_module, "mark_notified", _boom)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert len(notifier.sent) == 1, "the mail really did go out"
+    run = _digest_run(session)
+    assert run.ok is False
+    assert run.finished_at is not None, "a finished row, not one that reads as a killed process"
+    assert "database is locked" in (run.error or "")
+    assert "SENT BUT NOT MARKED" in (run.error or "")
+    assert "me@example.com" in (run.error or "")
+    assert session.exec(select(Match)).one().notified_at is None
+    # The operator's warning is only useful if the backoff can also see the failure.
+    assert should_skip_for_backoff(session, _digest_settings(), "digest", tick=1) is True
+
+
+def test_a_crash_while_building_the_digest_still_finishes_a_run(session, monkeypatch, clock):
+    """The pending-build phase runs before the Run row is opened; a crash there must not
+    vanish from /runs."""
+    import jobscout.scheduler as scheduler_module
+
+    _digest_fixture(session)
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("no such column: notified_at")
+
+    monkeypatch.setattr(scheduler_module, "select_unnotified", _boom)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert notifier.sent == [], "nothing was sent, so nothing may be marked"
+    run = _digest_run(session)
+    assert (run.ok, run.finished_at is None) == (False, False)
+    assert "no such column: notified_at" in (run.error or "")
+    assert "SENT BUT NOT MARKED" not in (run.error or ""), "no mail went out this time"
+
+
+def test_a_user_without_an_address_does_not_stop_another_users_digest(session, monkeypatch, clock):
+    """The single-user case already pins the skip; this pins that it is a skip and not an
+    abort, which is the only way the guard can starve someone else."""
+    import jobscout.scheduler as scheduler_module
+
+    wanted = _digest_fixture(session)
+    silent = _second_user(session, address=None)
+    router = _PerRecipient()
+    monkeypatch.setattr(scheduler_module, "build_notifier", router)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert set(router.by_address) == {"me@example.com"}, "no notifier built for the silent user"
+    assert len(router.by_address["me@example.com"].sent) == 1
+    session.expire_all()
+    notified = {m.user_id: m.notified_at for m in session.exec(select(Match)).all()}
+    assert notified[wanted.id] is not None and notified[silent.id] is None
+    run = _digest_run(session)
+    assert (run.ok, run.counters["users"]) == (True, 1)

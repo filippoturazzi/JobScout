@@ -16,11 +16,33 @@ from sqlmodel import Session, col, delete, desc, select
 from jobscout.config import Settings
 from jobscout.models import Run, User
 from jobscout.models.base import utcnow
+from jobscout.notifiers import build_notifier
+from jobscout.notifiers.email import render_digest
+from jobscout.pipeline.digest import (
+    already_sent_today,
+    is_send_window,
+    mark_notified,
+    select_unnotified,
+)
 from jobscout.pipeline.liveness import deactivate_stale_jobs
 from jobscout.pipeline.matching import run_match
 from jobscout.pipeline.run import run_ingest
+from jobscout.pipeline.users import get_preferences
 
 log = logging.getLogger(__name__)
+
+BACKOFF_WINDOW = timedelta(hours=24)
+"""How far back the failure streak is read, applied to all three jobs alike.
+
+The digest needs it: it deliberately writes no Run row when nothing qualifies, so without
+a window a failed streak stays the most recent digest evidence until the retention prune
+drops it (30 days by default). A misconfigured SMTP that fails six times in one day would
+then skip 63 of the next 64 hourly ticks for weeks, including the first real digest.
+
+Ingest and match are unaffected: both write a row on every firing, so their most recent
+rows are always within the hour and the window never changes what they see. One rule for
+three jobs is simpler than a per-job exception.
+"""
 
 
 def start_run(session: Session, settings: Settings, job: str) -> Run:
@@ -64,11 +86,17 @@ def should_skip_for_backoff(session: Session, settings: Settings, job: str, tick
     A skipped tick writes no Run row, so skipping can never deepen the backoff by itself.
     Unfinished rows (`finished_at IS NULL`) are ignored: a run killed mid-flight by a process
     exit is not evidence about the provider, and counting it would turn unclean restarts
-    into an ever-longer backoff.
+    into an ever-longer backoff. Rows older than BACKOFF_WINDOW are ignored too: a failure
+    from last week is not evidence about now.
     """
+    since = utcnow() - BACKOFF_WINDOW
     recent = session.exec(
         select(Run)
-        .where(col(Run.job) == job, col(Run.finished_at).is_not(None))
+        .where(
+            col(Run.job) == job,
+            col(Run.finished_at).is_not(None),
+            col(Run.started_at) >= since,
+        )
         .order_by(desc(col(Run.started_at)), desc(col(Run.id)))
         .limit(64)
     ).all()
@@ -203,6 +231,119 @@ def _match(engine: Engine, settings: Settings, tick: int | None, force: bool) ->
         finish_run(session, run, ok=not failed, counters=counters, error="; ".join(notes) or None)
 
 
+def digest_job(engine: Engine, settings: Settings, tick: int | None = None) -> None:
+    """Send each user their daily digest, at most once a day.
+
+    Runs hourly rather than daily so a failed send is retried within the hour instead of
+    waiting until tomorrow. The "did I already send" decision comes from `notified_at`,
+    which is durable, so a restart cannot cause a second e-mail.
+    """
+    try:
+        _digest(engine, settings, tick)
+    except Exception:
+        log.exception("digest job crashed outside its own error handling")
+
+
+def _collect_pending(
+    session: Session, settings: Settings, now_local: datetime
+) -> list[tuple[int, str, list[int], int, str, str]]:
+    """Everything that would be sent this firing: (user, address, match ids, held back,
+    subject, body). Reads only — nothing here is a commitment to send."""
+    pending: list[tuple[int, str, list[int], int, str, str]] = []
+    for user in session.exec(select(User)).all():
+        if user.id is None:
+            continue
+        prefs = get_preferences(session, user.id)
+        if not prefs.notify_email:
+            continue
+        if already_sent_today(session, user.id, now_local):
+            continue
+        rows, held_back = select_unnotified(session, user.id, prefs.min_score_to_notify)
+        if not rows:
+            continue
+        subject, body = render_digest(rows, held_back)
+        ids = [m.id for m, _ in rows if m.id is not None]
+        pending.append((user.id, prefs.notify_email, ids, held_back, subject, body))
+    return pending
+
+
+def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
+    with Session(engine) as session:
+        if tick is not None and should_skip_for_backoff(session, settings, "digest", tick):
+            log.info("digest tick %s skipped by backoff", tick)
+            return
+        # Local and aware on purpose: DIGEST_HOUR is what the operator reads on their
+        # own clock. This is the one place the project's naive-UTC rule must not apply.
+        now_local = datetime.now().astimezone()
+        if not is_send_window(settings, now_local):
+            return
+
+        # Decided before any Run row is opened: an instance that cannot send mail is a
+        # no-op, not an execution. Writing a row here would put a daily "no SMTP" line in
+        # /runs forever for every operator who does not want e-mail.
+        if not settings.smtp_host or not settings.smtp_from:
+            log.info("no SMTP configured; digest is a no-op")
+            return
+
+        run: Run | None = None
+        counters = {"users": 0, "sent": 0, "held_back": 0}
+        errors: list[str] = []
+        # Addresses whose message the server accepted but whose matches are not marked yet.
+        # A send cannot be un-sent, so this is a materially different failure from "nobody
+        # got mail": those people will get the same digest again.
+        delivered_unmarked: list[str] = []
+        try:
+            pending = _collect_pending(session, settings, now_local)
+            if not pending:
+                return
+
+            run = start_run(session, settings, "digest")
+            for user_id, address, ids, held, subject, body in pending:
+                notifier = build_notifier(settings, address)
+                assert notifier is not None, "the no-SMTP case returned before the run opened"
+                try:
+                    notifier.send(subject, body)
+                except Exception as exc:
+                    errors.append(f"user {user_id}: {type(exc).__name__}: {exc}")
+                    continue
+                delivered_unmarked.append(address)
+                mark_notified(session, ids)
+                delivered_unmarked.remove(address)
+                counters["users"] += 1
+                counters["sent"] += len(ids)
+                counters["held_back"] += held
+        except Exception as exc:
+            # The whole body is covered, like ingest and match: a crash that leaves no
+            # finished row is indistinguishable from a killed process, carries no reason
+            # into /runs, and never engages the backoff.
+            session.rollback()
+            log.exception("digest job failed")
+            errors.append(f"{type(exc).__name__}: {exc}")
+            if delivered_unmarked:
+                # Make the state legible rather than trying to recover from it.
+                errors.append(
+                    "SENT BUT NOT MARKED: "
+                    + ", ".join(delivered_unmarked)
+                    + " received mail that is not recorded as notified and will be sent again"
+                )
+            if run is None:
+                run = start_run(session, settings, "digest")
+            finish_run(session, run, ok=False, counters=counters, error="; ".join(errors))
+            return
+        # Users are independent: one dead address is not a failed run. Only a run that served
+        # nobody counts as failed, otherwise a single typo'd address would drive the
+        # consecutive-failure backoff and starve every other user's digest. Errors stay in
+        # `error` so /runs still shows who could not be reached.
+        assert run is not None, "the empty-pending case returned before the loop"
+        finish_run(
+            session,
+            run,
+            ok=counters["users"] > 0,
+            counters=counters,
+            error="; ".join(errors) or None,
+        )
+
+
 class JobScoutScheduler:
     """Owns the APScheduler instance and the per-job tick counters.
 
@@ -215,6 +356,7 @@ class JobScoutScheduler:
         self._settings = settings
         self._scheduler = BackgroundScheduler()
         self._match_tick = 0
+        self._digest_tick = 0
         self._tick_lock = threading.Lock()
         # `match` and `match-wake` are different APScheduler ids, so max_instances=1 cannot stop
         # them overlapping. This guard does: start_run writes an ok=False row before the work
@@ -241,6 +383,10 @@ class JobScoutScheduler:
         finally:
             self._match_running.release()
 
+    def _run_digest_tick(self) -> None:
+        self._digest_tick += 1
+        digest_job(self._engine, self._settings, tick=self._digest_tick)
+
     def start(self) -> None:
         if not self._settings.scheduler_enabled:
             log.info("scheduler disabled by SCHEDULER_ENABLED")
@@ -261,6 +407,16 @@ class JobScoutScheduler:
             "interval",
             minutes=self._settings.match_interval_minutes,
             id="match",
+            max_instances=1,
+            coalesce=True,
+            jitter=jitter,
+            replace_existing=True,
+        )
+        self._scheduler.add_job(
+            self._run_digest_tick,
+            "interval",
+            minutes=self._settings.digest_interval_minutes,
+            id="digest",
             max_instances=1,
             coalesce=True,
             jitter=jitter,
