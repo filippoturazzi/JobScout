@@ -27,8 +27,6 @@ Rules:
 - terms: job-board search keywords, MOST IMPORTANT FIRST, at most {MAX_TERMS}. Each term is one to
   {MAX_TERM_WORDS} words (a role or a core technology, e.g. "ai engineer", "python"). Never a
   sentence: the job APIs match keywords and a long query returns nothing.
-- titles: job titles the candidate would accept, short (e.g. "AI Engineer"). A posting is only
-  kept if its title contains every word of one of these, so keep them to the core role words.
 - seniority: e.g. junior, mid, senior.
 - work_modes: only from {", ".join(WORK_MODES)}. Leave empty if the text does not say.
 - regions: countries or cities the candidate would work in, as they appear in job locations.
@@ -38,13 +36,20 @@ Rules:
 
 
 class ExtractedProfile(BaseModel):
-    """What the LLM must return for one profile paragraph."""
+    """What the LLM must return for one profile paragraph.
+
+    ``titles`` is part of the shape for downstream consumers but is deliberately never
+    filled: ``pipeline.filters._passes_titles`` requires EVERY word of a preferred title to
+    appear in the job title, so an extracted "AI Engineer" would silently drop "Machine
+    Learning Engineer" before it is scored. The search terms already decided what was
+    fetched, and ranking by score is the filter; do not "fix" the empty field.
+    """
 
     terms: list[str] = Field(
         default_factory=list,
         description=f"Search keywords, most important first, 1-{MAX_TERM_WORDS} words each.",
     )
-    titles: list[str] = Field(default_factory=list, description="Acceptable job titles.")
+    titles: list[str] = Field(default_factory=list, description="Always leave empty.")
     seniority: list[str] = Field(default_factory=list, description="Seniority levels.")
     work_modes: list[str] = Field(
         default_factory=list, description=f"Subset of: {', '.join(WORK_MODES)}."
@@ -100,7 +105,7 @@ def extract_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
         raise ValueError("No usable search terms could be extracted from the profile paragraph.")
     return ExtractedProfile(
         terms=terms,
-        titles=_dedupe(raw.titles),
+        titles=[],  # see the class docstring
         seniority=[value.lower() for value in _dedupe(raw.seniority)],
         work_modes=_clean_work_modes(raw.work_modes),
         regions=_dedupe(raw.regions),

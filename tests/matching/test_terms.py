@@ -1,7 +1,10 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
+from jobscout.api.schemas import PreferencesUpdate
 from jobscout.matching.terms import ExtractedProfile, extract_profile, profile_hash
 from jobscout.models import UserPreferences
 from tests.matching.fakes import CountingChatModel
@@ -25,7 +28,7 @@ def test_extraction_returns_ranked_terms_and_structured_fields():
     )
     result = extract_profile(PARAGRAPH, llm)
     assert result.terms == ["ai engineer", "python", "langchain"]
-    assert result.titles == ["AI Engineer"]
+    assert result.titles == []  # never filled: see ExtractedProfile
     assert result.seniority == ["junior"]
     assert result.work_modes == ["remote"]
     assert result.regions == ["Brazil", "Portugal"]
@@ -96,3 +99,43 @@ def test_terms_are_capped_keeping_the_most_important():
     llm = fake(terms=[f"term{i}" for i in range(20)])
     result = extract_profile(PARAGRAPH, llm)
     assert result.terms == [f"term{i}" for i in range(8)]
+
+
+def test_a_related_title_still_passes_after_the_extracted_profile_is_saved(session):
+    from jobscout.models import Job
+    from jobscout.pipeline.filters import job_matches_preferences
+    from jobscout.pipeline.users import get_or_create_default_user, update_preferences
+
+    llm = fake(
+        terms=["ai engineer"],
+        titles=["AI Engineer"],  # even if the LLM volunteers titles, they must not be kept
+        work_modes=["remote"],
+    )
+    extracted = extract_profile(PARAGRAPH, llm)
+    user = get_or_create_default_user(session)
+    prefs, _ = update_preferences(
+        session,
+        user.id,
+        {**extracted.model_dump(exclude={"terms"}), "search_terms": extracted.terms},
+    )
+    job = Job(
+        source="s",
+        external_id="1",
+        title="Machine Learning Engineer",
+        company="c",
+        remote=True,
+        url="u",
+        description="d",
+        content_hash="h",
+        first_seen_at=datetime.now(UTC),
+        last_seen_at=datetime.now(UTC),
+    )
+    assert prefs.titles == []
+    assert job_matches_preferences(job, prefs)
+
+
+def test_search_terms_cannot_be_sent_through_the_preferences_api_model():
+    with pytest.raises(ValidationError):
+        PreferencesUpdate(search_terms=None)
+    with pytest.raises(ValidationError):
+        PreferencesUpdate(search_terms=["python"])
