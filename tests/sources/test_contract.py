@@ -14,11 +14,13 @@ from jobscout.sources.arbeitnow import BASE_URL as ARBEITNOW_URL
 from jobscout.sources.base import JobSource, RawJob, SearchQuery
 from jobscout.sources.himalayas import BASE_URL as HIMALAYAS_URL
 from jobscout.sources.registry import SOURCE_FACTORIES
+from jobscout.sources.remotive import BASE_URL as REMOTIVE_URL
 from tests.conftest import load_fixture
 
 SOURCE_HTTP_FIXTURES: dict[str, tuple[str, str]] = {
     "arbeitnow": (ARBEITNOW_URL, "arbeitnow_sample.json"),
     "himalayas": (HIMALAYAS_URL, "himalayas_search.json"),
+    "remotive": (REMOTIVE_URL, "remotive_search.json"),
 }
 
 
