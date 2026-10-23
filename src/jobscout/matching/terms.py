@@ -16,10 +16,6 @@ from pydantic import BaseModel, Field
 MAX_TERM_WORDS = 3
 MAX_TERMS = 8
 
-# The only values pipeline.filters._passes_work_mode understands, lowercase.
-WORK_MODES = ("remote", "hybrid", "onsite")
-_WORK_MODE_ALIASES = {"on-site": "onsite", "on site": "onsite", "in-office": "onsite"}
-
 SYSTEM_PROMPT = f"""You read a candidate's description of the job they want and extract search
 terms and structured preferences from it.
 
@@ -28,37 +24,43 @@ Rules:
   {MAX_TERM_WORDS} words (a role or a core technology, e.g. "ai engineer", "python"). Never a
   sentence: the job APIs match keywords and a long query returns nothing.
 - seniority: e.g. junior, mid, senior.
-- work_modes: only from {", ".join(WORK_MODES)}. Leave empty if the text does not say.
-- regions: countries or cities the candidate would work in, as they appear in job locations.
 - required_skills: skills the candidate insists on.
 - excluded_keywords: words that must NOT appear in a job title (e.g. "senior" for a junior).
 - Use only what the text states. Leave a field empty rather than guess."""
 
 
-class ExtractedProfile(BaseModel):
-    """What the LLM must return for one profile paragraph.
-
-    ``titles`` is part of the shape for downstream consumers but is deliberately never
-    filled: ``pipeline.filters._passes_titles`` requires EVERY word of a preferred title to
-    appear in the job title, so an extracted "AI Engineer" would silently drop "Machine
-    Learning Engineer" before it is scored. The search terms already decided what was
-    fetched, and ranking by score is the filter; do not "fix" the empty field.
-    """
+class _LLMOutput(BaseModel):
+    """The only fields the LLM is asked for; suppressed ones never reach its schema."""
 
     terms: list[str] = Field(
         default_factory=list,
         description=f"Search keywords, most important first, 1-{MAX_TERM_WORDS} words each.",
     )
-    titles: list[str] = Field(default_factory=list, description="Always leave empty.")
     seniority: list[str] = Field(default_factory=list, description="Seniority levels.")
-    work_modes: list[str] = Field(
-        default_factory=list, description=f"Subset of: {', '.join(WORK_MODES)}."
-    )
-    regions: list[str] = Field(default_factory=list, description="Acceptable countries/cities.")
     required_skills: list[str] = Field(default_factory=list, description="Must-have skills.")
     excluded_keywords: list[str] = Field(
         default_factory=list, description="Words to reject in a job title."
     )
+
+
+class ExtractedProfile(_LLMOutput):
+    """The extraction result, shaped like the preference columns it feeds.
+
+    ``titles``, ``regions`` and ``work_modes`` are part of the shape for downstream
+    consumers but are deliberately never filled, and the LLM is not asked for them. Rule:
+    automatic extraction may add exclusions, never restrictions. Each is a hard gate that
+    can hide the best match without a trace: ``pipeline.filters._passes_titles`` needs EVERY
+    word of a title in the job title ("AI Engineer" drops "Machine Learning Engineer");
+    ``_passes_region`` drops non-remote jobs whose location lacks the region ("Brazil" never
+    matches "Sao Paulo, SP"); ``_passes_work_mode`` drops on-site jobs once "remote" is set.
+    The search terms already decided what was fetched, ranking by score is the filter, and
+    the paragraph itself (``profile_summary``) reaches the match prompt verbatim. Do not
+    "fix" the empty fields.
+    """
+
+    titles: list[str] = Field(default_factory=list)
+    regions: list[str] = Field(default_factory=list)
+    work_modes: list[str] = Field(default_factory=list)
 
 
 def profile_hash(paragraph: str) -> str:
@@ -78,25 +80,15 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
-def _clean_work_modes(values: list[str]) -> list[str]:
-    modes: list[str] = []
-    for value in values:
-        mode = value.strip().lower()
-        mode = _WORK_MODE_ALIASES.get(mode, mode)
-        if mode in WORK_MODES and mode not in modes:
-            modes.append(mode)
-    return modes
-
-
 def extract_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
     """Extract terms and preferences. Raises ``ValueError`` if there is nothing to search for."""
     if not paragraph.strip():
         raise ValueError("The profile paragraph is empty; there is nothing to search for.")
-    structured = llm.with_structured_output(ExtractedProfile)
+    structured = llm.with_structured_output(_LLMOutput)
     # Typed loosely because it also accepts dict/JSON schemas; a pydantic class yields an
     # instance of that class (same pattern as matching.graph).
     raw = cast(
-        ExtractedProfile,
+        _LLMOutput,
         structured.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=paragraph)]),
     )
     terms = [term for term in _dedupe(raw.terms) if len(term.split()) <= MAX_TERM_WORDS]
@@ -105,10 +97,7 @@ def extract_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
         raise ValueError("No usable search terms could be extracted from the profile paragraph.")
     return ExtractedProfile(
         terms=terms,
-        titles=[],  # see the class docstring
         seniority=[value.lower() for value in _dedupe(raw.seniority)],
-        work_modes=_clean_work_modes(raw.work_modes),
-        regions=_dedupe(raw.regions),
         required_skills=_dedupe(raw.required_skills),
         excluded_keywords=_dedupe(raw.excluded_keywords),
     )

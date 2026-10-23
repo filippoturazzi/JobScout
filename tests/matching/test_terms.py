@@ -1,12 +1,12 @@
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
 from jobscout.api.schemas import PreferencesUpdate
-from jobscout.matching.terms import ExtractedProfile, extract_profile, profile_hash
+from jobscout.matching.terms import ExtractedProfile, _LLMOutput, extract_profile, profile_hash
 from jobscout.models import UserPreferences
+from jobscout.pipeline.filters import job_matches_preferences
 from tests.matching.fakes import CountingChatModel
 
 PARAGRAPH = "Junior AI engineer, remote, Brazil or Portugal, Python and LangChain, no seniors."
@@ -30,11 +30,17 @@ def test_extraction_returns_ranked_terms_and_structured_fields():
     assert result.terms == ["ai engineer", "python", "langchain"]
     assert result.titles == []  # never filled: see ExtractedProfile
     assert result.seniority == ["junior"]
-    assert result.work_modes == ["remote"]
-    assert result.regions == ["Brazil", "Portugal"]
+    assert result.work_modes == []
+    assert result.regions == []
     assert result.required_skills == ["Python"]
     assert result.excluded_keywords == ["senior"]
-    assert llm.schemas == [ExtractedProfile]
+    assert llm.schemas == [_LLMOutput]
+    assert set(_LLMOutput.model_fields) == {
+        "terms",
+        "seniority",
+        "required_skills",
+        "excluded_keywords",
+    }
 
 
 def test_every_structured_field_exists_on_user_preferences():
@@ -52,11 +58,6 @@ def test_terms_are_short():
 def test_terms_are_deduplicated_keeping_the_first_position():
     result = extract_profile(PARAGRAPH, fake(terms=["Python", "ai", "python "]))
     assert result.terms == ["Python", "ai"]
-
-
-def test_work_modes_are_normalised_to_what_the_filter_understands():
-    llm = fake(terms=["python"], work_modes=["Remote", "on-site", "Hybrid", "anywhere", "remote"])
-    assert extract_profile(PARAGRAPH, llm).work_modes == ["remote", "onsite", "hybrid"]
 
 
 @pytest.mark.parametrize("paragraph", ["", "   \n\t "])
@@ -101,37 +102,51 @@ def test_terms_are_capped_keeping_the_most_important():
     assert result.terms == [f"term{i}" for i in range(8)]
 
 
-def test_a_related_title_still_passes_after_the_extracted_profile_is_saved(session):
-    from jobscout.models import Job
-    from jobscout.pipeline.filters import job_matches_preferences
+def _saved_prefs(session, **llm_fields):
     from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 
-    llm = fake(
-        terms=["ai engineer"],
-        titles=["AI Engineer"],  # even if the LLM volunteers titles, they must not be kept
-        work_modes=["remote"],
-    )
-    extracted = extract_profile(PARAGRAPH, llm)
+    extracted = extract_profile(PARAGRAPH, fake(terms=["ai engineer"], **llm_fields))
     user = get_or_create_default_user(session)
     prefs, _ = update_preferences(
         session,
         user.id,
         {**extracted.model_dump(exclude={"terms"}), "search_terms": extracted.terms},
     )
-    job = Job(
+    return prefs
+
+
+def _job(title="Machine Learning Engineer", location="Berlin, Germany", remote=True):
+    from jobscout.models import Job
+
+    return Job(
         source="s",
         external_id="1",
-        title="Machine Learning Engineer",
+        title=title,
         company="c",
-        remote=True,
+        location=location,
+        remote=remote,
         url="u",
         description="d",
         content_hash="h",
-        first_seen_at=datetime.now(UTC),
-        last_seen_at=datetime.now(UTC),
     )
+
+
+def test_a_related_title_still_passes_after_the_extracted_profile_is_saved(session):
+    prefs = _saved_prefs(session, titles=["AI Engineer"])
     assert prefs.titles == []
-    assert job_matches_preferences(job, prefs)
+    assert job_matches_preferences(_job(), prefs)
+
+
+def test_a_brazilian_city_still_passes_after_a_brazil_preference_is_saved(session):
+    prefs = _saved_prefs(session, regions=["Brazil"])
+    assert prefs.regions == []
+    assert job_matches_preferences(_job(location="Sao Paulo, SP", remote=False), prefs)
+
+
+def test_an_onsite_job_still_passes_after_a_remote_preference_is_saved(session):
+    prefs = _saved_prefs(session, work_modes=["remote"])
+    assert prefs.work_modes == []
+    assert job_matches_preferences(_job(remote=False), prefs)
 
 
 def test_search_terms_cannot_be_sent_through_the_preferences_api_model():
