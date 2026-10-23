@@ -16,12 +16,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "sqlite:///./jobscout.db"
-    sources: str = "arbeitnow"
+    sources: str = "himalayas,remotive,adzuna,jooble"
     arbeitnow_max_pages: int = 2
     inactive_after_days: int = 14
 
     # --- Scheduler (stage 3) ---
-    scheduler_enabled: bool = True
+    # Off by default: a fresh clone must not spend LLM quota on a schedule nobody asked for.
+    scheduler_enabled: bool = False
     # ge=1: APScheduler coerces a 0-minute interval into one second, which would hammer a
     # keyless public API. A typo must stop the process, not start a 1 Hz fetch loop.
     ingest_interval_minutes: int = Field(default=60, ge=1)

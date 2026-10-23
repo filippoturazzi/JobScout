@@ -7,7 +7,7 @@ from jobscout.config import Settings, get_settings
 def test_defaults_work_without_env():
     s = Settings(_env_file=None)
     assert s.database_url == "sqlite:///./jobscout.db"
-    assert s.source_names == ["arbeitnow"]
+    assert s.source_names == ["himalayas", "remotive", "adzuna", "jooble"]
     assert s.arbeitnow_max_pages == 2
     assert s.inactive_after_days == 14
 
@@ -56,7 +56,7 @@ def test_scheduler_settings_have_operator_defaults(monkeypatch):
     )  # conftest disables it for the whole suite
     settings = Settings(_env_file=None)
 
-    assert settings.scheduler_enabled is True
+    assert settings.scheduler_enabled is False
     assert settings.ingest_interval_minutes == 60
     assert settings.match_interval_minutes == 15
     assert settings.scheduler_jitter_seconds == 30

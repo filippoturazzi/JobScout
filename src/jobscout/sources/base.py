@@ -34,6 +34,14 @@ class RawJob(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class SourceStatus(BaseModel):
+    """Whether a configured source will run, and if not, why (e.g. a missing API key)."""
+
+    name: str
+    active: bool
+    reason: str | None = None
+
+
 @runtime_checkable
 class JobSource(Protocol):
     """A job source. Sources must return everything they fetched; never drop results
@@ -42,6 +50,9 @@ class JobSource(Protocol):
     """
 
     name: str
+    # True when the source filters server-side by ``SearchQuery.keywords``; False when it
+    # dumps its whole catalogue and ignores the query.
+    supports_search: bool
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         """Fetch postings from the source. Must return everything fetched; never drop
