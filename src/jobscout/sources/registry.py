@@ -5,9 +5,11 @@ from collections.abc import Callable
 from jobscout.config import Settings
 from jobscout.sources.arbeitnow import ArbeitnowSource
 from jobscout.sources.base import JobSource, SourceStatus
+from jobscout.sources.himalayas import HimalayasSource
 
 SOURCE_FACTORIES: dict[str, Callable[[Settings], JobSource]] = {
     "arbeitnow": lambda settings: ArbeitnowSource(max_pages=settings.arbeitnow_max_pages),
+    "himalayas": lambda settings: HimalayasSource(),
 }
 
 # Companion to SOURCE_FACTORIES: for sources that need credentials, returns the names of

@@ -12,11 +12,13 @@ import respx
 from jobscout.config import Settings
 from jobscout.sources.arbeitnow import BASE_URL as ARBEITNOW_URL
 from jobscout.sources.base import JobSource, RawJob, SearchQuery
+from jobscout.sources.himalayas import BASE_URL as HIMALAYAS_URL
 from jobscout.sources.registry import SOURCE_FACTORIES
 from tests.conftest import load_fixture
 
 SOURCE_HTTP_FIXTURES: dict[str, tuple[str, str]] = {
     "arbeitnow": (ARBEITNOW_URL, "arbeitnow_sample.json"),
+    "himalayas": (HIMALAYAS_URL, "himalayas_search.json"),
 }
 
 
@@ -31,7 +33,8 @@ def test_source_contract(name):
     source = SOURCE_FACTORIES[name](Settings(_env_file=None))
 
     assert isinstance(source, JobSource)
-    jobs = source.fetch(SearchQuery())
+    # A search source fetches nothing without a term, so give it one.
+    jobs = source.fetch(SearchQuery(keywords=["engineer"] if source.supports_search else []))
 
     assert jobs, "fixture must yield at least one job"
     ids = [j.external_id for j in jobs]
