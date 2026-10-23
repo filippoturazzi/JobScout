@@ -83,6 +83,7 @@ def test_non_nullable_fields_are_derived_from_the_table():
             "nice_to_have_skills",
             "excluded_keywords",
             "profile_summary",
+            "search_terms",
             "min_score_to_notify",
         }
     )

@@ -66,7 +66,9 @@ class PreferencesUpdate(BaseModel):
     min_score_to_notify: int | None = Field(default=None, ge=0, le=100)
     notify_email: str | None = None
 
-    @field_validator(*sorted(non_nullable_preference_fields()), mode="before")
+    # `search_terms` is derived from the profile paragraph by the search run, never sent by a
+    # client, so this model deliberately does not declare it.
+    @field_validator(*sorted(non_nullable_preference_fields() - {"search_terms"}), mode="before")
     @classmethod
     def _reject_explicit_null(cls, value: object) -> object:
         if value is None:
