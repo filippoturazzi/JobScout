@@ -70,6 +70,32 @@ def test_empty_description_still_yields_a_job(sample):
 
 
 @respx.mock
+def test_null_description_still_yields_a_job(sample):
+    sample["jobs"][0]["description"] = None
+    _mock(sample)
+    jobs = RemotiveSource().fetch(SearchQuery(keywords=["ml"]))
+    assert len(jobs) == 3
+    assert jobs[0].description == ""
+
+
+@respx.mock
+def test_blank_tags_are_dropped(sample):
+    sample["jobs"][0]["tags"] = ["python", "  ", "", "rust "]
+    _mock(sample)
+    jobs = RemotiveSource().fetch(SearchQuery(keywords=["ml"]))
+    assert jobs[0].tags == ["python", "rust"]
+
+
+@respx.mock
+@pytest.mark.parametrize("bad_tag", [None, 7])
+def test_a_non_string_tag_skips_that_job_and_the_rest_survive(sample, bad_tag):
+    sample["jobs"][0]["tags"] = ["python", bad_tag]
+    _mock(sample)
+    jobs = RemotiveSource().fetch(SearchQuery(keywords=["ml"]))
+    assert [j.external_id for j in jobs] == [str(j["id"]) for j in sample["jobs"][1:3]]
+
+
+@respx.mock
 def test_empty_location_becomes_none(sample):
     sample["jobs"][0]["candidate_required_location"] = ""
     _mock(sample)

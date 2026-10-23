@@ -63,6 +63,10 @@ class RemotiveSource:
         job_id = item.get("id")
         if job_id is None:
             raise ValueError("missing id")
+        raw_tags = item.get("tags") or []
+        if not all(isinstance(tag, str) for tag in raw_tags):
+            # One odd tag must cost that posting only, not the whole response.
+            raise TypeError(f"non-string tag in {raw_tags!r}")
         published = item.get("publication_date")
         return RawJob(
             source="remotive",
@@ -73,7 +77,7 @@ class RemotiveSource:
             remote=True,
             url=item.get("url"),
             description=html_to_text(item.get("description") or ""),
-            tags=[tag.strip() for tag in item.get("tags") or [] if tag.strip()],
+            tags=[tag.strip() for tag in raw_tags if tag.strip()],
             posted_at=datetime.fromisoformat(published) if published else None,
             raw=item,
         )

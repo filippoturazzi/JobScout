@@ -62,10 +62,10 @@ class HimalayasSource:
     @staticmethod
     def _to_raw(item: dict[str, Any]) -> RawJob:
         # The API has no id field; ``guid`` is the posting's canonical URL.
+        # A null guid or title is rejected by RawJob validation (a ValueError the caller
+        # skips); no explicit guard is needed here.
         guid = item.get("guid")
         title = item.get("title")
-        if not guid or not title:
-            raise ValueError("missing guid or title")
         pub = item.get("pubDate")
         posted_at = datetime.fromtimestamp(pub, tz=UTC).replace(tzinfo=None) if pub else None
         # A salary is only comparable when annual; an hourly rate would read as pennies.
