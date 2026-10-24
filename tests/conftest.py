@@ -43,3 +43,8 @@ def _isolate_engines(monkeypatch):
     yield
     reset_engines()
     get_settings.cache_clear()
+
+
+def load_jsonl(name: str) -> list[dict]:
+    lines = (FIXTURES / name).read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
