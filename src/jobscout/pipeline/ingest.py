@@ -6,8 +6,8 @@ change clears the cached embedding (stage 2b also marks matches stale) and keeps
 
 The upsert is keyed on ``(source, external_id)``, with a fingerprint merge in front of it: a
 posting whose key is new but whose title + company + city match an existing row from
-*another source* is the same vacancy seen twice, so it is recorded under that row's ``raw["duplicates"]``
-instead of becoming a second row.
+*another source* is the same vacancy seen twice, so it is recorded under that row's
+``raw["duplicates"]`` instead of becoming a second row.
 """
 
 import hashlib
