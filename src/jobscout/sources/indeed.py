@@ -3,17 +3,15 @@
 Verified against a live capture (``tests/fixtures/indeed_sample.jsonl``, 5 rows from the
 Brazilian site): search results already include the description, so ``fetch_description`` stays
 off. Unlike LinkedIn, Indeed is country-scoped: ``country_indeed`` picks the domain, and it
-only accepts the values in JobSpy's ``Country`` enum. ``"worldwide"`` is not one of them in
-python-jobspy 1.4.1 (validation raises), so it is only this module's name for "no recognised
-region": the argument is then left out and JobSpy falls back to its own default.
+only accepts the values in JobSpy's ``Country`` enum. There is no worldwide value (Indeed is
+partitioned by domain, and python-jobspy 1.4.1 raises on one), so with no recognised region
+this source does not search.
 """
 
 import unicodedata
 
-from jobscout.sources.base import SearchQuery
+from jobscout.sources.base import RawJob, SearchQuery
 from jobscout.sources.jobspy_base import JobSpySource
-
-WORLDWIDE = "worldwide"
 
 # Normalised region name (lowercase, no accents) -> JobSpy ``Country`` value.
 _COUNTRIES = {
@@ -50,19 +48,19 @@ def _normalise(region: str) -> str:
     return " ".join(stripped.casefold().split())
 
 
-def country_for(regions: list[str]) -> tuple[str, str | None]:
+def country_for(regions: list[str]) -> tuple[str | None, str | None]:
     """The JobSpy country for the first recognised region, and a value it had to ignore.
 
     Only the first recognised region is used: searching every region times every term would
-    multiply the block risk by the number of regions. Returns ``("worldwide", value)`` when
-    regions were given but none is recognised (``value`` is the first one), and
-    ``("worldwide", None)`` when there are none.
+    multiply the block risk by the number of regions. Returns ``(None, value)`` when regions
+    were given but none is recognised (``value`` is the first one), and ``(None, None)`` when
+    there are none.
     """
     for region in regions:
         country = _COUNTRIES.get(_normalise(region))
         if country is not None:
             return country, None
-    return WORLDWIDE, (regions[0] if regions else None)
+    return None, (regions[0] if regions else None)
 
 
 class IndeedSource(JobSpySource):
@@ -70,15 +68,22 @@ class IndeedSource(JobSpySource):
     site = "indeed"
 
     def search_kwargs(self, query: SearchQuery) -> dict[str, object]:
-        kwargs = super().search_kwargs(query)
+        country, _ = country_for(query.locations)
+        return {**super().search_kwargs(query), "country_indeed": country}
+
+    def fetch(self, query: SearchQuery) -> list[RawJob]:
         country, ignored = country_for(query.locations)
-        if country != WORLDWIDE:
-            kwargs["country_indeed"] = country
-        if ignored is not None:
-            # Rebuilt from the stored regions on every term, so it survives the per-fetch
-            # reset of ``warnings`` and reaches the run's errors.
-            self.warnings.append(
-                f"indeed: region {ignored!r} is not one Indeed supports, so it was searched "
-                "without a country"
+        if country is None and query.keywords:
+            # Deliberately no fallback market. Indeed has no worldwide search, and letting
+            # JobSpy default to the US would fill the corpus with postings the user never
+            # asked for (the irrelevant-corpus problem stage 5 exists to fix) and spend their
+            # embedding budget on them. Region is a user preference; it is never invented in
+            # code. Searching nothing and saying so is the truthful outcome.
+            reason = (
+                f"region {ignored!r} is not one Indeed supports"
+                if ignored is not None
+                else "no region is set"
             )
-        return kwargs
+            self.warnings = [f"indeed: not searched, {reason}; set a region in your preferences"]
+            return []
+        return super().fetch(query)

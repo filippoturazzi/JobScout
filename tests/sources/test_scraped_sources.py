@@ -62,9 +62,9 @@ def test_the_first_recognised_region_wins():
     assert country_for(["remoto", "Portugal"]) == ("portugal", None)
 
 
-def test_an_unmapped_region_falls_back_to_worldwide_and_says_so():
-    assert country_for(["remoto"]) == ("worldwide", "remoto")
-    assert country_for([]) == ("worldwide", None)
+def test_an_unmapped_region_yields_no_country_and_names_the_value():
+    assert country_for(["remoto"]) == (None, "remoto")
+    assert country_for([]) == (None, None)
 
 
 def _capture_scrape(monkeypatch):
@@ -89,34 +89,26 @@ def test_indeed_searches_the_mapped_country(monkeypatch):
     assert source.warnings == []
 
 
-def test_an_unrecognised_stored_region_is_searched_worldwide_and_named_in_a_warning(
-    monkeypatch,
-):
+@pytest.mark.parametrize(("regions", "named"), [(["remoto"], "remoto"), ([], "no region is set")])
+def test_without_a_known_region_indeed_does_not_search_and_says_so(monkeypatch, regions, named):
     calls = _capture_scrape(monkeypatch)
     source = IndeedSource(Settings(_env_file=None))
-    source.fetch(SearchQuery(keywords=["python"], locations=["remoto"]))
-    # JobSpy 1.4.1 rejects "worldwide" as a country, so the argument is left out and Indeed
-    # uses its un-localised default instead of the whole run crashing.
-    assert "country_indeed" not in calls[0]
+    jobs = source.fetch(SearchQuery(keywords=["python"], locations=regions))
+    assert calls == []
+    assert jobs == []
     assert len(source.warnings) == 1
-    assert "remoto" in source.warnings[0]
+    assert named in source.warnings[0]
+    # The composer drains warnings once after all terms, so a second term must keep it.
+    source.fetch(SearchQuery(keywords=["java"], locations=regions))
+    assert len(source.warnings) == 1
 
 
-@pytest.mark.parametrize("regions", [["Brasil"], ["remoto"], []])
+@pytest.mark.parametrize("regions", [["Brasil"], ["Portugal", "remoto"]])
 def test_the_indeed_arguments_are_accepted_by_the_installed_jobspy(regions):
     kwargs = IndeedSource(Settings(_env_file=None)).search_kwargs(
         SearchQuery(keywords=["python"], locations=regions)
     )
     ScraperInput.model_validate({"site_type": ["indeed"], **kwargs})
-
-
-def test_the_region_warning_survives_every_term(monkeypatch):
-    _capture_scrape(monkeypatch)
-    source = IndeedSource(Settings(_env_file=None))
-    query = SearchQuery(keywords=["python"], locations=["remoto"])
-    source.fetch(query)
-    source.fetch(query)
-    assert len(source.warnings) == 1 and "remoto" in source.warnings[0]
 
 
 def test_linkedin_passes_the_term_and_requests_descriptions(monkeypatch):

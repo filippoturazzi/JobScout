@@ -69,8 +69,10 @@ def test_source_contract(name, monkeypatch):
     source = SOURCE_FACTORIES[name](Settings(_env_file=None))
 
     assert isinstance(source, JobSource)
-    # A search source fetches nothing without a term, so give it one.
-    jobs = source.fetch(SearchQuery(keywords=["engineer"] if source.supports_search else []))
+    # A search source fetches nothing without a term, so give it one. Indeed also needs a
+    # region it recognises (it does not search without one); the others ignore it.
+    keywords = ["engineer"] if source.supports_search else []
+    jobs = source.fetch(SearchQuery(keywords=keywords, locations=["Brasil"]))
 
     assert jobs, "fixture must yield at least one job"
     ids = [j.external_id for j in jobs]

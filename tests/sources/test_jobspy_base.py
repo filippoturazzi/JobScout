@@ -221,3 +221,17 @@ def test_a_non_annual_salary_is_left_empty(interval):
 def test_a_salary_without_an_interval_column_is_left_empty():
     [job] = to_raw_jobs(_frame([_row(min_amount=50000.0, max_amount=70000.0)]), "linkedin")
     assert job.salary_min is None
+
+
+def test_a_warning_added_while_building_arguments_survives_the_scrape(monkeypatch):
+    class Warns(JobSpySource):
+        def search_kwargs(self, query):
+            self.warnings.append("from the subclass")
+            return super().search_kwargs(query)
+
+    monkeypatch.setattr(
+        jobspy_base, "scrape_jobs", lambda **kw: _frame([_row()], warnings={"linkedin": "slow"})
+    )
+    source = Warns(Settings(_env_file=None))
+    source.fetch(SearchQuery(keywords=["python"]))
+    assert source.warnings == ["from the subclass", "linkedin: slow"]
