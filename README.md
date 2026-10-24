@@ -1,6 +1,7 @@
 # JobScout
 
-Open-source AI agent that continuously searches public job-board APIs and matches
+Open-source AI agent that continuously searches public job-board APIs (and, for
+LinkedIn and Indeed, scrapes them; see Job sources) and matches
 postings against **your** profile — with an LLM explaining every score.
 
 > Status: early development. Stages 0–1 (collection, CLI, API — no AI yet) are done; stage 2 (LLM matching) is next.
@@ -138,7 +139,79 @@ register it in `sources/registry.py`, add `tests/fixtures/<name>_sample.json` an
 
 ## Job sources
 
-- [Arbeitnow](https://www.arbeitnow.com) — free public API, Europe/remote focus.
+| Source | Kind | Credential | On by default | Notes |
+|---|---|---|---|---|
+| `himalayas` | documented API | none | yes | searched by term (`q=`) |
+| `remotive` | documented API | none | yes | searched by term (`search=`) |
+| `linkedin` | **scraped**, through JobSpy | none; proxy optional | yes | descriptions arrive with the posting (`fetch_description=True`), at one extra request each |
+| `indeed` | **scraped**, through JobSpy | none; proxy optional | yes | searches nothing until your preferences hold a region it recognises (see below) |
+| `arbeitnow` | documented API | none | no | a catalogue with no search, so it fills the database with unrelated jobs; kept registered so the contract test keeps proving it accepts both kinds of source |
+
+`SOURCES` (env) picks which are enabled; the default is `himalayas,remotive,linkedin,indeed`.
+
+### Read this before the first run: LinkedIn and Indeed are scraped
+
+LinkedIn and Indeed have no public jobs API. JobScout collects them by **scraping, through the
+[JobSpy](https://github.com/speedyapply/JobSpy) library**, and that is a different thing from the
+other sources. It violates those sites' terms of use. It can break whenever a page or endpoint
+changes, or stop working the day the site decides to block you. And it runs **from your own IP
+address**, because you cloned this and you are the one running it. If you would rather not, take
+`linkedin` and `indeed` out of `SOURCES`; everything else keeps working.
+
+`JOBSPY_PROXIES` can route the scraping through a proxy. It is optional, empty by default, and
+proxies that LinkedIn will not block are paid; nothing in JobScout requires one. To stay under
+the sites' rate limits a proxy-less clone searches little: `JOBSPY_MAX_TERMS` (3) terms per run,
+`JOBSPY_RESULTS_WANTED` (10) postings per term, nothing older than `JOBSPY_HOURS_OLD` (168)
+hours. Raise them and you raise the chance of being blocked. A blocked site fails only itself:
+the run is still ok if any source answered, and the failure is named in the run's `error`.
+
+### Indeed needs a region
+
+Indeed is split by country (`br.indeed.com`, `www.indeed.com`), there is no worldwide Indeed, and
+JobSpy would otherwise default to the US. So `indeed` **returns nothing, without searching, until
+`regions` in your preferences names a country it recognises**, and says so in the run's `error`.
+Set it through the API, not the environment:
+
+```bash
+curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json"   -d '{"regions": ["Brazil"]}'
+```
+
+Recognised: Brazil, Portugal, Spain, USA, UK, Germany, Canada, in English or the local spelling
+(`Brasil`, `Alemanha`, `Reino Unido`, ...), plus the two-letter codes except `CA`, which is
+ambiguous with California; write `Canada`. Only the first recognised region is searched.
+
+### Checking the scraped sources from your own connection
+
+The scraped sources only run in a **search**: they are asked for the terms extracted from your
+profile paragraph. Plain `jobscout fetch` (and the scheduler's ingest) has no terms, so it
+returns nothing from `linkedin` and `indeed` and only collects the other sources. The search run
+is not yet exposed through the CLI or the API, so for now it is started like this:
+
+```bash
+uv run jobscout serve              # leave it running; set an LLM key in .env first
+# in another shell:
+curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json"   -d '{"profile_summary": "<a paragraph about you>", "regions": ["Brazil"]}'
+uv run python -c "from jobscout.config import get_settings; from jobscout.db import get_engine, init_db; from jobscout.pipeline.search import run_search; from jobscout.pipeline.users import get_or_create_default_user; from sqlmodel import Session; e = get_engine(get_settings()); init_db(e); s = Session(e); print(run_search(s, get_settings(), get_or_create_default_user(s).id).counters)"
+uv run jobscout matches --min-score 50
+curl "http://127.0.0.1:8000/runs?job=search"
+```
+
+The search needs an LLM key, because the terms are extracted from the paragraph by the model.
+
+A healthy run: `sources_ok` equals the number of enabled sources, `sources_failed` is 0,
+`fetched` is in the tens (roughly 30 postings per scraped source at the defaults), `errors`
+is 0, and the `GET /runs?job=search` row has `"ok": true` and `"error": null`. `matches` then
+lists ranked jobs whose `[source]` includes `linkedin` and `indeed`.
+
+A blocked site looks like this in `GET /runs?job=search`: `ok` stays `true` if any other
+source answered, `counters.sources_failed` is at least 1, and `error` names the site and what
+it said, for example `linkedin: ...` followed by the message JobSpy reported (often a 429 or an
+auth wall). If every source fails, `ok` is `false`. `indeed: not searched, no region is set`
+in `error` is not a block: that is the region note above.
+
+**Fallback.** If a proxy-less run is blocked twice in a row from a residential connection,
+LinkedIn moves out of the default `SOURCES` and becomes opt-in, and this README will say why.
+It will not be answered by adding a paid proxy to the default path.
 
 ## License
 

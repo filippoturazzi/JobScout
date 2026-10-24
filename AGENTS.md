@@ -8,7 +8,7 @@ Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`).
 
 ## What the project is
 
-**JobScout**: an open-source Python agent that continuously collects tech job postings from public job-board APIs and, for LinkedIn, Indeed and Google Jobs only, by scraping through JobSpy (the sole scraping path; never write a scraper in this repo), matches them against a user's profile with embeddings + an LLM that explains its score, and notifies on good matches. It is a junior AI Engineer portfolio centerpiece, so LangGraph, semantic matching, multi-provider LLM support, and engineering practice (TDD, CI, contributor docs) matter as much as the feature.
+**JobScout**: an open-source Python agent that continuously collects tech job postings from public job-board APIs and, for LinkedIn and Indeed only, by scraping through JobSpy (the sole scraping path; never write a scraper in this repo), matches them against a user's profile with embeddings + an LLM that explains its score, and notifies on good matches. It is a junior AI Engineer portfolio centerpiece, so LangGraph, semantic matching, multi-provider LLM support, and engineering practice (TDD, CI, contributor docs) matter as much as the feature.
 
 ## Decisions already made (do not reopen without the user)
 
@@ -32,7 +32,7 @@ Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_se
 
 ## Roadmap (stage-gated; each stage runs end to end)
 
-0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources (Himalayas, Remotive, Jooble; LinkedIn, Indeed, Google via JobSpy) → 6 Reflex UI, auth, Postgres/Docker, i18n → ~~7 Quotas, BYOK, public demo~~ dropped (no hosted demo).
+0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources (Himalayas, Remotive; LinkedIn and Indeed via JobSpy; Google Jobs dropped, Jooble deferred) → 6 Reflex UI, auth, Postgres/Docker, i18n → ~~7 Quotas, BYOK, public demo~~ dropped (no hosted demo).
 
 Follow this order unless the user says otherwise. TDD for all logic; tests never touch the network (fixtures + `respx`; LangChain fake models). Real-API tests live behind `pytest -m integration` and are off by default.
 

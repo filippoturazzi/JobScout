@@ -25,7 +25,7 @@ JobScout is an open-source Python agent that continuously collects tech job post
 | Repo layout | Single Python package at repo root (`src/jobscout/`); frontend joins later | No empty `frontend/` folder for weeks |
 | Frontend (stage 6) | Reflex | Keeps the stack in Python |
 | Notification channel | Deferred to stage 4; a `Notifier` protocol is defined so the channel is pluggable | Decide with real matches in hand |
-| Distribution | Hybrid: built for self-hosting; a public demo instance with per-user quotas and optional BYOK (bring your own LLM key) in stage 7 | Visibility for the portfolio with predictable cost |
+| Distribution | *[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md` §2: the hosted demo and BYOK were dropped; self-hosting only. Original text kept.]* Hybrid: built for self-hosting; a public demo instance with per-user quotas and optional BYOK (bring your own LLM key) in stage 7 | Visibility for the portfolio with predictable cost |
 | License | MIT | |
 | Language | English for code, comments, and main README; README also in pt-BR and es | |
 
@@ -42,7 +42,7 @@ Every stage ends with something that runs end to end.
 | 4 Notification | `Notifier` protocol + first channel (Telegram, e-mail, push/PWA — decided at that time); `min_score_to_notify` threshold | A notification arrives |
 | 5 Multi-source | RemoteOK, Adzuna (key), Jooble, The Muse — one PR each; "How to add a source" guide; generic contract test runs against every registered source | At least 3 sources live |
 | 6 Product | Reflex UI (config wizard, dashboard); real auth and multi-user; Postgres in `docker-compose.yml`; i18n (READMEs + UI, en/pt/es) | Someone signs up and uses it without the author |
-| 7 Public demo | `Usage` quotas per user, BYOK (encrypted per-user LLM key), deploy of a demo instance, README link | A recruiter clicks the link and sees it working |
+| 7 Public demo *[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md` §2: the hosted demo and BYOK were dropped; self-hosting only. Original text kept.]* | `Usage` quotas per user, BYOK (encrypted per-user LLM key), deploy of a demo instance, README link | A recruiter clicks the link and sees it working |
 
 **Starting point:** stage 0 plus the `JobSource` protocol with Arbeitnow via TDD, in the same session. Leave the session with CI green and real jobs in the database.
 
