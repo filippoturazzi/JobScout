@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 import pytest
 from sqlmodel import select
@@ -8,7 +9,7 @@ from jobscout.matching.graph import GraphDeps
 from jobscout.matching.prompts import job_embedding_text, profile_text
 from jobscout.matching.schemas import EvaluationResult
 from jobscout.matching.vectors import cosine, dim, pack
-from jobscout.models import Job, Match
+from jobscout.models import Job, Match, UserPreferences
 from jobscout.pipeline.matching import run_match, select_candidates
 from jobscout.pipeline.users import get_or_create_default_user, get_preferences, update_preferences
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
@@ -36,7 +37,13 @@ def _deps(
     )
 
 
-def _add_job(session, external_id: str, title: str = "AI Engineer") -> Job:
+def _add_job(
+    session,
+    external_id: str,
+    title: str = "AI Engineer",
+    posted_at: datetime | None = None,
+    first_seen_at: datetime | None = None,
+) -> Job:
     job = Job(
         source="t",
         external_id=external_id,
@@ -47,7 +54,10 @@ def _add_job(session, external_id: str, title: str = "AI Engineer") -> Job:
         url=f"https://x/{external_id}",
         description=f"{title} building Python LLM systems.",
         content_hash=f"h-{external_id}",
+        posted_at=posted_at,
     )
+    if first_seen_at is not None:
+        job.first_seen_at = first_seen_at
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -227,6 +237,27 @@ def test_select_candidates_applies_the_deterministic_filter(session):
     candidates = select_candidates(session, get_preferences(session, user.id), user.id)
 
     assert [job.external_id for job in candidates] == ["good"]
+
+
+def test_candidates_come_back_newest_first_with_undated_jobs_last(session):
+    user = get_or_create_default_user(session)
+    _add_job(session, "yesterday", title="yesterday", posted_at=datetime(2026, 10, 23, 9, 0))
+    _add_job(session, "undated", title="undated", posted_at=None)
+    _add_job(session, "today", title="today", posted_at=datetime(2026, 10, 24, 9, 0))
+
+    candidates = select_candidates(session, UserPreferences(), user_id=user.id)
+
+    assert [j.title for j in candidates] == ["today", "yesterday", "undated"]
+
+
+def test_undated_candidates_sort_by_when_jobscout_first_saw_them(session):
+    user = get_or_create_default_user(session)
+    _add_job(session, "seen-early", first_seen_at=datetime(2026, 10, 1, 8, 0))
+    _add_job(session, "seen-late", first_seen_at=datetime(2026, 10, 20, 8, 0))
+
+    candidates = select_candidates(session, UserPreferences(), user_id=user.id)
+
+    assert [j.external_id for j in candidates] == ["seen-late", "seen-early"]
 
 
 def test_dry_run_never_builds_the_chat_client(session, monkeypatch):
