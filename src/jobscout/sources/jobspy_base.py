@@ -103,6 +103,11 @@ def to_raw_jobs(frame: pd.DataFrame, source: str) -> list[RawJob]:
         if title is None or url is None:
             log.warning("%s: skipping a row without a title or url", source)
             continue
+        # A salary is only comparable when annual; an hourly rate would read as pennies
+        # (same rule as himalayas). Do not "fix" this with enforce_annual_salary=True: JobSpy
+        # would then multiply the rate into a figure the employer never stated, and JobScout
+        # would show it as the posting's salary. The stated figures stay in ``raw``.
+        annual = (_text(row, "interval") or "").lower() == "yearly"
         try:
             jobs.append(
                 RawJob(
@@ -114,9 +119,9 @@ def to_raw_jobs(frame: pd.DataFrame, source: str) -> list[RawJob]:
                     remote=_bool(row.get("is_remote")),
                     url=url,
                     description=html_to_text(_text(row, "description") or ""),
-                    salary_min=_int(row.get("min_amount")),
-                    salary_max=_int(row.get("max_amount")),
-                    salary_currency=_text(row, "currency"),
+                    salary_min=_int(row.get("min_amount")) if annual else None,
+                    salary_max=_int(row.get("max_amount")) if annual else None,
+                    salary_currency=_text(row, "currency") if annual else None,
                     posted_at=_datetime(row.get("date_posted")),
                     raw=_json_safe(row),
                 )

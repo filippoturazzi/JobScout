@@ -117,7 +117,7 @@ def test_salary_is_mapped_and_nan_becomes_none():
     jobs = to_raw_jobs(
         _frame(
             [
-                _row(min_amount=50000.0, max_amount=70000.0, currency="USD"),
+                _row(min_amount=50000.0, max_amount=70000.0, currency="USD", interval="yearly"),
                 _row(job_url="https://x/2", min_amount=math.nan, max_amount=math.nan),
             ]
         ),
@@ -190,3 +190,18 @@ def test_warnings_are_reset_each_fetch_and_filled_from_the_frame(monkeypatch):
     assert source.warnings and "slow" in source.warnings[0]
     source.fetch(SearchQuery(keywords=["python"]))
     assert source.warnings == []
+
+
+@pytest.mark.parametrize("interval", ["hourly", "daily", "weekly", "monthly", None, math.nan])
+def test_a_non_annual_salary_is_left_empty(interval):
+    [job] = to_raw_jobs(
+        _frame([_row(min_amount=30.0, max_amount=45.0, currency="USD", interval=interval)]),
+        "linkedin",
+    )
+    assert job.salary_min is None and job.salary_max is None and job.salary_currency is None
+    assert job.raw["min_amount"] == 30.0
+
+
+def test_a_salary_without_an_interval_column_is_left_empty():
+    [job] = to_raw_jobs(_frame([_row(min_amount=50000.0, max_amount=70000.0)]), "linkedin")
+    assert job.salary_min is None
