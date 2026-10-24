@@ -81,8 +81,12 @@ def test_a_row_without_a_description_is_kept():
     assert job.description == ""
 
 
-def test_a_row_without_a_title_or_url_is_skipped():
-    assert to_raw_jobs(_frame([_row(title=None), _row(job_url=None)]), "linkedin") == []
+def test_a_row_without_a_title_or_url_is_skipped_and_the_others_are_kept():
+    jobs = to_raw_jobs(
+        _frame([_row(title=None), _row(id="good", job_url="https://x/good"), _row(job_url=None)]),
+        "linkedin",
+    )
+    assert [j.external_id for j in jobs] == ["good"]
 
 
 def test_columns_missing_from_the_frame_are_tolerated():
@@ -163,6 +167,18 @@ def test_the_settings_reach_scrape_jobs(monkeypatch):
     assert seen["proxies"] == ["localhost"]
     assert seen["description_format"] == "markdown"
     assert seen["search_term"] == "python"
+
+
+def test_the_site_and_the_description_flag_reach_scrape_jobs(monkeypatch):
+    class _Described(JobSpySource):
+        name = site = "linkedin"
+        fetch_description = True
+
+    seen = {}
+    monkeypatch.setattr(jobspy_base, "scrape_jobs", lambda **kw: seen.update(kw) or _frame([]))
+    _Described(Settings(_env_file=None)).fetch(SearchQuery(keywords=["python"]))
+    assert seen["site_name"] == ["linkedin"]
+    assert seen["fetch_description"] is True
 
 
 def test_no_keyword_means_no_call(monkeypatch):
