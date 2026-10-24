@@ -38,8 +38,10 @@ _COUNTRIES = {
     "alemania": "germany",
     "de": "germany",
     "canada": "canada",
-    "ca": "canada",
 }
+# The two-letter entries are ISO 3166-1 alpha-2 codes. "ca" is deliberately absent: a user
+# typing it is as likely to mean California, and a quiet search of the wrong market is worse
+# than none. Spelling "Canada" out works.
 
 
 def _normalise(region: str) -> str:
@@ -56,11 +58,12 @@ def country_for(regions: list[str]) -> tuple[str | None, str | None]:
     were given but none is recognised (``value`` is the first one), and ``(None, None)`` when
     there are none.
     """
-    for region in regions:
+    given = [region for region in regions if region.strip()]
+    for region in given:
         country = _COUNTRIES.get(_normalise(region))
         if country is not None:
             return country, None
-    return None, (regions[0] if regions else None)
+    return None, (given[0] if given else None)
 
 
 class IndeedSource(JobSpySource):
