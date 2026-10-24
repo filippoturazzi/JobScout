@@ -1,7 +1,7 @@
 # Stage 5 — Real sources and a local dashboard: Design Spec
 
 **Date:** 2026-10-22
-**Status:** Approved for planning
+**Status:** Approved for planning. Partly superseded on 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md`: §2 Scraping, §3.1 and §9 (Adzuna), §3.2 (LinkedIn), the hosted-demo mention in §7 and §11. Each affected place is marked below; the original text is kept.
 **Parent spec:** `docs/superpowers/specs/2026-09-19-jobscout-design.md` (amends §4, §5, §7)
 **Supersedes:** the roadmap's "stage 5 = more sources" and parts of "stage 6 = Reflex UI, i18n"
 
@@ -33,7 +33,7 @@ otherwise think this document contradicts the project.
 
 | Topic | Decision | Rationale |
 |---|---|---|
-| Scraping | **Still forbidden.** No LinkedIn, no Gupy. | LinkedIn has no public jobs API; its Jobs API is partner-only, and every "LinkedIn jobs API" on offer is scraping in a wrapper. Gupy's official API is OAuth partner access for ATS integration, not job search; the JSON routes third-party scrapers use are undocumented. For a portfolio project, a collector that violates terms of use is a liability, not a showcase — it is the first thing an attentive interviewer prods. The user confirmed the rule stands. |
+| Scraping | *[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md` §2; original text kept as decided on 2026-10-22.]* **Still forbidden.** No LinkedIn, no Gupy. | LinkedIn has no public jobs API; its Jobs API is partner-only, and every "LinkedIn jobs API" on offer is scraping in a wrapper. Gupy's official API is OAuth partner access for ATS integration, not job search; the JSON routes third-party scrapers use are undocumented. For a portfolio project, a collector that violates terms of use is a liability, not a showcase — it is the first thing an attentive interviewer prods. The user confirmed the rule stands. |
 | Source tiers | **Keyless sources ship enabled. Keyed sources are optional and unlock Brazil.** | Preserves "paste one LLM key and run" while still answering "I need Brazilian jobs". A source whose credentials are absent does not register, and nothing breaks. |
 | Query model | Sources are **searched by term**, not dumped as catalogues. | The current 0–35 scores are not the LLM being harsh; they are Arbeitnow returning German nursing jobs. Searching by term is what makes the corpus relevant, and it is the only model the Brazilian APIs offer. |
 | Terms per source | The LLM extracts a **ranked list** of terms from the paragraph; the top **3–5** are searched per source, each 2–3 words. | Measured: `q=machine learning engineer` on Himalayas returns 2 934 coherent results. Stuffing "machine learning LLM Python agents internship" into one query collapses the result set — each extra word narrows. Several short queries beat one long one. |
@@ -64,12 +64,12 @@ below was checked against the live endpoint on 2026-10-22.
 | **Himalayas** | none | **`q=`** | 123 545 jobs. **Third-party docs say `query=`; that is wrong** — `query=`, `search=` and `keyword=` all return the unfiltered catalogue (127 255), while `q=kubernetes` returns 5 000. Browse feed `/jobs/api` has cursor pagination (`nextCursor`, preferred; `offset` is deprecated). Search `/jobs/api/search` is 20 per page via `?page=`, no cursor. Remote-global, US-heavy: of 20 Python jobs, 1 accepted Brazil. |
 | **Remotive** | none | `search=` | `https://remotive.com/api/remote-jobs`. Works, lower volume. |
 | **Arbeitnow** | none | — | Already implemented. 300 per page, **no search parameter** — catalogue only. This is the source of the current irrelevant corpus, so it is **off by default** (§2). It stays registered and contract-tested: it is the only catalogue-only source, and therefore the only proof that the contract still accepts both kinds. |
-| **Adzuna** | `app_id` + `app_key`, free signup | `what=` | `https://api.adzuna.com/v1/api/jobs/br/search/1`. Country code `br` is consistent across every third-party source that names it, with currency BRL. **Not verifiable without a key** — unauthenticated requests return a generic HTML error page identical to the one a bogus country returns. The implementer must confirm `br` and the free-tier quota with a real key before relying on it. |
+| **Adzuna** (superseded 2026-10-23: dropped, no longer free; see `2026-10-23-scraped-sources-and-linkedin-design.md` §2) | `app_id` + `app_key`, free signup | `what=` | `https://api.adzuna.com/v1/api/jobs/br/search/1`. Country code `br` is consistent across every third-party source that names it, with currency BRL. **Not verifiable without a key** — unauthenticated requests return a generic HTML error page identical to the one a bogus country returns. The implementer must confirm `br` and the free-tier quota with a real key before relying on it. |
 | **Jooble** | free key | keyword in body | Covers Brazil. Sources disagree on GET vs POST and on the host (`jooble.org` vs `us.jooble.org`); confirm against the official docs after registering. |
 
 ### 3.2 Rejected, with reasons recorded so nobody re-proposes them
 
-- **LinkedIn** — no public jobs API.
+- **LinkedIn** — no public jobs API. *[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md` §2 and §3; original text kept as decided on 2026-10-22.]* LinkedIn is now collected by scraping through JobSpy.
 - **Gupy** — official API is OAuth partner access for ATS integration, not job search.
 - **Programathor, Coodesh, Trampos** — no public API found.
 
@@ -174,7 +174,7 @@ list and detail become separate views. Maximum width 1200 px.
 
 Multiple profiles per person (the data is already keyed by `user_id`, so this is a
 table later, not a rewrite); a hosted demo (stage 7, and the user has not decided
-whether it will exist); any shared or central database; e-mail changes; salary
+whether it will exist; *superseded 2026-10-23: dropped, see `2026-10-23-scraped-sources-and-linkedin-design.md` §2*); any shared or central database; e-mail changes; salary
 normalisation across currencies; and per-source pagination beyond the first few pages.
 
 ## 8. Testing
@@ -196,7 +196,7 @@ existing fake models for LangChain.
 
 `uv run pytest` green, `mypy src` clean, ruff clean, CI green. And: a clone with only
 an LLM key returns ranked tech jobs from the keyless sources, and adding an Adzuna key
-adds Brazilian ones — both confirmed by actually doing it.
+adds Brazilian ones *(superseded 2026-10-23: Adzuna dropped; Brazilian coverage now comes from LinkedIn, Indeed and Google Jobs, see `2026-10-23-scraped-sources-and-linkedin-design.md` §2)* — both confirmed by actually doing it.
 
 ## 10. Calls made without the user, open to veto
 
@@ -234,6 +234,8 @@ adds Brazilian ones — both confirmed by actually doing it.
   much. The backoff still governs scheduled runs.
 
 ## 11. Carried forward, deliberately not solved here
+
+*[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md` §2 and §11; original text kept as decided on 2026-10-22.]* The user reversed the rule below: scraping is allowed through JobSpy only, and Adzuna is dropped.
 
 Adzuna and Jooble cannot be verified without keys. If the free tiers turn out to be
 too small to be useful, that is a finding to record — **not** a reason to reach for

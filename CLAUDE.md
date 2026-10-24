@@ -8,7 +8,7 @@ Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`).
 
 ## What the project is
 
-**JobScout**: an open-source Python agent that continuously collects tech job postings from public job-board APIs (never scraping), matches them against a user's profile with embeddings + an LLM that explains its score, and notifies on good matches. It is a junior AI Engineer portfolio centerpiece, so LangGraph, semantic matching, multi-provider LLM support, and engineering practice (TDD, CI, contributor docs) matter as much as the feature.
+**JobScout**: an open-source Python agent that continuously collects tech job postings from public job-board APIs and, for LinkedIn, Indeed and Google Jobs only, by scraping through JobSpy (the sole scraping path; never write a scraper in this repo), matches them against a user's profile with embeddings + an LLM that explains its score, and notifies on good matches. It is a junior AI Engineer portfolio centerpiece, so LangGraph, semantic matching, multi-provider LLM support, and engineering practice (TDD, CI, contributor docs) matter as much as the feature.
 
 ## Decisions already made (do not reopen without the user)
 
@@ -21,7 +21,7 @@ Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`).
 - APScheduler inside the FastAPI lifespan (no Celery/Redis).
 - Interface until stage 6 is FastAPI + Typer CLI only. Stage 6 frontend is Reflex.
 - Notification channel is e-mail over SMTP (stdlib `smtplib`), chosen in stage 4 as the first channel; *sending* always goes through the `Notifier` protocol, never a concrete channel. Rendering is the channel's own business: `render_digest` lives in `notifiers/email.py` and callers import it from there.
-- Distribution is hybrid: built for self-hosting, with a hosted demo (quotas + BYOK) in stage 7.
+- Distribution is self-hosting only. The hosted demo (quotas, BYOK) was dropped on 2026-10-23: do not propose it.
 - English for code, comments, README; READMEs also in pt-BR and es later.
 
 ## Architecture rules
@@ -32,7 +32,7 @@ Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_se
 
 ## Roadmap (stage-gated; each stage runs end to end)
 
-0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources → 6 Reflex UI, auth, Postgres/Docker, i18n → 7 Quotas, BYOK, public demo.
+0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources (Himalayas, Remotive, Jooble; LinkedIn, Indeed, Google via JobSpy) → 6 Reflex UI, auth, Postgres/Docker, i18n → ~~7 Quotas, BYOK, public demo~~ dropped (no hosted demo).
 
 Follow this order unless the user says otherwise. TDD for all logic; tests never touch the network (fixtures + `respx`; LangChain fake models). Real-API tests live behind `pytest -m integration` and are off by default.
 
