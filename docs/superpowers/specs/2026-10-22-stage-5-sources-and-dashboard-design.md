@@ -1,7 +1,7 @@
 # Stage 5 — Real sources and a local dashboard: Design Spec
 
 **Date:** 2026-10-22
-**Status:** Approved for planning. Partly superseded on 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md`: §2 Scraping, §3.1 and §9 (Adzuna), §3.2 (LinkedIn), the hosted-demo mention in §7 and §11. Each affected place is marked below; the original text is kept.
+**Status:** Approved for planning. Partly superseded on 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md`: §2 Scraping, §3.1 and §9 (Adzuna), §3.2 (LinkedIn), §6 (the `adzuna.py` component), the design-system note on LinkedIn, the hosted-demo mention in §7 and §11. Each affected place is marked below; the original text is kept.
 **Parent spec:** `docs/superpowers/specs/2026-09-19-jobscout-design.md` (amends §4, §5, §7)
 **Supersedes:** the roadmap's "stage 5 = more sources" and parts of "stage 6 = Reflex UI, i18n"
 
@@ -90,6 +90,8 @@ of a key, because the UI and the README both have to say so.
 src/jobscout/sources/himalayas.py     new, keyless, searchable
 src/jobscout/sources/remotive.py      new, keyless, searchable
 src/jobscout/sources/adzuna.py        new, keyed, searchable, Brazil
+                                      (superseded 2026-10-23: never written, Adzuna dropped;
+                                      see `2026-10-23-scraped-sources-and-linkedin-design.md` §5)
 src/jobscout/sources/jooble.py        new, keyed, searchable, Brazil
 src/jobscout/sources/base.py          + search capability, + credential availability
 src/jobscout/matching/terms.py        new: paragraph -> ranked search terms (LLM)
@@ -210,7 +212,7 @@ adds Brazilian ones *(superseded 2026-10-23: Adzuna dropped; Brazilian coverage 
 - **`tailwind.preset.js` is not used.** It is optional in the kit, and using it would
   reintroduce the frontend build this stage removed.
 - **The design system's example error message cites LinkedIn**; the example changes
-  platform, since LinkedIn is out.
+  platform, since LinkedIn is out. *[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md` §2: LinkedIn is in, collected through JobSpy; original text kept as decided on 2026-10-22.]*
 - **i18n is a JSON dictionary per locale**, no framework.
 - **Term extraction also fills the structured preference fields** (`titles`,
   `seniority`, `work_modes`, `regions`, `required_skills`, `excluded_keywords`), not
