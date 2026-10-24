@@ -1,7 +1,7 @@
 # Stage 5 — Real sources and a local dashboard: Design Spec
 
 **Date:** 2026-10-22
-**Status:** Approved for planning. Partly superseded on 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md`: §2 Scraping, §3.1 and §9 (Adzuna), §3.2 (LinkedIn), §4 (the `adzuna.py` component), the design-system note on LinkedIn, the hosted-demo mention in §7 and §11. Each affected place is marked below; the original text is kept.
+**Status:** Approved for planning. Partly superseded on 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md`: §2 Scraping, §3.1 and §9 (Adzuna), §3.2 (LinkedIn), §4 (the `adzuna.py` component), the design-system note on LinkedIn, the hosted-demo mention in §7 and §11, and Jooble's deferral in §3.1, §4 and §11 (2026-10-24, from the same document). Each affected place is marked below; the original text is kept.
 **Parent spec:** `docs/superpowers/specs/2026-09-19-jobscout-design.md` (amends §4, §5, §7)
 **Supersedes:** the roadmap's "stage 5 = more sources" and parts of "stage 6 = Reflex UI, i18n"
 
@@ -65,7 +65,7 @@ below was checked against the live endpoint on 2026-10-22.
 | **Remotive** | none | `search=` | `https://remotive.com/api/remote-jobs`. Works, lower volume. |
 | **Arbeitnow** | none | — | Already implemented. 300 per page, **no search parameter** — catalogue only. This is the source of the current irrelevant corpus, so it is **off by default** (§2). It stays registered and contract-tested: it is the only catalogue-only source, and therefore the only proof that the contract still accepts both kinds. |
 | **Adzuna** *[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md` §2; original text kept as decided on 2026-10-22.]* | `app_id` + `app_key`, free signup | `what=` | `https://api.adzuna.com/v1/api/jobs/br/search/1`. Country code `br` is consistent across every third-party source that names it, with currency BRL. **Not verifiable without a key** — unauthenticated requests return a generic HTML error page identical to the one a bogus country returns. The implementer must confirm `br` and the free-tier quota with a real key before relying on it. |
-| **Jooble** | free key | keyword in body | Covers Brazil. Sources disagree on GET vs POST and on the host (`jooble.org` vs `us.jooble.org`); confirm against the official docs after registering. |
+| **Jooble** *[Deferred 2026-10-24, see `2026-10-23-scraped-sources-and-linkedin-design.md` §4 (correction of 2026-10-24): the user registered a key, but the documented `POST https://jooble.org/api/<key>` answers HTTP 403 with an HTML "Access is available only for registered users" page, and getting past that would mean forging a browser User-Agent, which this project will not do. Jooble is unbuilt and absent from `Settings.sources`; it waits on the key being activated or a documented request that works. Original text kept.]* | free key | keyword in body | Covers Brazil. Sources disagree on GET vs POST and on the host (`jooble.org` vs `us.jooble.org`); confirm against the official docs after registering. |
 
 ### 3.2 Rejected, with reasons recorded so nobody re-proposes them
 
@@ -93,6 +93,7 @@ src/jobscout/sources/adzuna.py        new, keyed, searchable, Brazil
                                       [Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md`
                                       §5; original text kept as decided on 2026-10-22.]
 src/jobscout/sources/jooble.py        new, keyed, searchable, Brazil
+                                      [Deferred 2026-10-24, unbuilt; see `2026-10-23-scraped-sources-and-linkedin-design.md` §4 (correction of 2026-10-24). Original text kept.]
 src/jobscout/sources/base.py          + search capability, + credential availability
 src/jobscout/matching/terms.py        new: paragraph -> ranked search terms (LLM)
 src/jobscout/pipeline/search.py       new: the background run (terms -> fetch -> score)
@@ -239,7 +240,7 @@ adds Brazilian ones *[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-l
 
 *[Superseded 2026-10-23 by `2026-10-23-scraped-sources-and-linkedin-design.md` §2 and §11; original text kept as decided on 2026-10-22.]* The user reversed the rule below: scraping is allowed through JobSpy only, and Adzuna is dropped.
 
-Adzuna and Jooble cannot be verified without keys. If the free tiers turn out to be
+Adzuna and Jooble cannot be verified without keys. *[Jooble: deferred 2026-10-24, see `2026-10-23-scraped-sources-and-linkedin-design.md` §4 (correction of 2026-10-24); it could not be verified even with a key.]* If the free tiers turn out to be
 too small to be useful, that is a finding to record — **not** a reason to reach for
 scraping. The user was explicit: if no legitimate source covers Brazil well enough,
 a different approach gets designed later rather than the rule being bent now.
