@@ -53,6 +53,10 @@ class JobSource(Protocol):
     # True when the source filters server-side by ``SearchQuery.keywords``; False when it
     # dumps its whole catalogue and ignores the query.
     supports_search: bool
+    # How many ranked search terms this source is asked for; ``None`` means the shared
+    # default (``pipeline.search.MAX_TERMS_PER_SOURCE``). Scraped sources set a smaller
+    # number because every posting they return is an HTTP request.
+    term_budget: int | None
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         """Fetch postings from the source. Must return everything fetched; never drop

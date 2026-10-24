@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 class RemotiveSource:
     name = "remotive"
     supports_search = True
+    term_budget: int | None = None
 
     def __init__(self, client: httpx.Client | None = None) -> None:
         self._client = client

@@ -13,12 +13,13 @@ from jobscout.db import create_engine_from_url, init_db
 from jobscout.matching.graph import GraphDeps
 from jobscout.matching.schemas import EvaluationResult
 from jobscout.matching.terms import ExtractedProfile, profile_hash
-from jobscout.models import Job, Match, Run
-from jobscout.pipeline.search import MAX_TERMS_PER_SOURCE, run_search
+from jobscout.models import Job, Match, Run, UserPreferences
+from jobscout.pipeline.search import MAX_TERMS_PER_SOURCE, _queries_for, run_search
 from jobscout.pipeline.users import get_or_create_default_user, get_preferences, update_preferences
 from jobscout.sources.arbeitnow import BASE_URL as ARBEITNOW_URL
+from jobscout.sources.base import RawJob, SearchQuery
 from jobscout.sources.himalayas import BASE_URL as HIMALAYAS_URL
-from jobscout.sources.registry import SOURCE_MISSING_CREDENTIALS
+from jobscout.sources.registry import SOURCE_FACTORIES, SOURCE_MISSING_CREDENTIALS
 from jobscout.sources.remotive import BASE_URL as REMOTIVE_URL
 from tests.conftest import load_fixture
 from tests.matching.fakes import DeterministicFakeEmbedding
@@ -529,3 +530,108 @@ def test_counters_are_written_while_the_run_is_still_in_flight(tmp_path, himalay
     assert seen["counters"]["fetched"] == VALID_PER_FIXTURE
     assert seen["counters"]["candidates"] == VALID_PER_FIXTURE
     assert seen["counters"]["sources_ok"] == 1
+
+
+# --------------------------------------------------------------------------- queries
+
+
+class _FakeSource:
+    """A source that records every query it is asked, answers per term, can warn or block."""
+
+    def __init__(
+        self,
+        name: str = "fake",
+        supports_search: bool = True,
+        term_budget: int | None = None,
+        warnings: list[str] | None = None,
+        block_on: str | None = None,
+    ) -> None:
+        self.name = name
+        self.supports_search = supports_search
+        self.term_budget = term_budget
+        self.warnings = warnings if warnings is not None else []
+        self.block_on = block_on
+        self.queries: list[SearchQuery] = []
+
+    def fetch(self, query: SearchQuery) -> list[RawJob]:
+        self.queries.append(query)
+        term = query.keywords[0] if query.keywords else "all"
+        if term == self.block_on:
+            raise RuntimeError("429 Too Many Requests")
+        return [
+            RawJob(
+                source=self.name,
+                external_id=term,
+                title=f"{term} engineer",
+                company="Acme",
+                url=f"https://example.com/{term}",
+                description=f"Work with {term}.",
+                remote=True,
+            )
+        ]
+
+
+def _search_with(session, monkeypatch, fake, terms, **prefs):
+    monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
+    user = _user(session, **prefs)
+    chat = SearchChatModel(_extraction(terms))
+    return run_search(session, _settings(sources=fake.name), user.id, deps=_deps(chat))
+
+
+def test_a_search_query_carries_the_stored_regions_and_work_modes():
+    prefs = UserPreferences(regions=["Brasil"], work_modes=["Remote"])
+    [query] = _queries_for(_FakeSource(term_budget=1), ["python"], prefs)
+    assert query.locations == ["Brasil"] and query.remote_only is True
+
+
+def test_empty_preferences_leave_the_query_unrestricted():
+    [query] = _queries_for(_FakeSource(), ["python"], UserPreferences())
+    assert query.locations == [] and query.remote_only is False
+
+
+def test_an_on_site_work_mode_does_not_make_the_search_remote_only():
+    prefs = UserPreferences(work_modes=["hybrid", "onsite"])
+    [query] = _queries_for(_FakeSource(), ["python"], prefs)
+    assert query.remote_only is False
+
+
+def test_a_scraped_source_gets_fewer_terms_than_an_api_source():
+    terms = ["a", "b", "c", "d", "e", "f"]
+    prefs = UserPreferences()
+    assert len(_queries_for(_FakeSource(term_budget=3), terms, prefs)) == 3
+    assert len(_queries_for(_FakeSource(term_budget=None), terms, prefs)) == MAX_TERMS_PER_SOURCE
+
+
+def test_a_catalogue_source_is_still_asked_once():
+    prefs = UserPreferences(regions=["Brasil"], work_modes=["remote"])
+    queries = _queries_for(_FakeSource(supports_search=False), ["a", "b"], prefs)
+    assert queries == [SearchQuery()]
+
+
+def test_the_stored_regions_reach_the_source_during_a_run(session, monkeypatch):
+    fake = _FakeSource()
+    result = _search_with(
+        session, monkeypatch, fake, ["python"], regions=["Brasil"], work_modes=["remote"]
+    )
+    assert result.ok
+    assert [(q.locations, q.remote_only) for q in fake.queries] == [(["Brasil"], True)]
+
+
+def test_a_source_warning_is_named_in_the_run_without_failing_it(session, monkeypatch):
+    fake = _FakeSource(warnings=["could not map region 'remoto' to a country, searched worldwide"])
+    result = _search_with(session, monkeypatch, fake, ["python", "sql"])
+    assert result.ok and result.sources_ok == 1 and result.sources_failed == 0
+    # Two terms, one warning: it is named once, in the shape failures use.
+    assert [e for e in result.errors if "remoto" in e] == [
+        "fake: could not map region 'remoto' to a country, searched worldwide"
+    ]
+    assert _the_run(session).ok is True
+
+
+def test_a_block_on_the_second_term_keeps_the_first_term_jobs(session, monkeypatch):
+    fake = _FakeSource(block_on="sql")
+    result = _search_with(session, monkeypatch, fake, ["python", "sql", "never"])
+    assert result.fetched == 1 and result.sources_ok == 1
+    assert any("429" in e for e in result.errors)
+    assert [q.keywords for q in fake.queries] == [["python"], ["sql"]]
+    assert len(_jobs(session)) == 1, "what was fetched before the block is kept"

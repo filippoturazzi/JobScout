@@ -17,7 +17,7 @@ from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
 from jobscout.matching.llm import chat_model
 from jobscout.matching.terms import extract_profile, profile_hash
-from jobscout.models import Run
+from jobscout.models import Run, UserPreferences
 from jobscout.models.base import utcnow
 from jobscout.pipeline.ingest import ingest
 from jobscout.pipeline.matching import run_match, select_candidates
@@ -90,6 +90,7 @@ class _CountedSource:
         self._seen = seen
         self.name = source.name
         self.supports_search = source.supports_search
+        self.term_budget = source.term_budget
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         jobs = self._source.fetch(query)
@@ -173,18 +174,27 @@ def _usable_sources(settings: Settings) -> list[JobSource]:
     raise NoUsableSourcesError("no sources are configured (SOURCES is empty)")
 
 
-def _queries_for(source: JobSource, terms: list[str]) -> list[SearchQuery]:
+def _queries_for(source: JobSource, terms: list[str], prefs: UserPreferences) -> list[SearchQuery]:
     if not source.supports_search:
         # A catalogue source ignores the query and returns everything it has; asking it
         # once per term would download the same catalogue five times over.
         return [SearchQuery()]
-    return [SearchQuery(keywords=[term]) for term in terms[:MAX_TERMS_PER_SOURCE]]
+    budget = source.term_budget or MAX_TERMS_PER_SOURCE
+    # The same reading `pipeline.filters` gives work modes: "remote" is the one that means
+    # remote work. Both lists are free text the user set by hand and are often empty,
+    # which is the normal case: an empty query field simply does not narrow the search.
+    remote_only = "remote" in {mode.lower() for mode in prefs.work_modes}
+    return [
+        SearchQuery(keywords=[term], locations=list(prefs.regions), remote_only=remote_only)
+        for term in terms[:budget]
+    ]
 
 
 def _fetch(
     session: Session,
     sources: list[JobSource],
     terms: list[str],
+    prefs: UserPreferences,
     result: SearchResult,
     publish: Callable[[], None],
 ) -> None:
@@ -194,7 +204,7 @@ def _fetch(
         counted = _CountedSource(source, seen)
         batch: list[JobSource] = [counted]
         answered = False
-        for query in _queries_for(source, terms):
+        for query in _queries_for(source, terms, prefs):
             (outcome,) = ingest(session, batch, query)
             if outcome.error is not None:
                 result.errors.append(f"{source.name}: {outcome.error}")
@@ -213,6 +223,14 @@ def _fetch(
             result.sources_ok += 1
         else:
             result.sources_failed += 1
+        # A source may note something that is not a failure (a region it could not map,
+        # say) in a `warnings` list. Only some sources have one, so it is read with
+        # `getattr` rather than widening the protocol. It lands in `errors` because the
+        # page reads the run; it does not touch the ok/failed counters.
+        for warning in dict.fromkeys(getattr(source, "warnings", ())):
+            message = f"{source.name}: {warning}"
+            if message not in result.errors:
+                result.errors.append(message)
     result.fetched = len(seen)
 
 
@@ -236,6 +254,9 @@ def run_search(
 
     try:
         result.terms = _resolve_terms(session, settings, user_id, deps)
+        # Read once, after term resolution has stored what it found, and shared by the
+        # sources' queries and the candidate selection below.
+        prefs = get_preferences(session, user_id)
         sources = _usable_sources(settings)
     except Exception as exc:
         # Nothing was fetched: the run was over before it started and must say why.
@@ -246,12 +267,11 @@ def run_search(
         return result
 
     publish()
-    _fetch(session, sources, result.terms, result, publish)
+    _fetch(session, sources, result.terms, prefs, result, publish)
 
     try:
         # Published before scoring starts so the page has a denominator to show while it
         # runs; `run_match` selects the same set again for itself.
-        prefs = get_preferences(session, user_id)
         pending = select_candidates(session, prefs, user_id)
         result.candidates = len(pending)
         result.remaining = len(pending)

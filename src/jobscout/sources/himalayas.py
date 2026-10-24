@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 class HimalayasSource:
     name = "himalayas"
     supports_search = True
+    term_budget: int | None = None
 
     def __init__(self, client: httpx.Client | None = None, max_pages: int = 1) -> None:
         self._client = client
