@@ -30,6 +30,8 @@ class Job(SQLModel, table=True):
     last_seen_at: datetime = Field(default_factory=utcnow, nullable=False, index=True)
     is_active: bool = Field(default=True, index=True)
     content_hash: str
+    # Normalised title + company + city; the cross-source merge key. NULL on rows that predate it.
+    fingerprint: str | None = Field(default=None, index=True)
     embedding: bytes | None = None
     raw: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     created_at: datetime = Field(default_factory=utcnow, nullable=False)

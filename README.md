@@ -94,6 +94,19 @@ The index is not optional: every digest selection filters on `notified_at`, so s
 `CREATE INDEX` leaves the install correct but progressively slower. A fresh database needs
 none of this.
 
+The scraped sources add one more column, `fingerprint` (normalised title + company + city),
+which is how one vacancy arriving from several sources becomes one row:
+
+```sql
+ALTER TABLE job ADD COLUMN fingerprint VARCHAR;
+CREATE INDEX ix_job_fingerprint ON job (fingerprint);
+```
+
+The index is not optional here either: every new posting is looked up by `fingerprint`, so
+skipping the `CREATE INDEX` makes each ingest scan the whole `job` table. There is nothing to
+back-fill by hand: rows start with a NULL fingerprint, which never merges with anything, and
+each one gets its fingerprint the next time its source lists it again.
+
 ## API
 
 | Method | Path            | Description                                   |
