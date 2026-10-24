@@ -28,7 +28,7 @@ Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`).
 
 Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `notifiers` (depend only on `config` and `models`) · `pipeline` (the only composer: ingest/upsert, filters, liveness, matching, repair, run) · `api`, `cli` and `scheduler` (APScheduler jobs; `scheduler.py` sits beside `api`/`cli`) are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.
 
-Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_seen_at`/`last_seen_at`/`is_active`/`content_hash` on `Job`, and a changed hash clears the embedding and marks existing matches `stale`. In front of it sits a fingerprint merge (normalised title + company + city): a new key matching an existing row's non-null `fingerprint` is recorded under that row's `raw["duplicates"]` and creates no row. Running ingest twice with the same data must be a no-op besides `last_seen_at`.
+Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_seen_at`/`last_seen_at`/`is_active`/`content_hash` on `Job`, and a changed hash clears the embedding and marks existing matches `stale`. In front of it sits a fingerprint merge (normalised title + company + city): a new key matching another source's existing row by non-null `fingerprint` is recorded under that row's `raw["duplicates"]` and creates no row. Running ingest twice with the same data must be a no-op besides `last_seen_at`.
 
 ## Roadmap (stage-gated; each stage runs end to end)
 

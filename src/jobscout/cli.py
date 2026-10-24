@@ -51,7 +51,7 @@ def fetch() -> None:
         else:
             typer.echo(
                 f"{r.source}: fetched={r.fetched} created={r.created} "
-                f"updated={r.updated} changed={r.changed}"
+                f"updated={r.updated} changed={r.changed} merged={r.merged}"
             )
     if failed:
         raise typer.Exit(code=1)

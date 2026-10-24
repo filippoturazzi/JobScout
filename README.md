@@ -104,8 +104,12 @@ CREATE INDEX ix_job_fingerprint ON job (fingerprint);
 
 The index is not optional here either: every new posting is looked up by `fingerprint`, so
 skipping the `CREATE INDEX` makes each ingest scan the whole `job` table. There is nothing to
-back-fill by hand: rows start with a NULL fingerprint, which never merges with anything, and
-each one gets its fingerprint the next time its source lists it again.
+back-fill by hand, and no SQL could do it, since the normalisation runs in Python: existing
+rows start with a NULL fingerprint, which never merges with anything, and each one gets its
+fingerprint the next time its source lists it again. From then on it can absorb another
+source's copy of the same vacancy. A row whose source no longer lists it keeps a NULL
+fingerprint forever and never merges. Only a different source merges: a repost from the
+same source under a new id stays its own row.
 
 ## API
 

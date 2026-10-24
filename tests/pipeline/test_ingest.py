@@ -320,14 +320,22 @@ def test_three_sources_in_one_batch_collapse_to_one_row(session):
     assert stats.created_ids == [job.id]
 
 
-def test_a_repost_under_a_new_external_id_also_merges(session):
-    # Intended: the merge key is the fingerprint, so a same-source repost is the same vacancy.
+def test_a_repost_from_the_same_source_stays_two_rows(session):
+    # Deliberate trade: the merge is cross-source only. A board relisting a job costs one
+    # duplicate row, which beats risking the silent loss of a second real opening.
     upsert_jobs(session, [_vacancy("linkedin", "l1")])
     stats = upsert_jobs(session, [_vacancy("linkedin", "l2")])
-    assert (stats.created, stats.merged) == (0, 1)
-    [job] = session.exec(select(Job)).all()
-    assert job.external_id == "l1"
-    assert job.raw["duplicates"][0]["external_id"] == "l2"
+    assert (stats.created, stats.merged) == (1, 0)
+    assert len(session.exec(select(Job)).all()) == 2
+
+
+def test_only_a_different_source_lets_a_twin_merge(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    same = upsert_jobs(session, [_vacancy("linkedin", "l2")])
+    other = upsert_jobs(session, [_vacancy("indeed", "i1")])
+    assert (same.merged, other.merged) == (0, 1)
+    first = session.exec(select(Job).where(Job.external_id == "l1")).one()
+    assert [d["source"] for d in first.raw["duplicates"]] == ["indeed"]
 
 
 def test_the_same_role_in_two_cities_stays_two_rows(session):

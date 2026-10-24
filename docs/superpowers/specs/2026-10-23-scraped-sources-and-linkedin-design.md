@@ -146,8 +146,11 @@ What is new:
   first source to arrive wins, which with `SOURCES` ordered as in §4 means LinkedIn
   before Indeed before Google. Running ingest twice over the same data stays a no-op
   besides `last_seen_at`.
-- Existing rows have no fingerprint until the back-fill in the README runs; a null
-  fingerprint never merges, so the worst case before it runs is today's behaviour.
+- Existing rows have no fingerprint until their source lists them again: ingest computes it
+  on every refresh, and the normalisation is Python-side, so there is no SQL back-fill. A
+  null fingerprint never merges, so nothing changes for a row until then; a row whose source
+  never lists it again keeps a null fingerprint and never merges. The merge fires only
+  across sources (`twin.source != raw.source`), so a same-source repost stays its own row.
 - A 429 or a block mid-fetch keeps what was already fetched, abandons the remaining
   terms for that source, and says so in the run. Review focus #3, now the common case.
 
@@ -173,7 +176,7 @@ The repository currently asserts the opposite of this document in four places:
 - `docs/superpowers/specs/2026-10-22-stage-5-sources-and-dashboard-design.md` — §2
   Scraping, §3.2 LinkedIn, §11, and the Adzuna rows in §3.1 and §9.
 - `README.md` — the source list, the honesty paragraph from §3, and the `ALTER TABLE`
-  plus back-fill lines for the fingerprint column, beside the ones at `README.md:88-90`.
+  plus index lines for the fingerprint column (it fills itself on refresh; no back-fill), beside the ones at `README.md:88-90`.
 
 The stage 5a plan's Task 4 shrinks to Jooble alone and blocks on the key (§10); three
 tasks are added (the shared JobSpy adapter and its three sources, the fingerprint

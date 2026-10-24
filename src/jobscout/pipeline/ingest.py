@@ -5,8 +5,8 @@ change clears the cached embedding (stage 2b also marks matches stale) and keeps
 ``first_seen_at``.
 
 The upsert is keyed on ``(source, external_id)``, with a fingerprint merge in front of it: a
-posting whose key is new but whose title + company + city match an existing row is the same
-vacancy seen through another source, so it is recorded under that row's ``raw["duplicates"]``
+posting whose key is new but whose title + company + city match an existing row from
+*another source* is the same vacancy seen twice, so it is recorded under that row's ``raw["duplicates"]``
 instead of becoming a second row.
 """
 
@@ -162,7 +162,9 @@ def upsert_jobs(
         if job is None:
             new_fingerprint = fingerprint(raw.title, raw.company, raw.location)
             twin = by_fingerprint.get(new_fingerprint)
-            if twin is not None:
+            # Cross-source only: a same-source twin is a distinct opening or a relisting, and
+            # collapsing it could silently lose a real vacancy.
+            if twin is not None and twin.source != raw.source:
                 twin.last_seen_at = now
                 twin.is_active = True
                 _record_duplicate(twin, raw)
