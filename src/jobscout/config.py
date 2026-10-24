@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "sqlite:///./jobscout.db"
-    sources: str = "himalayas,remotive,adzuna,jooble"
+    sources: str = "himalayas,remotive"
     arbeitnow_max_pages: int = 2
     inactive_after_days: int = 14
 
@@ -46,6 +46,18 @@ class Settings(BaseSettings):
     # The digest job polls at this interval; that is also its retry cadence, which is
     # why there is no separate retry setting.
     digest_interval_minutes: int = Field(default=60, ge=1)
+
+    # --- Scraped sources via python-jobspy (stage 5) ---
+    # A proxy is optional and usually paid. Without one, the volumes below are what keeps a
+    # clone from being rate-limited or blocked by LinkedIn, Indeed and Google.
+    # Comma-separated, each entry `user:pass@host:port` or a bare host.
+    jobspy_proxies: str | None = None
+    # Postings fetched per search term. Kept small: every term is one scrape.
+    jobspy_results_wanted: int = Field(default=10, ge=1)
+    # Search terms per run. Caps how many scrapes one run performs.
+    jobspy_max_terms: int = Field(default=3, ge=1)
+    # Only postings from the last N hours. 168 is one week, a comfortable window for a daily run.
+    jobspy_hours_old: int = Field(default=168, ge=1)
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "WARNING"
 
@@ -81,6 +93,12 @@ class Settings(BaseSettings):
     @property
     def source_names(self) -> list[str]:
         return [name.strip() for name in self.sources.split(",") if name.strip()]
+
+    @property
+    def jobspy_proxy_list(self) -> list[str]:
+        if not self.jobspy_proxies:
+            return []
+        return [entry.strip() for entry in self.jobspy_proxies.split(",") if entry.strip()]
 
 
 @lru_cache
