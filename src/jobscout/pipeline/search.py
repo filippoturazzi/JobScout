@@ -183,7 +183,8 @@ def _queries_for(source: JobSource, terms: list[str], prefs: UserPreferences) ->
     # The same reading `pipeline.filters` gives work modes: "remote" is the one that means
     # remote work. Both lists are free text the user set by hand and are often empty,
     # which is the normal case: an empty query field simply does not narrow the search.
-    remote_only = "remote" in {mode.lower() for mode in prefs.work_modes}
+    modes = {mode.lower() for mode in prefs.work_modes}
+    remote_only = modes == {"remote"}
     return [
         SearchQuery(keywords=[term], locations=list(prefs.regions), remote_only=remote_only)
         for term in terms[:budget]

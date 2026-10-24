@@ -589,6 +589,12 @@ def test_empty_preferences_leave_the_query_unrestricted():
     assert query.locations == [] and query.remote_only is False
 
 
+def test_remote_alongside_another_mode_is_not_remote_only():
+    prefs = UserPreferences(work_modes=["remote", "hybrid"])
+    [query] = _queries_for(_FakeSource(), ["python"], prefs)
+    assert query.remote_only is False
+
+
 def test_an_on_site_work_mode_does_not_make_the_search_remote_only():
     prefs = UserPreferences(work_modes=["hybrid", "onsite"])
     [query] = _queries_for(_FakeSource(), ["python"], prefs)
@@ -618,10 +624,11 @@ def test_the_stored_regions_reach_the_source_during_a_run(session, monkeypatch):
 
 
 def test_a_source_warning_is_named_in_the_run_without_failing_it(session, monkeypatch):
-    fake = _FakeSource(warnings=["could not map region 'remoto' to a country, searched worldwide"])
+    warning = "could not map region 'remoto' to a country, searched worldwide"
+    fake = _FakeSource(warnings=[warning, warning])
     result = _search_with(session, monkeypatch, fake, ["python", "sql"])
     assert result.ok and result.sources_ok == 1 and result.sources_failed == 0
-    # Two terms, one warning: it is named once, in the shape failures use.
+    # The source reported it twice: it is named once, in the shape failures use.
     assert [e for e in result.errors if "remoto" in e] == [
         "fake: could not map region 'remoto' to a country, searched worldwide"
     ]
