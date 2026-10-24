@@ -150,3 +150,37 @@ def test_linkedin_passes_the_term_and_requests_descriptions(monkeypatch):
     assert calls[0]["site_name"] == ["linkedin"]
     assert calls[0]["search_term"] == "python"
     assert calls[0]["fetch_description"] is True
+
+
+def test_linkedin_searches_the_stored_region(monkeypatch):
+    calls = _capture_scrape(monkeypatch)
+    LinkedInSource(Settings(_env_file=None)).fetch(
+        SearchQuery(keywords=["python"], locations=["Brasil"], remote_only=True)
+    )
+    assert calls[0]["location"] == "Brasil"
+
+
+def test_without_a_stored_region_no_location_is_sent(monkeypatch):
+    calls = _capture_scrape(monkeypatch)
+    LinkedInSource(Settings(_env_file=None)).fetch(SearchQuery(keywords=["python"]))
+    assert "location" not in calls[0]
+
+
+def test_linkedin_does_not_send_is_remote(monkeypatch):
+    # The installed python-jobspy (1.4.1) ignores it for LinkedIn and warns; the warning
+    # would be drained into every run's errors while nothing changed in the search.
+    calls = _capture_scrape(monkeypatch)
+    LinkedInSource(Settings(_env_file=None)).fetch(
+        SearchQuery(keywords=["python"], remote_only=True)
+    )
+    assert "is_remote" not in calls[0]
+
+
+def test_indeed_filters_remote_when_that_is_the_stored_work_mode(monkeypatch):
+    calls = _capture_scrape(monkeypatch)
+    IndeedSource(Settings(_env_file=None)).fetch(
+        SearchQuery(keywords=["python"], locations=["Brasil"], remote_only=True)
+    )
+    assert calls[0]["is_remote"] is True
+    # country_indeed already picks the market; a location would narrow it to a 50-mile radius.
+    assert "location" not in calls[0]

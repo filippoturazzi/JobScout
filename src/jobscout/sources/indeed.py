@@ -72,7 +72,15 @@ class IndeedSource(JobSpySource):
 
     def search_kwargs(self, query: SearchQuery) -> dict[str, object]:
         country, _ = country_for(query.locations)
-        return {**super().search_kwargs(query), "country_indeed": country}
+        kwargs = super().search_kwargs(query)
+        # No ``location`` for Indeed: ``country_indeed`` already picks the market, and JobSpy
+        # turns a location into ``radius: 50 MILES`` around whatever it geocodes
+        # (``jobspy/indeed/constant.py``'s ``default_distance``), which would shrink a
+        # country-wide preference to one metro area and silently drop the rest of the country.
+        # ``is_remote`` is kept: Indeed does filter on it (``_build_filters``).
+        kwargs.pop("location", None)
+        kwargs["country_indeed"] = country
+        return kwargs
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         country, ignored = country_for(query.locations)

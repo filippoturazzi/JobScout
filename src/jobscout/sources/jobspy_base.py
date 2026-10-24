@@ -1,7 +1,9 @@
 """Shared adapter over ``python-jobspy`` (https://github.com/speedyapply/JobSpy).
 
 Unlike every other source this one does not call a documented public API with ``httpx``: it
-drives a library that scrapes LinkedIn, Indeed and Google Jobs. What was verified upstream:
+drives a library that scrapes LinkedIn, Indeed and Google Jobs. Only LinkedIn and Indeed are
+registered here: a live capture of Google Jobs returned no postings twice, so no fixture could
+be recorded for it, and an untested source is not shipped. What was verified upstream:
 
 * ``scrape_jobs`` is synchronous and returns a pandas DataFrame (about 35 columns, from
   ``JobPost``). Columns are read defensively here, because a site may leave any of them out.
@@ -153,8 +155,22 @@ class JobSpySource:
         self.warnings: list[str] = []
 
     def search_kwargs(self, query: SearchQuery) -> dict[str, object]:
-        """The per-site arguments. The composer passes one term at a time."""
-        return {"search_term": query.keywords[0]}
+        """The per-site arguments. The composer passes one term at a time.
+
+        The stored preferences reach the site here: ``location`` from the first region and
+        ``is_remote`` from the work modes, both real ``ScraperInput`` fields. Without them a
+        site is searched over the whole world against a deliberately small budget, and most of
+        what it returns is thrown away by ``pipeline.filters`` after being paid for. Only the
+        first region is used, for the reason ``indeed.country_for`` gives. A site that cannot
+        use one of them drops it in its own override, with the reason.
+        """
+        kwargs: dict[str, object] = {"search_term": query.keywords[0]}
+        region = next((r.strip() for r in query.locations if r.strip()), None)
+        if region is not None:
+            kwargs["location"] = region
+        if query.remote_only:
+            kwargs["is_remote"] = True
+        return kwargs
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         self.warnings = []

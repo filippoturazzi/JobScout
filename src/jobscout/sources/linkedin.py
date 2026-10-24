@@ -7,6 +7,7 @@ optional here. Rows carry no salary. LinkedIn is the site most likely to rate-li
 proxy-less client, which is why the volumes stay low (``Settings.jobspy_*``).
 """
 
+from jobscout.sources.base import SearchQuery
 from jobscout.sources.jobspy_base import JobSpySource
 
 
@@ -14,3 +15,15 @@ class LinkedInSource(JobSpySource):
     name = "linkedin"
     site = "linkedin"
     fetch_description = True
+
+    def search_kwargs(self, query: SearchQuery) -> dict[str, object]:
+        kwargs = super().search_kwargs(query)
+        # ``location`` is kept — the LinkedIn scraper passes it straight to the guest search,
+        # and the capture above proves a country name returns postings from the whole country.
+        # ``is_remote`` is dropped: python-jobspy 1.4.1 answers ``is_remote isn't supported,
+        # ignoring it`` for LinkedIn (``jobspy/linkedin/__init__.py``) and LinkedIn's own
+        # ``f_WT`` filter is not exposed, so sending it would change no result and would put
+        # that warning in every run's errors, where a real block has to stand out. Remote-only
+        # preferences are still honoured by ``pipeline.filters`` after the fetch.
+        kwargs.pop("is_remote", None)
+        return kwargs
