@@ -6,12 +6,16 @@ from jobscout.config import Settings
 from jobscout.sources.arbeitnow import ArbeitnowSource
 from jobscout.sources.base import JobSource, SourceStatus
 from jobscout.sources.himalayas import HimalayasSource
+from jobscout.sources.indeed import IndeedSource
+from jobscout.sources.linkedin import LinkedInSource
 from jobscout.sources.remotive import RemotiveSource
 
 SOURCE_FACTORIES: dict[str, Callable[[Settings], JobSource]] = {
     "arbeitnow": lambda settings: ArbeitnowSource(max_pages=settings.arbeitnow_max_pages),
     "himalayas": lambda settings: HimalayasSource(),
     "remotive": lambda settings: RemotiveSource(),
+    "linkedin": lambda settings: LinkedInSource(settings),
+    "indeed": lambda settings: IndeedSource(settings),
 }
 
 # Companion to SOURCE_FACTORIES: for sources that need credentials, returns the names of

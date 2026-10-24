@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "sqlite:///./jobscout.db"
-    sources: str = "himalayas,remotive"
+    sources: str = "himalayas,remotive,linkedin,indeed"
     arbeitnow_max_pages: int = 2
     inactive_after_days: int = 14
 
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # --- Scraped sources via python-jobspy (stage 5) ---
     # A proxy is optional and usually paid. Without one, the volumes below are what keeps a
-    # clone from being rate-limited or blocked by LinkedIn, Indeed and Google.
+    # clone from being rate-limited or blocked by LinkedIn and Indeed.
     # Comma-separated, each entry `user:pass@host:port` or a bare host.
     jobspy_proxies: str | None = None
     # Postings fetched per search term. Kept small: every term is one scrape.

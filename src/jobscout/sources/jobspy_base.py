@@ -170,7 +170,7 @@ class JobSpySource:
             **self.search_kwargs(query),
         }
         frame = scrape_jobs(**params)
-        self.warnings = _messages(frame.attrs.get("warnings"))
+        self.warnings.extend(_messages(frame.attrs.get("warnings")))
         errors = _messages(frame.attrs.get("errors"))
         if errors:
             raise SourceBlocked("; ".join(errors))

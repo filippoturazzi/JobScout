@@ -7,7 +7,7 @@ from jobscout.config import Settings, get_settings
 def test_defaults_work_without_env():
     s = Settings(_env_file=None)
     assert s.database_url == "sqlite:///./jobscout.db"
-    assert s.source_names == ["himalayas", "remotive"]
+    assert s.source_names == ["himalayas", "remotive", "linkedin", "indeed"]
     assert s.arbeitnow_max_pages == 2
     assert s.inactive_after_days == 14
 
