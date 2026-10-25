@@ -27,7 +27,13 @@ from jobscout.sources.registry import build_sources, source_statuses
 
 log = logging.getLogger(__name__)
 
-__all__ = ["MAX_TERMS_PER_SOURCE", "NoUsableSourcesError", "SearchResult", "run_search"]
+__all__ = [
+    "MAX_TERMS_PER_SOURCE",
+    "NoUsableSourcesError",
+    "SearchResult",
+    "open_search_run",
+    "run_search",
+]
 
 MAX_TERMS_PER_SOURCE = 5
 """How many of the ranked terms each searchable source is asked for, one page each.
@@ -98,8 +104,11 @@ class _CountedSource:
         return jobs
 
 
-def _open_run(session: Session, user_id: int) -> Run:
+def open_search_run(session: Session, user_id: int) -> Run:
     """Open the row before any work starts, so a killed process leaves a failure behind.
+
+    Public so a caller that runs the search in the background can hand out the run's id
+    before the work begins, then pass it to ``run_search``.
 
     Not ``scheduler.start_run``: ``pipeline`` sits below ``scheduler`` and must not import
     it, and a search has no business pruning the operator's run history on the way past.
@@ -240,14 +249,17 @@ def run_search(
     settings: Settings,
     user_id: int,
     deps: GraphDeps | None = None,
+    run_id: int | None = None,
 ) -> SearchResult:
     """Fetch for one user from every registered source, then score what is pending.
 
-    Never raises: it is run in the background and the only way an operator or the page
-    learns what happened is the Run row, so every failure is recorded there instead.
+    ``run_id`` names a row ``open_search_run`` already wrote; without one, a row is opened
+    here. Never raises: it is run in the background and the only way an operator or the
+    page learns what happened is the Run row, so every failure is recorded there instead.
     """
     result = SearchResult()
-    run = _open_run(session, user_id)
+    existing = session.get(Run, run_id) if run_id is not None else None
+    run = existing if existing is not None else open_search_run(session, user_id)
     result.run_id = run.id
 
     def publish() -> None:

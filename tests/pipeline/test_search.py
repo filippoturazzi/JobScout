@@ -14,7 +14,12 @@ from jobscout.matching.graph import GraphDeps
 from jobscout.matching.schemas import EvaluationResult
 from jobscout.matching.terms import ExtractedProfile, profile_hash
 from jobscout.models import Job, Match, Run, UserPreferences
-from jobscout.pipeline.search import MAX_TERMS_PER_SOURCE, _queries_for, run_search
+from jobscout.pipeline.search import (
+    MAX_TERMS_PER_SOURCE,
+    _queries_for,
+    open_search_run,
+    run_search,
+)
 from jobscout.pipeline.users import get_or_create_default_user, get_preferences, update_preferences
 from jobscout.sources.arbeitnow import BASE_URL as ARBEITNOW_URL
 from jobscout.sources.base import RawJob, SearchQuery
@@ -240,6 +245,23 @@ def test_an_empty_paragraph_writes_a_failed_run_and_fetches_nothing(session):
     assert (run.job, run.user_id, run.ok) == ("search", user.id, False)
     assert run.finished_at is not None
     assert run.error is not None and "nothing to search for" in run.error
+
+
+@respx.mock
+def test_a_run_opened_beforehand_is_the_one_filled(session):
+    # The API hands out the run id before the work starts, so the work must fill that row.
+    user = _user(session, "")
+    opened = open_search_run(session, user.id)
+    result = run_search(
+        session,
+        _settings(sources="himalayas"),
+        user.id,
+        deps=_deps(SearchChatModel(_extraction([]))),
+        run_id=opened.id,
+    )
+    assert result.run_id == opened.id
+    run = _the_run(session)
+    assert run.id == opened.id and run.finished_at is not None
 
 
 # --------------------------------------------------------------------------- fetching

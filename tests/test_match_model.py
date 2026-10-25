@@ -51,12 +51,20 @@ def test_match_is_unique_per_job_and_user(session):
 
 
 def test_status_sets_are_consistent():
-    from jobscout.models.match import MATCH_STATUSES, REEVALUATABLE_STATUSES
+    from jobscout.models.match import (
+        CLOSED_STATUSES,
+        MATCH_STATUSES,
+        REEVALUATABLE_STATUSES,
+        USER_STATUSES,
+    )
 
-    assert frozenset({"new", "seen", "saved", "dismissed", "low", "stale"}) == MATCH_STATUSES
+    expected = {"new", "seen", "saved", "dismissed", "applied", "low", "stale"}
+    assert frozenset(expected) == MATCH_STATUSES
     assert "notified" not in MATCH_STATUSES, "the digest records announcements in notified_at"
     assert frozenset({"stale"}) == REEVALUATABLE_STATUSES
-    assert "dismissed" not in REEVALUATABLE_STATUSES
+    assert USER_STATUSES <= MATCH_STATUSES
+    assert CLOSED_STATUSES <= USER_STATUSES
+    assert not CLOSED_STATUSES & REEVALUATABLE_STATUSES, "a verdict is never re-evaluated"
 
 
 def test_match_has_a_composite_index_for_the_hot_queries():

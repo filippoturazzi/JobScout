@@ -5,9 +5,19 @@ from sqlmodel import Field, SQLModel
 
 from jobscout.models.base import utcnow
 
-MATCH_STATUSES: frozenset[str] = frozenset({"new", "seen", "saved", "dismissed", "low", "stale"})
+MATCH_STATUSES: frozenset[str] = frozenset(
+    {"new", "seen", "saved", "dismissed", "applied", "low", "stale"}
+)
 """`low` = rejected by the cosine prefilter, terminal until something stales it;
-`stale` = needs re-evaluation; `dismissed` = the user said no, and it sticks."""
+`stale` = needs re-evaluation; `dismissed` = the user said no, and it sticks;
+`applied` = the user applied, and it sticks too."""
+
+USER_STATUSES: frozenset[str] = frozenset({"saved", "dismissed", "applied"})
+"""The statuses a user may set on a match. The others are the pipeline's to write."""
+
+CLOSED_STATUSES: frozenset[str] = frozenset({"dismissed", "applied"})
+"""The user's verdicts on a job. Staling never rewrites them (a re-evaluation would bring
+the card back), and the default listing hides them."""
 
 REEVALUATABLE_STATUSES: frozenset[str] = frozenset({"stale"})
 """Statuses a new run may pick up again. `low` is not one — only a stale-ing event

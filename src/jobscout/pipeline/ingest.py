@@ -19,7 +19,7 @@ from datetime import datetime
 
 from sqlmodel import Session, col, select, update
 
-from jobscout.models import Job, Match
+from jobscout.models import CLOSED_STATUSES, Job, Match
 from jobscout.models.base import utcnow
 from jobscout.sources.base import JobSource, RawJob, SearchQuery
 
@@ -90,12 +90,12 @@ class IngestResult:
 
 
 def _mark_matches_stale(session: Session, job_ids: list[int]) -> None:
-    """A changed description invalidates every score derived from it — except a user's own no."""
+    """A changed description invalidates every score derived from it — except a user's verdict."""
     for start in range(0, len(job_ids), _LOOKUP_CHUNK):
         chunk = job_ids[start : start + _LOOKUP_CHUNK]
         session.exec(
             update(Match)
-            .where(col(Match.job_id).in_(chunk), col(Match.status) != "dismissed")
+            .where(col(Match.job_id).in_(chunk), col(Match.status).not_in(CLOSED_STATUSES))
             .values(status="stale")
         )
 

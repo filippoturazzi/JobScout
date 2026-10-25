@@ -7,7 +7,7 @@ payload, so the repair runs offline over the whole table.
 
 The invariant to preserve is the one `upsert_jobs` maintains: text and `content_hash` move
 together, a changed hash clears the embedding derived from it, and the matches scored from
-that text go `stale` — except a dismissal, which is the user's own no.
+that text go `stale` — except a dismissal or an application, which are the user's own.
 """
 
 import logging
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from sqlmodel import Session, col, select, update
 
-from jobscout.models import Job, Match
+from jobscout.models import CLOSED_STATUSES, Job, Match
 from jobscout.pipeline.ingest import content_hash
 from jobscout.sources.text import html_to_text
 
@@ -61,7 +61,7 @@ def repair_descriptions(session: Session) -> RepairStats:
         chunk = touched[start : start + _STALE_CHUNK]
         session.exec(
             update(Match)
-            .where(col(Match.job_id).in_(chunk), col(Match.status) != "dismissed")
+            .where(col(Match.job_id).in_(chunk), col(Match.status).not_in(CLOSED_STATUSES))
             .values(status="stale")
         )
 
