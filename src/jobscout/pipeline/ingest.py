@@ -46,15 +46,19 @@ def _normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", folded.lower()).strip()
 
 
-def fingerprint(title: str, company: str, location: str | None) -> str:
+def fingerprint(title: str, company: str, location: str | None) -> str | None:
     """Identity of a vacancy across sources: title + company + city.
 
     Only the first comma-separated component of the location counts, so "São Paulo, SP, BR"
     and "Sao Paulo, Brazil" agree. The city stays in the key on purpose: the same role in
-    two cities is two vacancies.
+    two cities is two vacancies. A posting with no company has no fingerprint, and so never
+    merges: without one, two different vacancies could collapse on their title alone.
     """
+    company_key = _normalise(company)
+    if not company_key:
+        return None
     city = _normalise((location or "").split(",")[0])
-    parts = (_normalise(title), _normalise(company), city)
+    parts = (_normalise(title), company_key, city)
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
@@ -112,6 +116,10 @@ def _load_by_fingerprint(session: Session, fingerprints: set[str]) -> dict[str, 
 def _record_duplicate(job: Job, raw: RawJob) -> None:
     """Note ``raw`` as another sighting of ``job`` without touching the first source's payload."""
     entry = {"source": raw.source, "external_id": raw.external_id, "url": raw.url}
+    if not job.description and raw.description:
+        # Kept beside the row, not swapped into it: the first source re-sends its own (empty)
+        # text on every run, and a swapped description would flip back and forth.
+        entry["description"] = raw.description
     duplicates = [dict(d) for d in job.raw.get("duplicates", [])]
     for i, known in enumerate(duplicates):
         if (known["source"], known["external_id"]) == (raw.source, raw.external_id):
@@ -145,14 +153,10 @@ def upsert_jobs(
                 existing[(found_job.source, found_job.external_id)] = found_job
 
     # Vacancies already stored (or created earlier in this batch), by fingerprint.
-    by_fingerprint = _load_by_fingerprint(
-        session,
-        {
-            fingerprint(r.title, r.company, r.location)
-            for k, r in by_key.items()
-            if k not in existing
-        },
-    )
+    wanted = {
+        fingerprint(r.title, r.company, r.location) for k, r in by_key.items() if k not in existing
+    }
+    by_fingerprint = _load_by_fingerprint(session, {f for f in wanted if f is not None})
 
     created_jobs: list[Job] = []
     changed_jobs: list[Job] = []
@@ -161,7 +165,7 @@ def upsert_jobs(
         job = existing.get(key)
         if job is None:
             new_fingerprint = fingerprint(raw.title, raw.company, raw.location)
-            twin = by_fingerprint.get(new_fingerprint)
+            twin = by_fingerprint.get(new_fingerprint) if new_fingerprint else None
             # Cross-source only: a same-source twin is a distinct opening or a relisting, and
             # collapsing it could silently lose a real vacancy.
             if twin is not None and twin.source != raw.source:
@@ -180,7 +184,8 @@ def upsert_jobs(
                 is_active=True,
             )
             session.add(job)
-            by_fingerprint[new_fingerprint] = job
+            if new_fingerprint is not None:
+                by_fingerprint[new_fingerprint] = job
             created_jobs.append(job)
             stats.created += 1
             continue

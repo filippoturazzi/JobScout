@@ -15,7 +15,7 @@ def raw(external_id="j1", title="AI Engineer", description="Build agents.", **kw
         source="test",
         external_id=external_id,
         title=title,
-        company=f"Acme {external_id}",  # distinct vacancies: same title+company+city would merge
+        company=f"Acme {external_id}",  # distinct per row, so a test never depends on the merge
         location="Berlin",
         remote=True,
         url=f"https://example.com/{external_id}",
@@ -410,3 +410,33 @@ def test_ingest_result_reports_merged(session):
         SearchQuery(),
     )
     assert [(r.created, r.merged) for r in results] == [(1, 0), (0, 1)]
+
+
+def test_a_posting_without_a_company_has_no_fingerprint():
+    # Title alone (plus an empty city) is not an identity: two different vacancies share it.
+    assert fingerprint("Software Engineer", "", None) is None
+    assert fingerprint("Software Engineer", "  ", "São Paulo") is None
+
+
+def test_two_postings_without_a_company_never_merge(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1", company="", location=None)])
+    stats = upsert_jobs(session, [_vacancy("indeed", "i1", company="", location=None)])
+    assert (stats.created, stats.merged) == (1, 0)
+    assert len(session.exec(select(Job)).all()) == 2
+
+
+def test_a_merge_always_lands_on_the_lowest_id(session):
+    # Same-source twins stay two rows; a third source must pick the same one every run.
+    upsert_jobs(session, [_vacancy("linkedin", "l1"), _vacancy("linkedin", "l2")])
+    upsert_jobs(session, [_vacancy("indeed", "i1")])
+    upsert_jobs(session, [_vacancy("google", "g1")])
+    first, second = session.exec(select(Job).order_by(Job.id)).all()
+    assert [d["source"] for d in first.raw["duplicates"]] == ["indeed", "google"]
+    assert "duplicates" not in second.raw
+
+
+def test_a_twin_keeps_its_description_when_the_row_has_none(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1", description="")])
+    upsert_jobs(session, [_vacancy("indeed", "i1", description="The full text.")])
+    [job] = session.exec(select(Job)).all()
+    assert job.raw["duplicates"][0]["description"] == "The full text."
