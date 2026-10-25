@@ -107,6 +107,20 @@ The index is not optional: every digest selection filters on `notified_at`, so s
 `CREATE INDEX` leaves the install correct but progressively slower. A fresh database needs
 none of this.
 
+The profile search (stage 5) adds three columns: the search terms extracted from your profile
+paragraph, the hash that decides when to extract them again, and the user a search run
+belongs to. Without them `jobscout serve` stops at startup with `no such column:
+user_preferences.search_terms`:
+
+```sql
+ALTER TABLE user_preferences ADD COLUMN search_terms JSON NOT NULL DEFAULT '[]';
+ALTER TABLE user_preferences ADD COLUMN profile_hash VARCHAR;
+ALTER TABLE run ADD COLUMN user_id INTEGER;
+CREATE INDEX ix_run_user_id ON run (user_id);
+```
+
+Empty terms and no hash just mean the next search extracts them from the paragraph.
+
 The scraped sources add one more column, `fingerprint` (normalised title + company + city),
 which is how one vacancy arriving from several sources becomes one row:
 
