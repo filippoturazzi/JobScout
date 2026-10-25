@@ -190,10 +190,15 @@ Recognised: Brazil, Portugal, Spain, USA, UK, Germany, Canada, in English or the
 (`Brasil`, `Alemanha`, `Reino Unido`, ...), plus the two-letter codes except `CA`, which is
 ambiguous with California; write `Canada`. Only the first recognised region is searched.
 
+LinkedIn takes the same names: a recognised country is sent to it in English, because LinkedIn
+reads `Brazil` but answers `Brasil` with US postings. A region that is not a country (a city,
+say) is sent as you typed it.
+
 The same names decide which on-site postings are kept (remote ones always are): `Brasil`,
 `Brazil` and `BR` all keep `São Paulo, SP, Brazil`. A location that names no country, like
-LinkedIn's `Greater Curitiba`, is kept because the posting records the region it was searched
-in, for as long as that region stays in your preferences.
+LinkedIn's `Greater Curitiba`, is kept because the posting records the country it was searched
+in, for as long as that country stays in your preferences. A location naming another country
+is dropped whatever the search was.
 
 ### Checking the scraped sources from your own connection
 

@@ -134,9 +134,11 @@ def test_a_country_code_matches_only_as_the_last_part_of_a_location():
     assert job_matches_preferences(job(location="Munich, DE"), prefs(regions=["Germany"]))
 
 
-def _linkedin_jobs(monkeypatch, searched: list[str]) -> list[Job]:
-    """Rows built the way production builds them: the real capture, through the source."""
-    rows = load_jsonl("linkedin_sample.jsonl")
+def _linkedin_jobs(
+    monkeypatch, searched: list[str], capture: str = "linkedin_sample.jsonl"
+) -> list[Job]:
+    """Rows built the way production builds them: a real capture, through the source."""
+    rows = load_jsonl(capture)
 
     def fake(**kwargs):
         frame = pd.DataFrame(rows)
@@ -172,3 +174,11 @@ def test_without_a_searched_region_the_location_alone_decides(monkeypatch):
         "Greater Rio de Janeiro",  # remote
         "São Paulo, Brazil",
     ]
+
+
+def test_a_search_record_never_overrules_a_location_naming_another_country(monkeypatch):
+    # A real capture: LinkedIn searched for "Brasil" and answered with five US postings. If
+    # a site ignores the location again, its record must not pass them off as Brazilian.
+    jobs = _linkedin_jobs(monkeypatch, ["Brasil"], capture="linkedin_location_brasil.jsonl")
+    assert {j.location.rsplit(", ", 1)[-1] for j in jobs if j.location} == {"USA"}
+    assert filter_jobs(jobs, prefs(regions=["Brasil"])) == []

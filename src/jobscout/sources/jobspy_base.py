@@ -31,6 +31,7 @@ from jobspy import scrape_jobs
 
 from jobscout.config import Settings
 from jobscout.sources.base import RawJob, SearchQuery
+from jobscout.sources.regions import country_of, english_name
 from jobscout.sources.text import html_to_text
 
 log = logging.getLogger(__name__)
@@ -157,7 +158,8 @@ class JobSpySource:
     def search_kwargs(self, query: SearchQuery) -> dict[str, object]:
         """The per-site arguments. The composer passes one term at a time.
 
-        The stored preferences reach the site here: ``location`` from the first region and
+        The stored preferences reach the site here: ``location`` from the first region that
+        names a known country, in English (or else the first region, as typed), and
         ``is_remote`` from the work modes, both real ``ScraperInput`` fields. Without them a
         site is searched over the whole world against a deliberately small budget, and most of
         what it returns is thrown away by ``pipeline.filters`` after being paid for. Only the
@@ -166,15 +168,26 @@ class JobSpySource:
         """
         kwargs: dict[str, object] = {"search_term": query.keywords[0]}
         region = self.searched_region(query)
-        if region is not None:
-            kwargs["location"] = region
+        country = country_of(region) if region is not None else None
+        if country is not None:
+            # In English: LinkedIn answered "Brasil" with US postings, and "Brazil" correctly.
+            kwargs["location"] = english_name(country)
+        else:
+            typed = next((r.strip() for r in query.locations if r.strip()), None)
+            if typed is not None:
+                kwargs["location"] = typed
         if query.remote_only:
             kwargs["is_remote"] = True
         return kwargs
 
     def searched_region(self, query: SearchQuery) -> str | None:
-        """The region this site is searched in: the first one given."""
-        return next((r.strip() for r in query.locations if r.strip()), None)
+        """The first region that names a known country, which the site is searched in.
+
+        Only a country is trusted to narrow the search: a site may not read any other text
+        (LinkedIn answers a location it cannot read with postings from elsewhere), so such a
+        region is still sent but vouches for nothing.
+        """
+        return next((r.strip() for r in query.locations if country_of(r) is not None), None)
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         self.warnings = []

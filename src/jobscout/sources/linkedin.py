@@ -19,7 +19,8 @@ class LinkedInSource(JobSpySource):
     def search_kwargs(self, query: SearchQuery) -> dict[str, object]:
         kwargs = super().search_kwargs(query)
         # ``location`` is kept — the LinkedIn scraper passes it straight to the guest search,
-        # and the capture above proves a country name returns postings from the whole country.
+        # and the capture above proves "Brazil" returns postings from the whole country. It must
+        # be the English name: "Brasil" returned five US postings (``linkedin_location_brasil``).
         # ``is_remote`` is dropped: python-jobspy 1.4.1 answers ``is_remote isn't supported,
         # ignoring it`` for LinkedIn (``jobspy/linkedin/__init__.py``) and LinkedIn's own
         # ``f_WT`` filter is not exposed, so sending it would change no result and would put

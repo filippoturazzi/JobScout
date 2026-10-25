@@ -153,12 +153,25 @@ def test_linkedin_passes_the_term_and_requests_descriptions(monkeypatch):
     assert calls[0]["fetch_description"] is True
 
 
-def test_linkedin_searches_the_stored_region(monkeypatch):
+@pytest.mark.parametrize(
+    ("regions", "location"),
+    [
+        (["Brazil"], "Brazil"),
+        # LinkedIn does not read "Brasil": a live search for it returned five US postings
+        # (``linkedin_location_brasil.jsonl``). A recognised country is sent in English.
+        (["Brasil"], "Brazil"),
+        (["BR"], "Brazil"),
+        (["Estados Unidos"], "United States"),
+        (["remoto", "Brasil"], "Brazil"),  # the first region that names a country wins
+        (["São Paulo"], "São Paulo"),  # not a country: sent as typed
+    ],
+)
+def test_linkedin_searches_the_stored_region(monkeypatch, regions, location):
     calls = _capture_scrape(monkeypatch)
     LinkedInSource(Settings(_env_file=None)).fetch(
-        SearchQuery(keywords=["python"], locations=["Brasil"], remote_only=True)
+        SearchQuery(keywords=["python"], locations=regions, remote_only=True)
     )
-    assert calls[0]["location"] == "Brasil"
+    assert calls[0]["location"] == location
 
 
 def test_without_a_stored_region_no_location_is_sent(monkeypatch):
@@ -209,8 +222,12 @@ def test_each_posting_records_the_region_it_was_searched_in(monkeypatch):
     assert {job.raw["searched_region"] for job in jobs} == {"Brazil"}
 
 
-def test_a_posting_searched_without_a_region_records_none(monkeypatch):
+@pytest.mark.parametrize("regions", [[], ["São Paulo"]])
+def test_only_a_search_in_a_known_country_is_recorded(monkeypatch, regions):
+    # A location the site may not understand vouches for nothing: LinkedIn answers one it
+    # cannot read with postings from elsewhere.
     _scrape_returning(monkeypatch, load_jsonl("linkedin_sample.jsonl"))
-    jobs = LinkedInSource(Settings(_env_file=None)).fetch(SearchQuery(keywords=["python"]))
+    source = LinkedInSource(Settings(_env_file=None))
+    jobs = source.fetch(SearchQuery(keywords=["python"], locations=regions))
     assert jobs
     assert all("searched_region" not in job.raw for job in jobs)

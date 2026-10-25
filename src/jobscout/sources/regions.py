@@ -36,10 +36,31 @@ _COUNTRIES = {
 # typing it is as likely to mean California, and a quiet search of the wrong market is worse
 # than none. Spelling "Canada" out works.
 
+# How each country is written to a site that geocodes free text. LinkedIn reads "Brazil" but
+# not "Brasil": a live search for "Brasil" returned five US postings.
+_ENGLISH = {
+    "brazil": "Brazil",
+    "portugal": "Portugal",
+    "spain": "Spain",
+    "usa": "United States",
+    "uk": "United Kingdom",
+    "germany": "Germany",
+    "canada": "Canada",
+}
+
 
 def country_of(region: str) -> str | None:
     """The country a region names, or ``None`` when it names none this table knows."""
     return _COUNTRIES.get(fold(region))
+
+
+def english_name(country: str) -> str:
+    """``country`` the way an English-language site writes it."""
+    return _ENGLISH[country]
+
+
+def countries() -> set[str]:
+    return set(_COUNTRIES.values())
 
 
 def names_of(country: str) -> tuple[list[str], list[str]]:

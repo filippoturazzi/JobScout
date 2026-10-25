@@ -7,7 +7,7 @@ import re
 from collections.abc import Iterable
 
 from jobscout.models import Job, UserPreferences
-from jobscout.sources.regions import country_of, names_of
+from jobscout.sources.regions import countries, country_of, names_of
 from jobscout.sources.text import fold
 
 _TOKEN_RE = re.compile(r"(?:[^\W_]|[+#.])+")
@@ -55,15 +55,11 @@ def _same_region(a: str, b: str) -> bool:
     return bool(fold(a)) and fold(a) == fold(b)
 
 
-def _location_is_in(location: str, region: str) -> bool:
+def _names_country(location: str, country: str) -> bool:
     # The whole location is searched, not one comma-separated part at a time: boards order the
     # parts differently ("São Paulo, SP, Brazil", "Remoto, Brazil", "Greater Curitiba"), so
     # no one part is reliably the country. Whole tokens still keep "US" out of "Australia".
     tokens = tokenize(fold(location))
-    country = country_of(region)
-    if country is None:
-        needle = tokenize(fold(region))
-        return bool(needle) and _contains_sequence(tokens, needle)
     names, codes = names_of(country)
     if any(_contains_sequence(tokens, tokenize(name)) for name in names):
         return True
@@ -71,14 +67,29 @@ def _location_is_in(location: str, region: str) -> bool:
     return fold(location.rsplit(",", 1)[-1]) in codes
 
 
+def _location_is_in(location: str, region: str) -> bool:
+    country = country_of(region)
+    if country is not None:
+        return _names_country(location, country)
+    needle = tokenize(fold(region))
+    return bool(needle) and _contains_sequence(tokenize(fold(location)), needle)
+
+
 def _passes_region(job: Job, prefs: UserPreferences) -> bool:
     if not prefs.regions or job.remote:
         return True
+    location = job.location or ""
     searched = job.raw.get("searched_region")
+    # The search record vouches only for a location that names no country ("Greater Curitiba").
+    # One that names another country wins over it: a site that ignored the search location
+    # answers with postings from elsewhere, and saying they are in the region would be a lie.
+    vouched = isinstance(searched, str) and not any(
+        _names_country(location, country) for country in countries()
+    )
     for region in prefs.regions:
-        if isinstance(searched, str) and _same_region(searched, region):
+        if vouched and _same_region(str(searched), region):
             return True
-        if job.location and _location_is_in(job.location, region):
+        if location and _location_is_in(location, region):
             return True
     return False
 

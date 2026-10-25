@@ -33,10 +33,6 @@ class IndeedSource(JobSpySource):
     name = "indeed"
     site = "indeed"
 
-    def searched_region(self, query: SearchQuery) -> str | None:
-        """The first region Indeed recognises, the one ``country_indeed`` is set from."""
-        return next((r.strip() for r in query.locations if country_of(r) is not None), None)
-
     def search_kwargs(self, query: SearchQuery) -> dict[str, object]:
         country, _ = country_for(query.locations)
         kwargs = super().search_kwargs(query)
