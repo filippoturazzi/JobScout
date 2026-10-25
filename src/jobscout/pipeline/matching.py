@@ -70,6 +70,9 @@ def select_candidates(
         statement = statement.where(col(Job.first_seen_at) >= first_seen_after)
     # Freshest first: the caps spend the user's LLM key on the head of this list. Undated
     # postings go last, and sort among themselves by when JobScout first saw them.
+    # ``nullslast`` is load-bearing although no SQLite test can show it: SQLite already sorts
+    # NULLs last under DESC, but Postgres sorts them first, and without it undated jobs would
+    # take the capped LLM evaluations.
     statement = statement.order_by(
         col(Job.posted_at).desc().nullslast(),
         col(Job.first_seen_at).desc(),

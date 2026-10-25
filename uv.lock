@@ -754,7 +754,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.2" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },
-    { name = "python-jobspy", specifier = ">=1.4.1" },
+    { name = "python-jobspy", specifier = ">=1.4.1,<2" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },

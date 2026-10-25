@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 5 (more sources). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0 through 4 are implemented, and stage 5 is in progress (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed are built, but **nothing in `src/` calls `pipeline.search.run_search` yet**, so `linkedin` and `indeed` are unreachable from `jobscout fetch`, the scheduler and every API route. The CLI command and API route that call it are Tasks 7 and 8 of `docs/superpowers/plans/2026-10-22-stage-5a-sources-and-search.md`, still open. The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -19,7 +19,7 @@ Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`).
 - LLM and embeddings via LangChain abstractions, provider chosen by env (`LLM_PROVIDER`, `LLM_MODEL`, `EMBEDDING_MODEL`). No direct vendor SDK calls.
 - **LangGraph is used only for the per-job matching graph** (`matching/graph.py`): embed → prefilter by cosine similarity → LLM structured evaluation → decide. The prefilter's conditional edge must skip the LLM for low-similarity jobs. Collection, dedup, and notification are plain Python in `pipeline/`.
 - APScheduler inside the FastAPI lifespan (no Celery/Redis).
-- Interface until stage 6 is FastAPI + Typer CLI only. Stage 6 frontend is Reflex.
+- Interface is FastAPI + Typer CLI, plus a page of static HTML/CSS/JS served by FastAPI (replaced Reflex on 2026-10-22; see `docs/superpowers/specs/2026-10-22-stage-5-sources-and-dashboard-design.md`).
 - Notification channel is e-mail over SMTP (stdlib `smtplib`), chosen in stage 4 as the first channel; *sending* always goes through the `Notifier` protocol, never a concrete channel. Rendering is the channel's own business: `render_digest` lives in `notifiers/email.py` and callers import it from there.
 - Distribution is self-hosting only. The hosted demo (quotas, BYOK) was dropped on 2026-10-23: do not propose it.
 - English for code, comments, README; READMEs also in pt-BR and es later.
@@ -32,7 +32,7 @@ Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_se
 
 ## Roadmap (stage-gated; each stage runs end to end)
 
-0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources (Himalayas, Remotive; LinkedIn and Indeed via JobSpy; Google Jobs dropped, Jooble deferred) → 6 Reflex UI, auth, Postgres/Docker, i18n → ~~7 Quotas, BYOK, public demo~~ dropped (no hosted demo).
+0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources (Himalayas, Remotive; LinkedIn and Indeed via JobSpy; Google Jobs dropped, Jooble deferred) → 6 auth, Postgres/Docker (the Reflex UI and i18n were dropped on 2026-10-22) → ~~7 Quotas, BYOK, public demo~~ dropped (no hosted demo).
 
 Follow this order unless the user says otherwise. TDD for all logic; tests never touch the network (fixtures + `respx`; LangChain fake models). Real-API tests live behind `pytest -m integration` and are off by default.
 

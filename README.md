@@ -4,7 +4,8 @@ Open-source AI agent that continuously searches public job-board APIs (and, for
 LinkedIn and Indeed, scrapes them; see Job sources) and matches
 postings against **your** profile — with an LLM explaining every score.
 
-> Status: early development. Stages 0–1 (collection, CLI, API — no AI yet) are done; stage 2 (LLM matching) is next.
+> Status: in development. Collection, LLM matching, the scheduler and e-mail digests (stages 0–4) work; stage 5 (more
+> sources and a search run) is in progress, and its scraped sources are not yet reachable from the CLI (see Job sources).
 > See `docs/superpowers/specs/2026-09-19-jobscout-design.md` for the full design and roadmap.
 
 ## Quick start
@@ -110,7 +111,16 @@ rows start with a NULL fingerprint, which never merges with anything, and each o
 fingerprint the next time its source lists it again. From then on it can absorb another
 source's copy of the same vacancy. A row whose source no longer lists it keeps a NULL
 fingerprint forever and never merges. Only a different source merges: a repost from the
-same source under a new id stays its own row.
+same source under a new id stays its own row. A posting with no company has no fingerprint and
+never merges, since its title alone would collapse different vacancies.
+
+What the merge is for, honestly: it was built for Google Jobs, which aggregates LinkedIn and
+Indeed, so one vacancy would have arrived three times. Google was dropped (no capture returned
+postings). Between LinkedIn and Indeed it fires only when title, company and city agree
+exactly, and their formats rarely do: LinkedIn writes `Greater São Paulo Area` where Indeed
+writes `São Paulo, SP, Brazil`, and LinkedIn titles carry suffixes Indeed's do not. The key is
+kept strict on purpose, because a loose one would silently delete real vacancies; the column is
+infrastructure for the next aggregating source more than a feature today.
 
 ## API
 
@@ -173,12 +183,17 @@ JobSpy would otherwise default to the US. So `indeed` **returns nothing, without
 Set it through the API, not the environment:
 
 ```bash
-curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json"   -d '{"regions": ["Brazil"]}'
+curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json" -d '{"regions": ["Brazil"]}'
 ```
 
 Recognised: Brazil, Portugal, Spain, USA, UK, Germany, Canada, in English or the local spelling
 (`Brasil`, `Alemanha`, `Reino Unido`, ...), plus the two-letter codes except `CA`, which is
 ambiguous with California; write `Canada`. Only the first recognised region is searched.
+
+The same names decide which on-site postings are kept (remote ones always are): `Brasil`,
+`Brazil` and `BR` all keep `São Paulo, SP, Brazil`. A location that names no country, like
+LinkedIn's `Greater Curitiba`, is kept because the posting records the region it was searched
+in, for as long as that region stays in your preferences.
 
 ### Checking the scraped sources from your own connection
 
@@ -190,7 +205,7 @@ is not yet exposed through the CLI or the API, so for now it is started like thi
 ```bash
 uv run jobscout serve              # leave it running; set an LLM key in .env first
 # in another shell:
-curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json"   -d '{"profile_summary": "<a paragraph about you>", "regions": ["Brazil"]}'
+curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json" -d '{"profile_summary": "<a paragraph about you>", "regions": ["Brazil"]}'
 uv run python -c "from jobscout.config import get_settings; from jobscout.db import get_engine, init_db; from jobscout.pipeline.search import run_search; from jobscout.pipeline.users import get_or_create_default_user; from sqlmodel import Session; e = get_engine(get_settings()); init_db(e); s = Session(e); print(run_search(s, get_settings(), get_or_create_default_user(s).id).counters)"
 uv run jobscout matches --min-score 50
 curl "http://127.0.0.1:8000/runs?job=search"
