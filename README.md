@@ -4,8 +4,8 @@ Open-source AI agent that continuously searches public job-board APIs (and, for
 LinkedIn and Indeed, scrapes them; see Job sources) and matches
 postings against **your** profile — with an LLM explaining every score.
 
-> Status: in development. Collection, LLM matching, the scheduler and e-mail digests (stages 0–4) work; stage 5 (more
-> sources and a search run) is in progress, and its scraped sources are not yet reachable from the CLI (see Job sources).
+> Status: in development. Collection, LLM matching, the scheduler and e-mail digests (stages 0–4) work. Stage 5's
+> sources and its profile search work from the CLI and the API (`jobscout search`, `POST /search`); its web page is next.
 > See `docs/superpowers/specs/2026-09-19-jobscout-design.md` for the full design and roadmap.
 
 ## Quick start
@@ -17,6 +17,15 @@ uv run jobscout fetch              # pull jobs from enabled sources into ./jobsc
 uv run jobscout jobs               # jobs that pass your preferences (newest first)
 uv run jobscout jobs --all         # every active job, ignoring preferences
 uv run jobscout serve              # API + Swagger UI at http://127.0.0.1:8000/docs
+```
+
+The search is the main way in: write a paragraph about yourself, and `jobscout search` turns it
+into search terms (one LLM call, repeated only when the paragraph changes), searches every
+source with them, scores what came back and prints the ranking. It needs an LLM key in `.env`.
+
+```bash
+curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json" -d '{"profile_summary": "<a paragraph about you>", "regions": ["Brazil"]}'
+uv run jobscout search
 ```
 
 Set your preferences through the API (`PUT /preferences`), e.g.
@@ -45,10 +54,12 @@ Without a provider key, everything except matching still works.
 
 ## Running continuously
 
-`jobscout serve` also starts a scheduler inside the API process, with two jobs: ingest
-(cheap HTTP) every `INGEST_INTERVAL_MINUTES` (default 60) and matching (spends LLM and
-embedding quota) every `MATCH_INTERVAL_MINUTES` (default 15). Set them in `.env`. Set
-`SCHEDULER_ENABLED=false` to turn the scheduler off; the CLI always stays manual. A failing
+The scheduler is **off by default**. Set `SCHEDULER_ENABLED=true` in `.env` and `jobscout
+serve` runs it inside the API process, with these jobs: ingest (cheap HTTP) every
+`INGEST_INTERVAL_MINUTES` (default 60) and matching (spends LLM and embedding quota) every
+`MATCH_INTERVAL_MINUTES` (default 15), plus the digest below. The CLI always stays manual.
+Scheduled ingest has no search terms, so it never reaches the scraped sources; only a search
+does, and a search is always started by you (`POST /search` runs even with the scheduler off). A failing
 matching job backs off exponentially, capped by `MAX_BACKOFF_TICKS`; ingest does not back
 off, since it is cheap keyless HTTP with no quota to protect. `GET /runs` lists what each run
 did and whether it succeeded.
@@ -130,8 +141,12 @@ infrastructure for the next aggregating source more than a feature today.
 | GET    | `/jobs`         | Active jobs passing your preferences (`?all=true` to ignore them, `?limit=`) |
 | GET    | `/preferences`  | Current preferences                           |
 | PUT    | `/preferences`  | Partial update; only sent fields change       |
-| GET    | `/matches`      | Scored matches, best first (`?min_score=`, `?status=`, `?limit=`) |
-| GET    | `/runs`         | Scheduled ingest/match run history, newest first |
+| GET    | `/matches`      | Scored matches, best first (`?min_score=`, `?status=`, `?limit=`); dismissed and applied ones only with `?status=` |
+| PATCH  | `/matches/{id}` | `{"status": "saved" \| "dismissed" \| "applied"}`; dismissed and applied are never re-scored |
+| POST   | `/search`       | Start a search in the background; returns `{"run_id": ...}`, or the run already in flight |
+| GET    | `/search/{id}`  | That search's progress: its counters are written while it runs |
+| GET    | `/sources`      | Every enabled source, and for a dormant one what would wake it |
+| GET    | `/runs`         | Run history (ingest, match, digest, search), newest first |
 
 ## Development
 
@@ -204,15 +219,13 @@ is dropped whatever the search was.
 
 The scraped sources only run in a **search**: they are asked for the terms extracted from your
 profile paragraph. Plain `jobscout fetch` (and the scheduler's ingest) has no terms, so it
-returns nothing from `linkedin` and `indeed` and only collects the other sources. The search run
-is not yet exposed through the CLI or the API, so for now it is started like this:
+returns nothing from `linkedin` and `indeed` and only collects the other sources.
 
 ```bash
 uv run jobscout serve              # leave it running; set an LLM key in .env first
 # in another shell:
 curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json" -d '{"profile_summary": "<a paragraph about you>", "regions": ["Brazil"]}'
-uv run python -c "from jobscout.config import get_settings; from jobscout.db import get_engine, init_db; from jobscout.pipeline.search import run_search; from jobscout.pipeline.users import get_or_create_default_user; from sqlmodel import Session; e = get_engine(get_settings()); init_db(e); s = Session(e); print(run_search(s, get_settings(), get_or_create_default_user(s).id).counters)"
-uv run jobscout matches --min-score 50
+uv run jobscout search             # or: curl -X POST http://127.0.0.1:8000/search
 curl "http://127.0.0.1:8000/runs?job=search"
 ```
 
@@ -220,8 +233,8 @@ The search needs an LLM key, because the terms are extracted from the paragraph 
 
 A healthy run: `sources_ok` equals the number of enabled sources, `sources_failed` is 0,
 `fetched` is in the tens (roughly 30 postings per scraped source at the defaults), `errors`
-is 0, and the `GET /runs?job=search` row has `"ok": true` and `"error": null`. `matches` then
-lists ranked jobs whose `[source]` includes `linkedin` and `indeed`.
+is 0, and the `GET /runs?job=search` row has `"ok": true` and `"error": null`. `GET /matches`
+then lists ranked jobs whose `job.source` includes `linkedin` and `indeed`.
 
 A blocked site looks like this in `GET /runs?job=search`: `ok` stays `true` if any other
 source answered, `counters.sources_failed` is at least 1, and `error` names the site and what

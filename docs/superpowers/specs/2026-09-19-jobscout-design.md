@@ -62,22 +62,27 @@ db.py            engine + session factory; SQLite by default, Postgres via DATAB
 sources/         base.py   Protocol JobSource { name: str; fetch(prefs) -> list[RawJob] }
                  arbeitnow.py, remoteok.py, ...  HTTP + parsing to RawJob only; no DB access
                  registry.py  active sources (from settings)
+                 (stage 5:) himalayas.py, remotive.py  documented APIs, searched by term
+                 jobspy_base.py, linkedin.py, indeed.py  scraped through python-jobspy
+                 regions.py  country names and codes, shared with pipeline/filters.py
 pipeline/        ingest.py    fetch all sources -> normalize -> upsert Job (dedup + liveness + content hash)
                  liveness.py  deactivate_stale_jobs: marks jobs unseen for INACTIVE_AFTER_DAYS inactive
                  digest.py    daily digest: select un-notified matches, compose the message, mark `notified_at`
-                 run.py       run_ingest(session, settings) [global]; list/save helpers shared by API and CLI (list_runs, save_preferences)
+                 run.py       run_ingest(session, settings) [global]; list/save helpers shared by API and CLI (list_runs, save_preferences, set_match_status)
+                 search.py    (stage 5) one user's search: profile terms -> every source -> scoring, one Run
                  plain Python; no LangGraph here
 matching/        llm.py        factory: chat model + embeddings from Settings
                  embeddings.py embed profile and job text
                  schemas.py    MatchState (graph state), EvaluationResult (LLM structured output)
                  prompts.py
                  graph.py      LangGraph StateGraph, one run per (job, user)
+                 terms.py      (stage 5) profile paragraph -> ranked search terms + exclusions
 notifiers/       base.py   Protocol Notifier { send(subject, body) }; takes rendered text, not matches
                  email.py  SMTP implementation (stage 4); built from the SMTP_* settings
-scheduler.py     APScheduler wired into FastAPI lifespan (stage 3): ingest and match jobs, Run bookkeeping, backoff
+scheduler.py     APScheduler wired into FastAPI lifespan (stage 3): ingest and match jobs, Run bookkeeping, backoff; (stage 5) runs user-started searches
 logs.py          logging setup from LOG_LEVEL
-api/             FastAPI app; routers jobs, preferences, matches, runs; deps.py with get_session, get_current_user
-cli.py           Typer: fetch, jobs, match, matches, repair-descriptions, serve
+api/             FastAPI app; routers jobs, preferences, matches, runs, search, sources; deps.py with get_session, get_current_user
+cli.py           Typer: fetch, jobs, match, matches, search, repair-descriptions, serve
 ```
 
 **Dependency rules**
@@ -130,13 +135,13 @@ All tables have `id`, `created_at`, `updated_at` (except `Run`, which has `start
 
 **User** — `email` (unique), `locale` (`en`|`pt`|`es`). No password until stage 6.
 
-**UserPreferences** (1:1 User) — `user_id`, `titles: list[str]`, `seniority: list[str]`, `work_modes: list[remote|hybrid|onsite]`, `regions: list[str]`, `min_salary: int | None`, `salary_currency: str | None`, `required_skills: list[str]`, `nice_to_have_skills: list[str]`, `profile_summary: str` (free text; source of the profile embedding), `profile_embedding: bytes | None`, `min_score_to_notify: int` (default 70), `notify_email: str | None` (digest recipient; none means no digest). Stage 7 adds encrypted `llm_api_key` for BYOK.
+**UserPreferences** (1:1 User) — `user_id`, `titles: list[str]`, `seniority: list[str]`, `work_modes: list[remote|hybrid|onsite]`, `regions: list[str]`, `min_salary: int | None`, `salary_currency: str | None`, `required_skills: list[str]`, `nice_to_have_skills: list[str]`, `excluded_keywords: list[str]`, `profile_summary: str` (free text; source of the profile embedding and, from stage 5, of the search terms), `search_terms: list[str]` and `profile_hash: str | None` *(added in stage 5: the terms extracted from `profile_summary`, reused while its hash is unchanged)*, `profile_embedding: bytes | None`, `min_score_to_notify: int` (default 70), `notify_email: str | None` (digest recipient; none means no digest). Stage 7 adds encrypted `llm_api_key` for BYOK.
 
-**Job** (global, not per user) — `source: str`, `external_id: str` (unique together with `source`), `title`, `company`, `location`, `remote: bool`, `url`, `description`, `salary_min`, `salary_max`, `salary_currency` (optional), `tags: list[str]`, `posted_at: datetime | None`, `first_seen_at`, `last_seen_at`, `is_active: bool`, `content_hash: str`, `embedding: bytes | None`, `raw: dict` (original payload, for reprocessing without refetching).
+**Job** (global, not per user) — `source: str`, `external_id: str` (unique together with `source`), `title`, `company`, `location`, `remote: bool`, `url`, `description`, `salary_min`, `salary_max`, `salary_currency` (optional), `tags: list[str]`, `posted_at: datetime | None`, `first_seen_at`, `last_seen_at`, `is_active: bool`, `content_hash: str`, `embedding: bytes | None`, `raw: dict` (original payload, for reprocessing without refetching), `fingerprint: str | None` *(stage 5: normalised title + company + city, for the cross-source merge)*.
 
-**Match** (unique on `job_id`, `user_id`) — `job_id`, `user_id`, `similarity: float`, `score: int | None` (null when prefilter rejected), `reasoning: str | None`, `matched_skills`, `missing_skills`, `red_flags: list[str]`, `status: new|notified|seen|dismissed|saved|stale`, `llm_model: str | None`, `notified_at: datetime | None` (indexed; set when a digest announced the match, independent of `status`).
+**Match** (unique on `job_id`, `user_id`) — `job_id`, `user_id`, `similarity: float`, `score: int | None` (null when prefilter rejected), `reasoning: str | None`, `matched_skills`, `missing_skills`, `red_flags: list[str]`, `status: new|seen|saved|dismissed|applied|low|stale` *(amended 2026-10-25, stage 5: `applied` added, and like `dismissed` never staled; `low` is the prefilter's rejection; `notified` was never used, see `notified_at`)*, `llm_model: str | None`, `notified_at: datetime | None` (indexed; set when a digest announced the match, independent of `status`).
 
-**Run** — `job: str` (`"ingest"`, `"match"` or `"digest"`), `started_at: datetime`, `finished_at: datetime | None`, `ok: bool`, `error: str | None`, `counters: dict[str, int]` (JSON column). The row is written *before* the work starts and defaults to `ok=False`, so a process killed mid-run leaves a trace that reads as a failure (no `finished_at`). Rows older than `RUN_RETENTION_DAYS` are pruned when a new run starts.
+**Run** — `job: str` (`"ingest"`, `"match"`, `"digest"` or, from stage 5, `"search"`), `user_id: int | None` (set only for a search, which is always one user's), `started_at: datetime`, `finished_at: datetime | None`, `ok: bool`, `error: str | None`, `counters: dict[str, int]` (JSON column). The row is written *before* the work starts and defaults to `ok=False`, so a process killed mid-run leaves a trace that reads as a failure (no `finished_at`). Rows older than `RUN_RETENTION_DAYS` are pruned when a new run starts.
 
 **Usage** (stage 7) — `user_id`, `date`, `llm_calls`, `jobs_evaluated`.
 
