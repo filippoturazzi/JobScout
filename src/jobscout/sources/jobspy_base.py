@@ -165,12 +165,16 @@ class JobSpySource:
         use one of them drops it in its own override, with the reason.
         """
         kwargs: dict[str, object] = {"search_term": query.keywords[0]}
-        region = next((r.strip() for r in query.locations if r.strip()), None)
+        region = self.searched_region(query)
         if region is not None:
             kwargs["location"] = region
         if query.remote_only:
             kwargs["is_remote"] = True
         return kwargs
+
+    def searched_region(self, query: SearchQuery) -> str | None:
+        """The region this site is searched in: the first one given."""
+        return next((r.strip() for r in query.locations if r.strip()), None)
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         self.warnings = []
@@ -190,4 +194,12 @@ class JobSpySource:
         errors = _messages(frame.attrs.get("errors"))
         if errors:
             raise SourceBlocked("; ".join(errors))
-        return to_raw_jobs(frame, self.name)
+        jobs = to_raw_jobs(frame, self.name)
+        region = self.searched_region(query)
+        if region is not None:
+            # The site already narrowed to this region, and its location strings often do not
+            # say so ("Greater São Paulo Area" names no country). ``pipeline.filters`` trusts
+            # this record while the user's regions still include it.
+            for job in jobs:
+                job.raw["searched_region"] = region
+        return jobs

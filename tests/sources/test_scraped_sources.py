@@ -15,6 +15,7 @@ from jobscout.sources.base import SearchQuery
 from jobscout.sources.indeed import IndeedSource, country_for
 from jobscout.sources.linkedin import LinkedInSource
 from jobscout.sources.registry import build_sources, source_statuses
+from tests.conftest import load_jsonl
 
 
 def test_each_site_is_registered_and_needs_no_credential():
@@ -184,3 +185,32 @@ def test_indeed_filters_remote_when_that_is_the_stored_work_mode(monkeypatch):
     assert calls[0]["is_remote"] is True
     # country_indeed already picks the market; a location would narrow it to a 50-mile radius.
     assert "location" not in calls[0]
+
+
+def _scrape_returning(monkeypatch, rows):
+    def fake(**kwargs):
+        frame = pd.DataFrame(rows)
+        frame.attrs = {"errors": {}, "warnings": {}}
+        return frame
+
+    monkeypatch.setattr(jobspy_base, "scrape_jobs", fake)
+
+
+def test_each_posting_records_the_region_it_was_searched_in(monkeypatch):
+    _scrape_returning(monkeypatch, load_jsonl("linkedin_sample.jsonl"))
+    linkedin = LinkedInSource(Settings(_env_file=None))
+    jobs = linkedin.fetch(SearchQuery(keywords=["python"], locations=[" ", "Brasil"]))
+    assert {job.raw["searched_region"] for job in jobs} == {"Brasil"}
+
+    _scrape_returning(monkeypatch, load_jsonl("indeed_sample.jsonl"))
+    indeed = IndeedSource(Settings(_env_file=None))
+    # Indeed searches the first region it recognises, so that is the one it vouches for.
+    jobs = indeed.fetch(SearchQuery(keywords=["python"], locations=["remoto", "Brazil"]))
+    assert {job.raw["searched_region"] for job in jobs} == {"Brazil"}
+
+
+def test_a_posting_searched_without_a_region_records_none(monkeypatch):
+    _scrape_returning(monkeypatch, load_jsonl("linkedin_sample.jsonl"))
+    jobs = LinkedInSource(Settings(_env_file=None)).fetch(SearchQuery(keywords=["python"]))
+    assert jobs
+    assert all("searched_region" not in job.raw for job in jobs)

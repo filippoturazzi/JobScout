@@ -1,7 +1,8 @@
-"""Turn job-board HTML (sometimes HTML-escaped HTML) into plain text."""
+"""Turn job-board HTML (sometimes HTML-escaped HTML) into plain text; fold text to compare it."""
 
 import html
 import re
+import unicodedata
 from html.parser import HTMLParser
 
 _WS_RE = re.compile(r"\s+")
@@ -95,3 +96,13 @@ def html_to_text(value: str) -> str:
     parser.close()
     text = "".join(parser.parts).replace("\xa0", " ")
     return _WS_RE.sub(" ", text).strip()
+
+
+def fold(text: str) -> str:
+    """``text`` for comparison: accents dropped, case folded, whitespace collapsed.
+
+    "São Paulo" and "sao  paulo" fold to the same string.
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(stripped.casefold().split())

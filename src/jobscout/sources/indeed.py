@@ -8,46 +8,9 @@ partitioned by domain, and python-jobspy 1.4.1 raises on one), so with no recogn
 this source does not search.
 """
 
-import unicodedata
-
 from jobscout.sources.base import RawJob, SearchQuery
 from jobscout.sources.jobspy_base import JobSpySource
-
-# Normalised region name (lowercase, no accents) -> JobSpy ``Country`` value.
-_COUNTRIES = {
-    "brasil": "brazil",
-    "brazil": "brazil",
-    "br": "brazil",
-    "portugal": "portugal",
-    "pt": "portugal",
-    "espana": "spain",
-    "spain": "spain",
-    "es": "spain",
-    "usa": "usa",
-    "us": "usa",
-    "united states": "usa",
-    "united states of america": "usa",
-    "estados unidos": "usa",
-    "uk": "uk",
-    "gb": "uk",
-    "united kingdom": "uk",
-    "reino unido": "uk",
-    "germany": "germany",
-    "deutschland": "germany",
-    "alemanha": "germany",
-    "alemania": "germany",
-    "de": "germany",
-    "canada": "canada",
-}
-# The two-letter entries are ISO 3166-1 alpha-2 codes. "ca" is deliberately absent: a user
-# typing it is as likely to mean California, and a quiet search of the wrong market is worse
-# than none. Spelling "Canada" out works.
-
-
-def _normalise(region: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", region)
-    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return " ".join(stripped.casefold().split())
+from jobscout.sources.regions import country_of
 
 
 def country_for(regions: list[str]) -> tuple[str | None, str | None]:
@@ -60,7 +23,7 @@ def country_for(regions: list[str]) -> tuple[str | None, str | None]:
     """
     given = [region for region in regions if region.strip()]
     for region in given:
-        country = _COUNTRIES.get(_normalise(region))
+        country = country_of(region)
         if country is not None:
             return country, None
     return None, (given[0] if given else None)
@@ -69,6 +32,10 @@ def country_for(regions: list[str]) -> tuple[str | None, str | None]:
 class IndeedSource(JobSpySource):
     name = "indeed"
     site = "indeed"
+
+    def searched_region(self, query: SearchQuery) -> str | None:
+        """The first region Indeed recognises, the one ``country_indeed`` is set from."""
+        return next((r.strip() for r in query.locations if country_of(r) is not None), None)
 
     def search_kwargs(self, query: SearchQuery) -> dict[str, object]:
         country, _ = country_for(query.locations)
