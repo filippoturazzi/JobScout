@@ -5,6 +5,7 @@ happen once per run instead of once per job.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -174,8 +175,13 @@ def run_match(
     dry_run: bool = False,
     deps: GraphDeps | None = None,
     first_seen_after: datetime | None = None,
+    on_evaluated: Callable[[int, int], None] | None = None,
 ) -> MatchRun:
-    """Evaluate the best unmatched candidates for one user, bounded by the per-run cap."""
+    """Evaluate the best unmatched candidates for one user, bounded by the per-run cap.
+
+    ``on_evaluated(done, total)`` is called after each selected job, scored or failed, so a
+    caller can show progress; ``total`` is how many were selected.
+    """
     result = MatchRun()
     prefs = get_preferences(session, user_id)
     if not prefs.profile_summary.strip():
@@ -241,7 +247,11 @@ def run_match(
     graph_deps = deps if deps is not None else _default_deps(settings)
     graph = build_graph(graph_deps)
 
-    for _similarity, job in selected:
+    def evaluated(done: int) -> None:
+        if on_evaluated is not None:
+            on_evaluated(done, len(selected))
+
+    for done, (_similarity, job) in enumerate(selected, start=1):
         assert job.id is not None
         state: MatchState = {
             "job_id": job.id,
@@ -293,6 +303,7 @@ def run_match(
             session.rollback()
             log.error("matching failed for job %s: %s: %s", job.id, type(exc).__name__, exc)
             result.errors.append(f"job {job.id}: {type(exc).__name__}: {exc}")
+            evaluated(done)
             continue
 
         # Only reachable once the row is durably committed — a commit failure above
@@ -301,5 +312,6 @@ def run_match(
             result.skipped_low += 1
         else:
             result.evaluated += 1
+        evaluated(done)
 
     return result

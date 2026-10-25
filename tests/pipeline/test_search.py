@@ -16,6 +16,7 @@ from jobscout.matching.terms import ExtractedProfile, profile_hash
 from jobscout.models import Job, Match, Run, UserPreferences
 from jobscout.pipeline.search import (
     MAX_TERMS_PER_SOURCE,
+    SearchProgress,
     _queries_for,
     open_search_run,
     run_search,
@@ -262,6 +263,55 @@ def test_a_run_opened_beforehand_is_the_one_filled(session):
     assert result.run_id == opened.id
     run = _the_run(session)
     assert run.id == opened.id and run.finished_at is not None
+
+
+@respx.mock
+def test_progress_is_reported_as_the_run_goes(session, himalayas_sample):
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    user = _user(session)
+    chat = SearchChatModel(_extraction(["python", "llm"]))
+    events: list[SearchProgress] = []
+
+    run_search(
+        session,
+        _settings(sources="himalayas"),
+        user.id,
+        deps=_deps(chat),
+        on_progress=events.append,
+    )
+
+    assert [e.stage for e in events] == [
+        "terms",
+        "source",
+        "source",
+        "scoring",
+        "evaluated",
+        "evaluated",
+        "evaluated",
+    ]
+    assert events[0].terms == ["python", "llm"]
+    assert [(e.source, e.term, e.fetched, e.error) for e in events[1:3]] == [
+        ("himalayas", "python", VALID_PER_FIXTURE, None),
+        ("himalayas", "llm", VALID_PER_FIXTURE, None),
+    ]
+    assert events[3].total == VALID_PER_FIXTURE
+    assert [(e.done, e.total) for e in events[4:]] == [(1, 3), (2, 3), (3, 3)]
+
+
+@respx.mock
+def test_a_failing_source_is_reported_with_its_error(session):
+    respx.get(HIMALAYAS_URL).mock(return_value=httpx.Response(429))
+    user = _user(session)
+    events: list[SearchProgress] = []
+    run_search(
+        session,
+        _settings(sources="himalayas"),
+        user.id,
+        deps=_deps(SearchChatModel(_extraction(["python"]))),
+        on_progress=events.append,
+    )
+    [failed] = [e for e in events if e.stage == "source"]
+    assert failed.source == "himalayas" and failed.error is not None and "429" in failed.error
 
 
 # --------------------------------------------------------------------------- fetching
