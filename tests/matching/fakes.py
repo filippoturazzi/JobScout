@@ -10,7 +10,7 @@ class _StructuredRunnable:
     def __init__(self, parent: "CountingChatModel") -> None:
         self._parent = parent
 
-    def invoke(self, _messages: Any) -> EvaluationResult:
+    def invoke(self, _messages: Any) -> Any:
         self._parent.calls += 1
         if self._parent.error is not None:
             raise self._parent.error
@@ -21,9 +21,7 @@ class _StructuredRunnable:
 class CountingChatModel:
     """Counts `.invoke` calls so a test can prove the LLM was skipped."""
 
-    def __init__(
-        self, results: list[EvaluationResult] | None = None, error: Exception | None = None
-    ) -> None:
+    def __init__(self, results: list[Any] | None = None, error: Exception | None = None) -> None:
         self.results = results or [
             EvaluationResult(
                 score=75,
@@ -35,8 +33,10 @@ class CountingChatModel:
         ]
         self.error = error
         self.calls = 0
+        self.schemas: list[Any] = []
 
-    def with_structured_output(self, _schema: Any) -> _StructuredRunnable:
+    def with_structured_output(self, schema: Any) -> _StructuredRunnable:
+        self.schemas.append(schema)
         return _StructuredRunnable(self)
 
 

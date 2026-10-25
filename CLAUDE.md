@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`). Next is stage 5 (more sources). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0 through 4 are implemented, and stage 5 is in progress (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed are built, but **nothing in `src/` calls `pipeline.search.run_search` yet**, so `linkedin` and `indeed` are unreachable from `jobscout fetch`, the scheduler and every API route. The CLI command and API route that call it are Tasks 7 and 8 of `docs/superpowers/plans/2026-10-22-stage-5a-sources-and-search.md`, still open. The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
-**JobScout**: an open-source Python agent that continuously collects tech job postings from public job-board APIs (never scraping), matches them against a user's profile with embeddings + an LLM that explains its score, and notifies on good matches. It is a junior AI Engineer portfolio centerpiece, so LangGraph, semantic matching, multi-provider LLM support, and engineering practice (TDD, CI, contributor docs) matter as much as the feature.
+**JobScout**: an open-source Python agent that continuously collects tech job postings from public job-board APIs and, for LinkedIn and Indeed only, by scraping through JobSpy (the sole scraping path; never write a scraper in this repo), matches them against a user's profile with embeddings + an LLM that explains its score, and notifies on good matches. It is a junior AI Engineer portfolio centerpiece, so LangGraph, semantic matching, multi-provider LLM support, and engineering practice (TDD, CI, contributor docs) matter as much as the feature.
 
 ## Decisions already made (do not reopen without the user)
 
@@ -19,20 +19,20 @@ Stages 0 through 4 are implemented (see the plans in `docs/superpowers/plans/`).
 - LLM and embeddings via LangChain abstractions, provider chosen by env (`LLM_PROVIDER`, `LLM_MODEL`, `EMBEDDING_MODEL`). No direct vendor SDK calls.
 - **LangGraph is used only for the per-job matching graph** (`matching/graph.py`): embed → prefilter by cosine similarity → LLM structured evaluation → decide. The prefilter's conditional edge must skip the LLM for low-similarity jobs. Collection, dedup, and notification are plain Python in `pipeline/`.
 - APScheduler inside the FastAPI lifespan (no Celery/Redis).
-- Interface until stage 6 is FastAPI + Typer CLI only. Stage 6 frontend is Reflex.
+- Interface is FastAPI + Typer CLI, plus a page of static HTML/CSS/JS served by FastAPI (replaced Reflex on 2026-10-22; see `docs/superpowers/specs/2026-10-22-stage-5-sources-and-dashboard-design.md`).
 - Notification channel is e-mail over SMTP (stdlib `smtplib`), chosen in stage 4 as the first channel; *sending* always goes through the `Notifier` protocol, never a concrete channel. Rendering is the channel's own business: `render_digest` lives in `notifiers/email.py` and callers import it from there.
-- Distribution is hybrid: built for self-hosting, with a hosted demo (quotas + BYOK) in stage 7.
+- Distribution is self-hosting only. The hosted demo (quotas, BYOK) was dropped on 2026-10-23: do not propose it.
 - English for code, comments, README; READMEs also in pt-BR and es later.
 
 ## Architecture rules
 
 Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `notifiers` (depend only on `config` and `models`) · `pipeline` (the only composer: ingest/upsert, filters, liveness, matching, repair, run) · `api`, `cli` and `scheduler` (APScheduler jobs; `scheduler.py` sits beside `api`/`cli`) are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.
 
-Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_seen_at`/`last_seen_at`/`is_active`/`content_hash` on `Job`, and a changed hash clears the embedding and marks existing matches `stale`. Running ingest twice with the same data must be a no-op besides `last_seen_at`.
+Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_seen_at`/`last_seen_at`/`is_active`/`content_hash` on `Job`, and a changed hash clears the embedding and marks existing matches `stale`. In front of it sits a fingerprint merge (normalised title + company + city): a new key matching another source's existing row by non-null `fingerprint` is recorded under that row's `raw["duplicates"]` and creates no row. Running ingest twice with the same data must be a no-op besides `last_seen_at`.
 
 ## Roadmap (stage-gated; each stage runs end to end)
 
-0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources → 6 Reflex UI, auth, Postgres/Docker, i18n → 7 Quotas, BYOK, public demo.
+0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources (Himalayas, Remotive; LinkedIn and Indeed via JobSpy; Google Jobs dropped, Jooble deferred) → 6 auth, Postgres/Docker (the Reflex UI and i18n were dropped on 2026-10-22) → ~~7 Quotas, BYOK, public demo~~ dropped (no hosted demo).
 
 Follow this order unless the user says otherwise. TDD for all logic; tests never touch the network (fixtures + `respx`; LangChain fake models). Real-API tests live behind `pytest -m integration` and are off by default.
 

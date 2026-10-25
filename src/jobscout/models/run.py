@@ -5,8 +5,8 @@ from sqlmodel import Field, SQLModel
 
 from jobscout.models.base import utcnow
 
-RUN_JOBS: frozenset[str] = frozenset({"ingest", "match", "digest"})
-"""The scheduled jobs that record a run."""
+RUN_JOBS: frozenset[str] = frozenset({"ingest", "match", "digest", "search"})
+"""Every job that records a run. `search` is user-initiated; the other three are scheduled."""
 
 
 class Run(SQLModel, table=True):
@@ -19,6 +19,9 @@ class Run(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     job: str = Field(index=True)
+    # Null for the instance-global jobs (ingest, match, digest); set for a search, which is
+    # always one user's. Indexed because the only query on it is "this user's run in flight".
+    user_id: int | None = Field(default=None, index=True)
     started_at: datetime = Field(default_factory=utcnow, nullable=False, index=True)
     finished_at: datetime | None = None
     ok: bool = False

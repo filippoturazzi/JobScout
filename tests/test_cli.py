@@ -17,7 +17,10 @@ runner = CliRunner()
 
 
 def _settings(tmp_path) -> Settings:
-    return Settings(_env_file=None, database_url=f"sqlite:///{tmp_path / 'test.db'}")
+    # These tests fetch from Arbeitnow via respx, so name it rather than rely on the default.
+    return Settings(
+        _env_file=None, database_url=f"sqlite:///{tmp_path / 'test.db'}", sources="arbeitnow"
+    )
 
 
 @respx.mock
@@ -31,6 +34,7 @@ def test_fetch_then_jobs(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "arbeitnow" in result.output
     assert "created=3" in result.output
+    assert "merged=0" in result.output
 
     with Session(get_engine(_settings(tmp_path))) as s:
         assert s.exec(select(User)).all() == [], "fetch must not bootstrap a user"

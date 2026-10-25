@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
+from unittest.mock import ANY
 
 from sqlmodel import select
 
 from jobscout.models import Job
-from jobscout.pipeline.ingest import content_hash, ingest, upsert_jobs
+from jobscout.pipeline.ingest import content_hash, fingerprint, ingest, upsert_jobs
 from jobscout.sources.base import RawJob, SearchQuery
 
 T0 = datetime(2026, 9, 20, 12, 0, 0)
@@ -14,7 +15,7 @@ def raw(external_id="j1", title="AI Engineer", description="Build agents.", **kw
         source="test",
         external_id=external_id,
         title=title,
-        company="Acme",
+        company=f"Acme {external_id}",  # distinct per row, so a test never depends on the merge
         location="Berlin",
         remote=True,
         url=f"https://example.com/{external_id}",
@@ -207,3 +208,235 @@ def test_changed_jobs_mark_matches_stale_except_dismissed(session):
     assert statuses[(jobs["j1"].id, user_a.id)] == "stale"
     assert statuses[(jobs["j1"].id, user_b.id)] == "dismissed"
     assert statuses[(jobs["j2"].id, user_a.id)] == "new", "unchanged job keeps its match"
+
+
+def _vacancy(source, external_id, **kw) -> RawJob:
+    data = dict(
+        source=source,
+        external_id=external_id,
+        title="Dev Python",
+        company="Acme",
+        location="São Paulo, SP, BR",
+        description=f"<p>the {source} html</p>",
+        raw={"description": f"<p>the {source} html</p>"},
+    )
+    data.update(kw)
+    return raw(**data)
+
+
+def test_fingerprint_normalises_accents_case_spacing_and_location_tail():
+    a = fingerprint("Dev  Python", "ACME", "São Paulo, SP, BR")
+    assert a == fingerprint("dev python", "Acme", "Sao Paulo, Brazil")
+    assert len(a) == 64
+    assert a != fingerprint("Dev Python", "Acme", "Rio de Janeiro, RJ, BR")
+    assert fingerprint("Dev Python", "Acme", None) == fingerprint("Dev Python", "Acme", "")
+    assert fingerprint("Dev Python", "Acme", None) != a
+
+
+def test_the_same_vacancy_from_two_sources_is_one_row(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    stats = upsert_jobs(
+        session,
+        [
+            _vacancy(
+                "google", "g1", title="dev  python", company="ACME", location="Sao Paulo, Brazil"
+            )
+        ],
+    )
+    assert stats.created == 0 and stats.merged == 1
+    assert stats.created_ids == []
+    [job] = session.exec(select(Job)).all()
+    assert job.source == "linkedin"
+    assert job.raw["duplicates"] == [{"source": "google", "external_id": "g1", "url": ANY}]
+    assert job.raw["duplicates"][0]["url"] == "https://example.com/g1"
+
+
+def test_a_merge_refreshes_liveness_of_the_first_row(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1")], now=T0)
+    job = session.exec(select(Job)).one()
+    job.is_active = False
+    session.add(job)
+    session.commit()
+    later = T0 + timedelta(days=1)
+    upsert_jobs(session, [_vacancy("google", "g1")], now=later)
+    job = session.exec(select(Job)).one()
+    assert job.last_seen_at == later
+    assert job.is_active is True
+    assert job.first_seen_at == T0
+
+
+def test_the_first_source_payload_is_never_overwritten(session):
+    # repair.py re-renders the description from `raw`; a merge must not replace it
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    upsert_jobs(
+        session,
+        [_vacancy("google", "g1", description="<p>the google html</p>", url="https://g/1")],
+    )
+    [job] = session.exec(select(Job)).all()
+    assert job.raw["description"] == "<p>the linkedin html</p>"
+    assert job.description == "<p>the linkedin html</p>"
+    assert job.url == "https://example.com/l1"
+    assert job.content_hash == content_hash("Dev Python", "<p>the linkedin html</p>")
+
+
+def test_duplicates_survive_the_first_source_being_reingested(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    upsert_jobs(session, [_vacancy("google", "g1")])
+    stats = upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    assert (stats.created, stats.updated, stats.changed, stats.merged) == (0, 1, 0, 0)
+    [job] = session.exec(select(Job)).all()
+    assert job.raw["duplicates"] == [{"source": "google", "external_id": "g1", "url": ANY}]
+    assert job.raw["description"] == "<p>the linkedin html</p>"
+
+
+def test_duplicates_survive_a_text_change_of_the_first_source(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    upsert_jobs(session, [_vacancy("google", "g1")])
+    stats = upsert_jobs(session, [_vacancy("linkedin", "l1", description="new text")])
+    assert stats.changed == 1
+    [job] = session.exec(select(Job)).all()
+    assert [d["source"] for d in job.raw["duplicates"]] == ["google"]
+
+
+def test_a_merged_posting_seen_again_is_not_listed_twice(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    upsert_jobs(session, [_vacancy("google", "g1")])
+    stats = upsert_jobs(session, [_vacancy("google", "g1", url="https://g/new")])
+    assert stats.created == 0 and stats.merged == 1
+    [job] = session.exec(select(Job)).all()
+    assert job.raw["duplicates"] == [
+        {"source": "google", "external_id": "g1", "url": "https://g/new"}
+    ]
+
+
+def test_three_sources_in_one_batch_collapse_to_one_row(session):
+    stats = upsert_jobs(
+        session,
+        [_vacancy("linkedin", "l1"), _vacancy("indeed", "i1"), _vacancy("google", "g1")],
+    )
+    assert (stats.created, stats.merged) == (1, 2)
+    [job] = session.exec(select(Job)).all()
+    assert [d["source"] for d in job.raw["duplicates"]] == ["indeed", "google"]
+    assert stats.created_ids == [job.id]
+
+
+def test_a_repost_from_the_same_source_stays_two_rows(session):
+    # Deliberate trade: the merge is cross-source only. A board relisting a job costs one
+    # duplicate row, which beats risking the silent loss of a second real opening.
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    stats = upsert_jobs(session, [_vacancy("linkedin", "l2")])
+    assert (stats.created, stats.merged) == (1, 0)
+    assert len(session.exec(select(Job)).all()) == 2
+
+
+def test_only_a_different_source_lets_a_twin_merge(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    same = upsert_jobs(session, [_vacancy("linkedin", "l2")])
+    other = upsert_jobs(session, [_vacancy("indeed", "i1")])
+    assert (same.merged, other.merged) == (0, 1)
+    first = session.exec(select(Job).where(Job.external_id == "l1")).one()
+    assert [d["source"] for d in first.raw["duplicates"]] == ["indeed"]
+
+
+def test_the_same_role_in_two_cities_stays_two_rows(session):
+    stats = upsert_jobs(
+        session,
+        [
+            _vacancy("linkedin", "l1", location="São Paulo, SP, BR"),
+            _vacancy("linkedin", "l2", location="Rio de Janeiro, RJ, BR"),
+        ],
+    )
+    assert stats.created == 2 and stats.merged == 0
+
+
+def test_a_row_without_a_location_merges_only_with_another_without_one(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1", location=None)])
+    with_location = upsert_jobs(session, [_vacancy("indeed", "i1")])
+    assert (with_location.created, with_location.merged) == (1, 0)
+    without = upsert_jobs(session, [_vacancy("google", "g1", location=None)])
+    assert (without.created, without.merged) == (0, 1)
+    assert len(session.exec(select(Job)).all()) == 2
+
+
+def test_rows_with_no_fingerprint_yet_never_merge(session):
+    # an existing row written before the fingerprint column (fingerprint IS NULL) is left alone
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    old = session.exec(select(Job)).one()
+    old.fingerprint = None
+    session.add(old)
+    session.commit()
+    stats = upsert_jobs(session, [_vacancy("google", "g1")])
+    assert stats.created == 1 and stats.merged == 0
+    assert len(session.exec(select(Job)).all()) == 2
+
+
+def test_a_row_without_a_fingerprint_gets_one_when_seen_again(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    old = session.exec(select(Job)).one()
+    old.fingerprint = None
+    session.add(old)
+    session.commit()
+    upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    old = session.exec(select(Job)).one()
+    assert old.fingerprint == fingerprint("Dev Python", "Acme", "São Paulo, SP, BR")
+    stats = upsert_jobs(session, [_vacancy("google", "g1")])
+    assert stats.merged == 1
+
+
+def test_ingesting_the_same_data_twice_is_still_a_no_op(session):
+    upsert_jobs(session, [raw()], now=T0)
+    second = upsert_jobs(session, [raw()], now=T0 + timedelta(hours=1))
+    assert (second.created, second.changed, second.merged) == (0, 0, 0)
+    assert second.updated == 1
+    assert session.exec(select(Job)).one().raw == {"id": "j1"}
+
+
+def test_ingest_result_reports_merged(session):
+    class Fixed:
+        supports_search = False
+
+        def __init__(self, name, jobs):
+            self.name, self._jobs = name, jobs
+
+        def fetch(self, query):
+            return self._jobs
+
+    results = ingest(
+        session,
+        [
+            Fixed("linkedin", [_vacancy("linkedin", "l1")]),
+            Fixed("google", [_vacancy("google", "g1")]),
+        ],
+        SearchQuery(),
+    )
+    assert [(r.created, r.merged) for r in results] == [(1, 0), (0, 1)]
+
+
+def test_a_posting_without_a_company_has_no_fingerprint():
+    # Title alone (plus an empty city) is not an identity: two different vacancies share it.
+    assert fingerprint("Software Engineer", "", None) is None
+    assert fingerprint("Software Engineer", "  ", "São Paulo") is None
+
+
+def test_two_postings_without_a_company_never_merge(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1", company="", location=None)])
+    stats = upsert_jobs(session, [_vacancy("indeed", "i1", company="", location=None)])
+    assert (stats.created, stats.merged) == (1, 0)
+    assert len(session.exec(select(Job)).all()) == 2
+
+
+def test_a_merge_always_lands_on_the_lowest_id(session):
+    # Same-source twins stay two rows; a third source must pick the same one every run.
+    upsert_jobs(session, [_vacancy("linkedin", "l1"), _vacancy("linkedin", "l2")])
+    upsert_jobs(session, [_vacancy("indeed", "i1")])
+    upsert_jobs(session, [_vacancy("google", "g1")])
+    first, second = session.exec(select(Job).order_by(Job.id)).all()
+    assert [d["source"] for d in first.raw["duplicates"]] == ["indeed", "google"]
+    assert "duplicates" not in second.raw
+
+
+def test_a_twin_keeps_its_description_when_the_row_has_none(session):
+    upsert_jobs(session, [_vacancy("linkedin", "l1", description="")])
+    upsert_jobs(session, [_vacancy("indeed", "i1", description="The full text.")])
+    [job] = session.exec(select(Job)).all()
+    assert job.raw["duplicates"][0]["description"] == "The full text."

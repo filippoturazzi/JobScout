@@ -34,6 +34,14 @@ class RawJob(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class SourceStatus(BaseModel):
+    """Whether a configured source will run, and if not, why (e.g. a missing API key)."""
+
+    name: str
+    active: bool
+    reason: str | None = None
+
+
 @runtime_checkable
 class JobSource(Protocol):
     """A job source. Sources must return everything they fetched; never drop results
@@ -42,6 +50,13 @@ class JobSource(Protocol):
     """
 
     name: str
+    # True when the source filters server-side by ``SearchQuery.keywords``; False when it
+    # dumps its whole catalogue and ignores the query.
+    supports_search: bool
+    # How many ranked search terms this source is asked for; ``None`` means the shared
+    # default (``pipeline.search.MAX_TERMS_PER_SOURCE``). Scraped sources set a smaller
+    # number because every posting they return is an HTTP request.
+    term_budget: int | None
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         """Fetch postings from the source. Must return everything fetched; never drop

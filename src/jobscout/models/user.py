@@ -37,6 +37,8 @@ class UserPreferences(SQLModel, table=True):
         default_factory=list, sa_column=Column(JSON, nullable=False)
     )
     profile_summary: str = Field(default="")
+    search_terms: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    profile_hash: str | None = None
     profile_embedding: bytes | None = None
     min_score_to_notify: int = Field(default=70)
     notify_email: str | None = None

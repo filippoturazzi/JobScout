@@ -1,0 +1,210 @@
+{
+  "comments": "Search results come 20 to a page. Pass ?page=2, ?page=3 and so on for more; there is no cursor on search. Cursor pagination (nextCursor) is only on /jobs/api, the browse feed. 13/03/2026: The API has been updated to include the companySlug field in the response.",
+  "updatedAt": 1792697532,
+  "offset": 0,
+  "limit": 20,
+  "totalCount": 2909,
+  "jobs": [
+    {
+      "title": "Machine Learning Engineer",
+      "excerpt": "At Wave, we help small businesses to thrive so the heart of our communities beats stronger.",
+      "companyName": "Wave HQ",
+      "companySlug": "wave-hq",
+      "companyLogo": "https://cdn-images.himalayas.app/6rx7t7hgrnhwwvi2hzbj4f8yzegd",
+      "employmentType": "Full Time",
+      "minSalary": 100000,
+      "maxSalary": 130000,
+      "salaryPeriod": "annual",
+      "seniority": [
+        "Mid-level"
+      ],
+      "currency": "CAD",
+      "locationRestrictions": [
+        "Canada"
+      ],
+      "timezoneRestrictions": [
+        -8,
+        -7,
+        -6,
+        -5,
+        -4,
+        -3.5
+      ],
+      "categories": [
+        "Data-and-AI",
+        "Machine-Learning",
+        "MLOps-Engineering",
+        "AI-Engineering",
+        "Machine-Learning-Operations",
+        "Machine-Learning-Engineer",
+        "Machine-Learning-Engineer-Jobs",
+        "AI-ML-Engineer",
+        "Machine-Learning-Engineering-Jobs",
+        "Applied-Machine-Learning-Engineer"
+      ],
+      "parentCategories": [
+        "Data Science"
+      ],
+      "description": "<div>At Wave, we help small businesses to thrive so the heart of our communities beats stronger.  We work in an environment buzzing with creative energy and inspiration. No matter where you are or how you get the job done, you have what you need to be successful and connected. The mark of true success at Wave is the ability to be bold, learn quickly and share your knowledge generously.</div><div>As a <strong>Machine Learning Engineer</strong>, you will be a key contributor to the design, development, and deployment of our foundational AI and ML models. You will build robust, scalable machine learning pipelines and platforms that support advanced analytics and business intelligence. This role is perfect for an experienced person who wants to ensure our ML systems are efficient, reliable, and deeply integrated into our organizational goals.</div><h3>Here's How You Make an Impact:</h3><ul><div>\n<li><p><strong>Develop &amp; Deploy:</strong> Focus on the hands-on building, training, and operational deployment of machine learning models, ensuring they perform reliably within existing production environments.</p></li>\n<li><p><strong>Champion Technical Standards:</strong> Advocate for top-tier practices across coding, testing, and MLOps processes. Navigate ambiguity autonomously to refine pipelines and elevate ML engineering workflows.</p></li>\n<li><p><strong>Optimize &amp; Scale:</strong> Construct resilient, cost-efficient ML &amp; AI use cases. Balance sustaining established models with accelerating the rollout of highly scalable, modern systems.</p></li>\n<li><p><strong>Partner &amp; Collaborate:</strong> Team up with cross-functional stakeholders, including risk specialists, product leads, and software developers, to convert strategic needs into technical specs and smoothly embed ML features into live applications.</p></li>\n<li><p><strong>Establish Controls &amp; Governance:</strong> Uphold stringent benchmarks for model dependability, fairness, and compliance. Direct the integration of lineage tracking and data protection workflows into our automated systems.</p></li>\n<li><p><strong>Track &amp; Evaluate:</strong> Formulate comprehensive observability systems to capture model health and key operational metrics, ensuring machine learning investments yield quantifiable organizational value.</p></li>\n</div></ul><h3>You Thrive Here By Possessing the Following:</h3><ul><div>\n<li><p><strong>Experience:</strong> Minimum of <strong>3–5 years</strong> of professional experience in machine learning engineering, with a proven track record of deploying models into production environments.</p></li>\n<li><p><strong>Technical Depth:</strong> Deep understanding of the modern data stack, including data ingestion workflows and experience working with curated data warehouses like <strong>Databricks or Redshift</strong>.</p></li>\n<li><p><strong>Cloud Proficiency:</strong> At least <strong>3 years</strong> of hands-on experience with <strong>AWS infrastructure</strong>, specifically <strong>SageMaker</strong>, Spark/AWS Glue, and Infrastructure as Code (IaC), <strong>Terraform</strong>.</p></li>\n<li><p><strong>Orchestration Expert:</strong> High proficiency in managing multi-stage workflows using <strong>Airflow</strong> or similar orchestration systems to automate training and deployment cycles.</p></li>\n<li><p><strong>MLOps Toolkit:</strong> Practical experience with <strong>MLflow, Kubeflow, or SageMaker Feature Store</strong> to support the end-to-end machine learning lifecycle.</p></li>\n<li><p><strong>Governance Mindset:</strong> Familiarity with model governance practices (lineage, fairness, and privacy) and experience using data cataloging tools for compliance.</p></li>\n<li><p><strong>Communication:</strong> Strong ability to communicate complex technical concepts to non-technical stakeholders and influence project direction.</p></li>\n<li><p><strong>Industry Context:</strong> Experience in <strong>FinTech or Financial Risk</strong> environments is a significant advantage.</p></li>\n</div></ul><div>At Wave, we value diversity of perspective. Your unique experience enriches our organization. We welcome applicants from all backgrounds. Let’s talk about how you can thrive here!</div><div>Wave is committed to providing an inclusive and accessible candidate experience. If you require accommodations during the recruitment process, please let us know by emailing . We will work with you to meet your needs.</div><div><em>We use Google Gemini, a secure AI assistant, during interviews for note-taking purposes only. Notes are kept confidential and are not shared outside the hiring process. This allows our interviewers to stay fully focused on you during the conversation.</em></div><div><em>This advertised posting is a current vacancy.</em></div><p>Originally posted on <a href=\"https://himalayas.app\">Himalayas</a></p>",
+      "pubDate": 1791910426,
+      "expiryDate": 1797094426,
+      "applicationLink": "https://himalayas.app/companies/wave-hq/jobs/machine-learning-engineer?utm_source=api",
+      "guid": "https://himalayas.app/companies/wave-hq/jobs/machine-learning-engineer"
+    },
+    {
+      "title": "Machine Learning Engineer",
+      "excerpt": "Based in Portugal, Wire IT is your specialized IT consulting partner with 18 years of experience driven by an experienced and senior team that helps clients make the right decisions in a fast-moving market.",
+      "companyName": "WIRE IT",
+      "companySlug": "wire-it",
+      "companyLogo": "https://cdn-images.himalayas.app/ihr2stc3dx5g1so3yotlshb17b8b",
+      "employmentType": "Full Time",
+      "minSalary": null,
+      "maxSalary": null,
+      "salaryPeriod": "annual",
+      "seniority": [
+        "Senior"
+      ],
+      "currency": null,
+      "locationRestrictions": [
+        "United States"
+      ],
+      "timezoneRestrictions": [
+        -10,
+        -9,
+        -8,
+        -7,
+        -6,
+        -5,
+        14
+      ],
+      "categories": [
+        "Machine-Learning-Engineer",
+        "MLOps-Engineer",
+        "AI-Engineer",
+        "Machine-Learning-Engineer-Jobs",
+        "Machine-Learning-Engineering",
+        "AI-ML-Engineer",
+        "Machine-Learning-Engineering-Jobs",
+        "Applied-Machine-Learning-Engineer"
+      ],
+      "parentCategories": [
+        "Data Science"
+      ],
+      "description": "<p>Based in Portugal, Wire IT is your specialized IT consulting partner with 18 years of experience driven by an experienced and senior team that helps clients make the right decisions in a fast-moving market.</p><p>Wire IT's ambition is to grow while keeping true to its nature: agile, people-centered, and fun. As we like to say: Its not only what we do, its how we manage that truly make the difference..</p><p>If you're looking for more than just a job - if you're looking for a place where you can truly make a difference - you might be the next person to join <a href=\"https://himalayas.app/companies/wire-it\">WIRE IT</a>.</p><h3>Role: Machine Learning Engineer</h3><h3>Location: Remote, Portugal</h3><h3>Required Skills:</h3><ul>\n<li>5+ years of experience </li>\n<li>Experience in Feature Engineering &amp; Pipelines</li>\n<li>Databricks Orchestration</li>\n<li>MLOps Automation</li>\n<li>Model Management</li>\n<li>Performance Optimization</li>\n<li>Experience with Databricks and Cloud (Ideally AWS)</li>\n</ul><h3>We offer:</h3><ul>\n<li>­No-term full-time contract;</li>\n<li>Health Insurance;</li>\n<li>22 days of paid vacation;</li>\n<li>4 extra days annually (Carnival, Christmas Eve, New Year's Eve, Birthday);</li>\n<li>Meal Allowance on card (Coverflex);</li>\n<li>Referral Bonus;</li>\n<li>Special discounts and flex options;</li>\n<li>Training annual budget;</li>\n<li>A great team-oriented culture;</li>\n<li>Chance to become a part of a dynamically growing international company;</li>\n<li>Challenging projects giving the unique opportunity to grow and learn.</li>\n</ul><p>Following the EU General Data Protection Regulation No. 2016/679, we inform you that by responding to this announcement, you consent to the use of your data by Wire IT, for as long as necessary. In case of doubt or request for elimination of your personal data, please send an email to </p><p>Originally posted on <a href=\"https://himalayas.app\">Himalayas</a></p>",
+      "pubDate": 1791746381,
+      "expiryDate": 1796930380,
+      "applicationLink": "https://himalayas.app/companies/wire-it/jobs/machine-learning-engineer-1936229862?utm_source=api",
+      "guid": "https://himalayas.app/companies/wire-it/jobs/machine-learning-engineer-1936229862"
+    },
+    {
+      "title": "Machine Learning Engineer",
+      "excerpt": "",
+      "companyName": "micro1",
+      "companySlug": "micro1",
+      "companyLogo": "https://cdn-images.himalayas.app/91oa56akgt3qjqc1nh3uoruub40c",
+      "employmentType": "Contractor",
+      "minSalary": null,
+      "maxSalary": null,
+      "salaryPeriod": "hourly",
+      "seniority": [
+        "Mid-level"
+      ],
+      "currency": "USD",
+      "locationRestrictions": [],
+      "timezoneRestrictions": [
+        -11,
+        -10,
+        -9.5,
+        -9,
+        -8,
+        -7,
+        -6,
+        -5,
+        -4,
+        -3.5,
+        -3,
+        -2,
+        -1,
+        0,
+        1,
+        2,
+        3,
+        3.5,
+        4,
+        4.5,
+        5,
+        5.5,
+        5.75,
+        6,
+        6.5,
+        7,
+        8,
+        8.75,
+        9,
+        9.5,
+        10,
+        10.5,
+        11,
+        12,
+        12.75,
+        13,
+        14
+      ],
+      "categories": [
+        "Machine-Learning-Engineer",
+        "AI-ML-Engineer",
+        "Machine-Learning-Engineer-Jobs",
+        "Machine-Learning-Engineering-Jobs",
+        "Applied-Machine-Learning-Engineer"
+      ],
+      "parentCategories": [
+        "Data Science"
+      ],
+      "description": "<h3>Role Title: Machine Learning Engineer</h3><h3>Role Type: Contractor</h3><h3>Location: Remote</h3><p><a href=\"https://himalayas.app/companies/micro1\">micro1</a> is engaging Machine Learning Engineers to contribute expertise to a dynamic customer project. In this role, you'll apply your expertise to help train next-generation AI systems. Your work will shape how models learn, reason, and perform through high-quality, real-world input.</p><h3>Scope of Work</h3><ol>\n<li>Design, develop, and refine machine learning models using Python and relevant libraries to address project objectives.</li>\n<li>Analyze large datasets and leverage MongoDB to manage and retrieve data efficiently for model training and validation.</li>\n<li>Collaborate with cross-functional contributors to identify areas for model improvement and implement robust solutions.</li>\n<li>Conduct thorough model evaluation, tuning hyperparameters, and benchmarking results to ensure optimal performance.</li>\n<li>Document methodologies, experiments, and outcomes to ensure transparent and repeatable workflows.</li>\n<li>Integrate data pipelines and preprocessing workflows to streamline training and inference processes.</li>\n<li>Deliver actionable insights and recommendations based on data-driven findings and machine learning outcomes.</li>\n</ol><h3>Preferred Qualifications</h3><ol>\n<li>Demonstrated expertise with Python, including deep familiarity with machine learning frameworks such as scikit-learn, TensorFlow, or PyTorch.</li>\n<li>Hands-on experience with MongoDB for data manipulation, storage, and retrieval within machine learning projects.</li>\n<li>Strong problem-solving skills and a track record of delivering innovative ML solutions in real-world settings.</li>\n<li>Understanding of model evaluation metrics, feature engineering, and effective data preprocessing techniques.</li>\n<li>Background in deploying or operationalizing machine learning models in cloud or enterprise environments.</li>\n<li>Clear written documentation and communication skills for sharing technical findings and best practices.</li>\n<li>Ability to adapt quickly to evolving project requirements and contribute collaboratively in a remote setting.</li>\n</ol><p>Originally posted on <a href=\"https://himalayas.app\">Himalayas</a></p>",
+      "pubDate": 1788211404,
+      "expiryDate": 1793395403,
+      "applicationLink": "https://himalayas.app/companies/micro1/jobs/machine-learning-engineer-7037967333?utm_source=api",
+      "guid": "https://himalayas.app/companies/micro1/jobs/machine-learning-engineer-7037967333"
+    },
+    {
+      "title": "Machine Learning Engineer - Fully Remote | Upto $85/hr",
+      "excerpt": "About the jobMercor connects elite creative and technical talent with leading AI research labs.",
+      "companyName": "mercor",
+      "companySlug": "mercor",
+      "companyLogo": "https://cdn-images.himalayas.app/6jo5q9nua35jgtdfm41nq6b7ocqf",
+      "employmentType": "Contractor",
+      "minSalary": null,
+      "maxSalary": null,
+      "salaryPeriod": "hourly",
+      "seniority": [
+        "Mid-level"
+      ],
+      "currency": "USD",
+      "locationRestrictions": [
+        "United Kingdom"
+      ],
+      "timezoneRestrictions": [
+        0
+      ],
+      "categories": [
+        "Machine-Learning-Engineering",
+        "Machine-Learning-Engineer",
+        "AI-Engineering",
+        "LLM-Applications",
+        "Software-Engineer",
+        "Remote-Machine-Learning-Engineer",
+        "Machine-Learning-Engineer-Jobs",
+        "AI-ML-Engineer"
+      ],
+      "parentCategories": [
+        "Data Science",
+        "Developer"
+      ],
+      "description": "<h3>About the job</h3><p><strong>Mercor</strong> connects elite creative and technical talent with leading AI research labs. Headquartered in San Francisco, our investors include <strong>Benchmark</strong>, <strong>General Catalyst</strong>, <strong>Peter Thiel</strong>, <strong>Adam D'Angelo</strong>, <strong>Larry Summers</strong>, and <strong>Jack Dorsey</strong>.</p><p><strong>Position:</strong> ML Engineer (Coding Agent Experience)<br><strong>Type:</strong><strong>Contract</strong><br><strong>Compensation:</strong><strong>$85/hour</strong><br><strong>Location:</strong><strong>Remote</strong></p><h3>Role Responsibilities</h3><ul>\n<li>Use frontier <strong>AI coding agents</strong> to complete and evaluate complex <strong>machine learning</strong> and <strong>AI engineering</strong> tasks.</li>\n<li>Review model-generated implementations involving <strong>model training</strong>, <strong>inference systems</strong>, <strong>MLOps</strong>, and <strong>LLM applications</strong>.</li>\n<li>Identify bugs, edge cases, performance issues, and failure modes.</li>\n<li>Compare outputs from multiple frontier models and assess their strengths and weaknesses.</li>\n<li>Apply professional engineering judgment to realistic <strong>ML engineering</strong> scenarios.</li>\n</ul><h3>Qualifications</h3><p></p><p><strong>Must-Have</strong></p><ul>\n<li><strong><strong>2+ years</strong> of professional <strong>machine learning engineering</strong> experience.</strong></li>\n<li><strong>Experience building production <strong>ML systems</strong>, model deployment infrastructure, <strong>LLM applications</strong>, or <strong>AI-powered products</strong>.</strong></li>\n<li><strong>Regular use of <strong>AI coding agents</strong> such as Cursor, Claude Code, Codex, Windsurf, Gemini CLI, or similar tools.</strong></li>\n<li><strong>Ability to evaluate model-generated <strong>machine learning</strong> implementations and technical tradeoffs.</strong></li>\n</ul><h3><strong>Preferred</strong></h3><ul><li><strong>Experience deploying <strong>ML systems</strong> to production.</strong></li></ul><h3><strong>Compensation &amp; Legal</strong></h3><ul>\n<li><strong><strong>$400 per accepted task</strong></strong></li>\n<li><strong>Compensation is tied to accepted work.</strong></li>\n</ul><h3><strong>Application Process (Takes 20–30 mins to complete)</strong></h3><ul>\n<li><strong>Upload resume</strong></li>\n<li><strong>AI interview based on your resume</strong></li>\n<li><strong>Submit form</strong></li>\n</ul><h3><strong>Resources &amp; Support</strong></h3><ul>\n<li><strong>For details about the interview process and platform information, please check: </strong></li>\n<li><strong>For any help or support, reach out to: </strong></li>\n</ul><p><strong><em>PS: Our team reviews applications daily. Please complete your AI interview and application steps to be considered for this opportunity.</em></strong></p><p>Originally posted on <a href=\"https://himalayas.app\">Himalayas</a></p>",
+      "pubDate": 1791737495,
+      "expiryDate": 1796921495,
+      "applicationLink": "https://himalayas.app/companies/mercor/jobs/machine-learning-engineer-fully-remote-upto-85-hr-3401212780?utm_source=api",
+      "guid": null
+    }
+  ]
+}

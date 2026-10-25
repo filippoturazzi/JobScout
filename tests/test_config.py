@@ -7,7 +7,7 @@ from jobscout.config import Settings, get_settings
 def test_defaults_work_without_env():
     s = Settings(_env_file=None)
     assert s.database_url == "sqlite:///./jobscout.db"
-    assert s.source_names == ["arbeitnow"]
+    assert s.source_names == ["himalayas", "remotive", "linkedin", "indeed"]
     assert s.arbeitnow_max_pages == 2
     assert s.inactive_after_days == 14
 
@@ -56,7 +56,7 @@ def test_scheduler_settings_have_operator_defaults(monkeypatch):
     )  # conftest disables it for the whole suite
     settings = Settings(_env_file=None)
 
-    assert settings.scheduler_enabled is True
+    assert settings.scheduler_enabled is False
     assert settings.ingest_interval_minutes == 60
     assert settings.match_interval_minutes == 15
     assert settings.scheduler_jitter_seconds == 30
@@ -147,3 +147,24 @@ def test_digest_hour_must_be_a_real_hour():
 def test_digest_interval_must_be_at_least_one_minute():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, digest_interval_minutes=0)
+
+
+def test_the_default_sources_are_all_registered():
+    from jobscout.sources.registry import SOURCE_FACTORIES
+
+    assert set(Settings(_env_file=None).source_names) <= set(SOURCE_FACTORIES)
+
+
+def test_no_proxy_is_configured_by_default():
+    assert Settings(_env_file=None).jobspy_proxy_list == []
+
+
+def test_proxies_are_split_and_stripped():
+    settings = Settings(_env_file=None, jobspy_proxies="user:pass@host:1, localhost ,")
+    assert settings.jobspy_proxy_list == ["user:pass@host:1", "localhost"]
+
+
+def test_the_scraped_volume_defaults_are_the_polite_ones():
+    settings = Settings(_env_file=None)
+    assert (settings.jobspy_results_wanted, settings.jobspy_max_terms) == (10, 3)
+    assert settings.jobspy_hours_old == 168
