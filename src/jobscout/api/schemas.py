@@ -91,6 +91,14 @@ class MatchRead(BaseModel):
     job: JobRead
 
 
+class MatchStatusUpdate(BaseModel):
+    status: Literal["saved", "dismissed", "applied"]
+
+
+class SearchStarted(BaseModel):
+    run_id: int
+
+
 class RunRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -15,11 +15,11 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 def read_runs(
     session: Annotated[Session, Depends(get_session)],
     job: Annotated[
-        str | None, Query(description="Filter by job name: ingest, match or digest.")
+        str | None, Query(description="Filter by job name: ingest, match, digest or search.")
     ] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[RunRead]:
-    """Scheduled executions, newest first. Instance-wide, not per user."""
+    """Executions, newest first: the scheduled jobs and every user's searches."""
     if job is not None and job not in RUN_JOBS:
         raise HTTPException(
             status_code=422, detail=f"unknown job {job!r}; expected one of {sorted(RUN_JOBS)}"

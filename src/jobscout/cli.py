@@ -7,13 +7,15 @@ import typer
 import uvicorn
 from sqlmodel import Session
 
-from jobscout.config import get_settings
+from jobscout.config import Settings, get_settings
 from jobscout.db import get_engine, init_db
 from jobscout.logs import configure_logging
 from jobscout.pipeline.matching import MissingProviderError, run_match
 from jobscout.pipeline.repair import repair_descriptions as repair
 from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
+from jobscout.pipeline.search import SearchProgress, run_search
 from jobscout.pipeline.users import get_or_create_default_user
+from jobscout.sources.registry import source_statuses
 
 configure_logging()
 log = logging.getLogger(__name__)
@@ -147,6 +149,65 @@ def matches(
             if match_row.reasoning:
                 typer.echo(f"    {match_row.reasoning}")
             typer.echo(f"    {job.url}")
+
+
+def _progress_line(progress: SearchProgress, settings: Settings) -> str:
+    if progress.stage == "terms":
+        return f"terms: {', '.join(progress.terms)}"
+    if progress.stage == "source":
+        if progress.error is not None:
+            return f"{progress.source}: failed for {progress.term!r}: {progress.error}"
+        if progress.term is None:  # a catalogue source, asked once with no term
+            return f"{progress.source}: {progress.fetched} postings"
+        return f"{progress.source}: {progress.fetched} postings for {progress.term!r}"
+    if progress.stage == "scoring":
+        return (
+            f"scoring {progress.total} candidates (embeddings first, then up to "
+            f"{settings.max_llm_evaluations_per_run} LLM evaluations)"
+        )
+    return f"  evaluated {progress.done}/{progress.total}"
+
+
+@app.command()
+def search(
+    limit: Annotated[int, typer.Option(help="Max matches to show afterwards.")] = 20,
+) -> None:
+    """Search every source with the terms from your profile, score, and show the ranking.
+
+    The same run `POST /search` starts, here in the foreground, printing each step as it
+    happens. It needs an LLM key: the terms are extracted from your profile paragraph.
+    """
+    settings = get_settings()
+    try:
+        statuses = source_statuses(settings)
+    except ValueError as exc:  # a typo in SOURCES
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    for status in statuses:
+        if not status.active:
+            typer.echo(f"{status.name}: dormant ({status.reason})")
+    with _session() as session:
+        user = get_or_create_default_user(session)
+        assert user.id is not None, "a persisted user always has an id"
+        # Printed as it happens: a search takes minutes (a scraped source makes one request
+        # per posting), and a command silent for that long reads as hung.
+        result = run_search(
+            session,
+            settings,
+            user.id,
+            on_progress=lambda progress: typer.echo(_progress_line(progress, settings)),
+        )
+        typer.echo(" ".join(f"{name}={value}" for name, value in result.counters.items()))
+        for message in result.errors:
+            typer.echo(f"  ERROR {message}")
+        if result.remaining:
+            typer.echo(f"{result.remaining} candidates left for the next run (the per-run caps).")
+        rows = list_matches(session, user.id, limit=limit)
+        for match_row, job in rows:
+            typer.echo(f"[{match_row.score}] {job.title} — {job.company}")
+            typer.echo(f"    {job.url}")
+    if not result.ok:
+        raise typer.Exit(code=1)
 
 
 @app.command()

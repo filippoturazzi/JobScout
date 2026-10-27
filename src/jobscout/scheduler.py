@@ -27,6 +27,7 @@ from jobscout.pipeline.digest import (
 from jobscout.pipeline.liveness import deactivate_stale_jobs
 from jobscout.pipeline.matching import run_match
 from jobscout.pipeline.run import run_ingest
+from jobscout.pipeline.search import open_search_run, run_search
 from jobscout.pipeline.users import get_preferences
 
 log = logging.getLogger(__name__)
@@ -344,6 +345,19 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
         )
 
 
+def search_job(engine: Engine, settings: Settings, user_id: int, run_id: int) -> None:
+    """One user's search, filling the Run row the scheduler already opened.
+
+    No backoff: a search is the user pressing a button, never a scheduled firing. Never
+    raises, for the same reason as `ingest_job`.
+    """
+    try:
+        with Session(engine) as session:
+            run_search(session, settings, user_id, run_id=run_id)
+    except Exception:
+        log.exception("search job crashed outside its own error handling")
+
+
 class JobScoutScheduler:
     """Owns the APScheduler instance and the per-job tick counters.
 
@@ -362,6 +376,11 @@ class JobScoutScheduler:
         # them overlapping. This guard does: start_run writes an ok=False row before the work
         # begins, so an overlapping run would read as a failure to the backoff check.
         self._match_running = threading.Lock()
+        # user id -> the id of their search run in flight. In memory on purpose: a process
+        # that dies leaves its row unfinished forever, and reading "in flight" from the
+        # database would then refuse every later search for that user.
+        self._searches: dict[int, int] = {}
+        self._search_lock = threading.Lock()
 
     def _run_ingest_tick(self) -> None:
         ingest_job(self._engine, self._settings)
@@ -386,6 +405,55 @@ class JobScoutScheduler:
     def _run_digest_tick(self) -> None:
         self._digest_tick += 1
         digest_job(self._engine, self._settings, tick=self._digest_tick)
+
+    def search_in_flight(self, user_id: int) -> int | None:
+        with self._search_lock:
+            return self._searches.get(user_id)
+
+    def start_search(self, user_id: int) -> int:
+        """Run one search for this user now, and return its run id at once.
+
+        A second call while the first is still going returns the same id instead of
+        starting another.
+        """
+        with self._search_lock:
+            in_flight = self._searches.get(user_id)
+            if in_flight is not None:
+                return in_flight
+            with Session(self._engine) as session:
+                run_id = open_search_run(session, user_id).id
+            assert run_id is not None, "a committed run always has an id"
+            self._searches[user_id] = run_id
+        try:
+            if not self._scheduler.running:
+                # SCHEDULER_ENABLED=false turns off the periodic jobs, not the user's own
+                # search: the executor is started here, with nothing else registered on it.
+                self._scheduler.start()
+            self._scheduler.add_job(
+                self._run_search,
+                "date",
+                run_date=datetime.now(UTC),  # aware, for the reason given in wake_matching
+                args=[user_id, run_id],
+                id=f"search-{user_id}",
+                replace_existing=True,
+                misfire_grace_time=None,
+            )
+        except Exception:
+            with self._search_lock:
+                self._searches.pop(user_id, None)
+            raise
+        return run_id
+
+    def _run_search(self, user_id: int, run_id: int) -> None:
+        try:
+            # Held for the whole search, which scores as it goes: a match tick beside it
+            # would evaluate the same (job, user) pairs and collide on the unique constraint.
+            # A tick that arrives meanwhile is skipped and logged, as for any overlap.
+            with self._match_running:
+                search_job(self._engine, self._settings, user_id, run_id)
+        finally:
+            with self._search_lock:
+                self._searches.pop(user_id, None)
 
     def start(self) -> None:
         if not self._settings.scheduler_enabled:
@@ -433,7 +501,9 @@ class JobScoutScheduler:
 
     def wake_matching(self) -> None:
         """Run matching now, out of band. Repeated calls collapse into one pending run."""
-        if not self._scheduler.running:
+        # The flag, not only `running`: a search starts the executor even when the periodic
+        # jobs are off, and that must not switch background matching back on.
+        if not self._settings.scheduler_enabled or not self._scheduler.running:
             return
         self._scheduler.add_job(
             self._run_match_tick,

@@ -10,6 +10,7 @@ the counters current while the run is still going — the page polls them.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from sqlmodel import Session
 
@@ -27,7 +28,14 @@ from jobscout.sources.registry import build_sources, source_statuses
 
 log = logging.getLogger(__name__)
 
-__all__ = ["MAX_TERMS_PER_SOURCE", "NoUsableSourcesError", "SearchResult", "run_search"]
+__all__ = [
+    "MAX_TERMS_PER_SOURCE",
+    "NoUsableSourcesError",
+    "SearchProgress",
+    "SearchResult",
+    "open_search_run",
+    "run_search",
+]
 
 MAX_TERMS_PER_SOURCE = 5
 """How many of the ranked terms each searchable source is asked for, one page each.
@@ -77,6 +85,26 @@ class SearchResult:
         }
 
 
+@dataclass(frozen=True)
+class SearchProgress:
+    """One step of a search, for a caller that shows it while the run is still going.
+
+    ``terms``: the terms were resolved. ``source``: one source answered one term (or failed
+    on it, with ``error``); ``fetched`` is what that one call returned. ``scoring``: the
+    fetch is over and ``total`` candidates are pending. ``evaluated``: ``done`` of the
+    ``total`` jobs selected for scoring are finished.
+    """
+
+    stage: Literal["terms", "source", "scoring", "evaluated"]
+    terms: list[str] = field(default_factory=list)
+    source: str | None = None
+    term: str | None = None
+    fetched: int = 0
+    error: str | None = None
+    done: int = 0
+    total: int = 0
+
+
 class _CountedSource:
     """A source that records the distinct postings it hands back over a whole run.
 
@@ -98,8 +126,11 @@ class _CountedSource:
         return jobs
 
 
-def _open_run(session: Session, user_id: int) -> Run:
+def open_search_run(session: Session, user_id: int) -> Run:
     """Open the row before any work starts, so a killed process leaves a failure behind.
+
+    Public so a caller that runs the search in the background can hand out the run's id
+    before the work begins, then pass it to ``run_search``.
 
     Not ``scheduler.start_run``: ``pipeline`` sits below ``scheduler`` and must not import
     it, and a search has no business pruning the operator's run history on the way past.
@@ -198,6 +229,7 @@ def _fetch(
     prefs: UserPreferences,
     result: SearchResult,
     publish: Callable[[], None],
+    report: Callable[[SearchProgress], None],
 ) -> None:
     """Search every source, one term per call, isolating each failure from the rest."""
     seen: set[tuple[str, str]] = set()
@@ -207,6 +239,15 @@ def _fetch(
         answered = False
         for query in _queries_for(source, terms, prefs):
             (outcome,) = ingest(session, batch, query)
+            report(
+                SearchProgress(
+                    stage="source",
+                    source=source.name,
+                    term=query.keywords[0] if query.keywords else None,
+                    fetched=outcome.fetched,
+                    error=outcome.error,
+                )
+            )
             if outcome.error is not None:
                 result.errors.append(f"{source.name}: {outcome.error}")
                 # One term per ingest call, so whatever this source already returned is
@@ -240,18 +281,26 @@ def run_search(
     settings: Settings,
     user_id: int,
     deps: GraphDeps | None = None,
+    run_id: int | None = None,
+    on_progress: Callable[[SearchProgress], None] | None = None,
 ) -> SearchResult:
     """Fetch for one user from every registered source, then score what is pending.
 
-    Never raises: it is run in the background and the only way an operator or the page
-    learns what happened is the Run row, so every failure is recorded there instead.
+    ``run_id`` names a row ``open_search_run`` already wrote; without one, a row is opened
+    here. Never raises: it is run in the background and the only way an operator or the
+    page learns what happened is the Run row, so every failure is recorded there instead.
     """
     result = SearchResult()
-    run = _open_run(session, user_id)
+    existing = session.get(Run, run_id) if run_id is not None else None
+    run = existing if existing is not None else open_search_run(session, user_id)
     result.run_id = run.id
 
     def publish() -> None:
         _publish(session, run, result)
+
+    def report(progress: SearchProgress) -> None:
+        if on_progress is not None:
+            on_progress(progress)
 
     try:
         result.terms = _resolve_terms(session, settings, user_id, deps)
@@ -268,7 +317,8 @@ def run_search(
         return result
 
     publish()
-    _fetch(session, sources, result.terms, prefs, result, publish)
+    report(SearchProgress(stage="terms", terms=list(result.terms)))
+    _fetch(session, sources, result.terms, prefs, result, publish, report)
 
     try:
         # Published before scoring starts so the page has a denominator to show while it
@@ -277,8 +327,17 @@ def run_search(
         result.candidates = len(pending)
         result.remaining = len(pending)
         publish()
+        report(SearchProgress(stage="scoring", total=len(pending)))
 
-        scored = run_match(session, settings, user_id, deps=deps)
+        scored = run_match(
+            session,
+            settings,
+            user_id,
+            deps=deps,
+            on_evaluated=lambda done, total: report(
+                SearchProgress(stage="evaluated", done=done, total=total)
+            ),
+        )
         # `run_match`'s only `error` is the empty-profile case, and `_resolve_terms` has
         # already refused that: the paragraph it extracts from IS the profile summary.
         assert scored.error is None, scored.error

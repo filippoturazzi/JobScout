@@ -1,6 +1,9 @@
+import pytest
 from sqlmodel import select
 
 from jobscout.models import Job, Match, User
+from jobscout.pipeline.ingest import upsert_jobs
+from jobscout.sources.base import RawJob
 
 
 def _job(session, external_id="a", active=True) -> Job:
@@ -94,3 +97,88 @@ def test_unscored_low_rows_are_hidden_by_default_but_returned_for_status_low(cli
     explicit = client.get("/matches", params={"status": "low"}).json()
     assert [m["job"]["external_id"] for m in explicit] == ["low"]
     assert explicit[0]["score"] is None
+
+
+def _match(session, user, status="new", external_id="m") -> Match:
+    job = _job(session, external_id)
+    match = Match(job_id=job.id, user_id=user.id, similarity=0.7, score=70, status=status)
+    session.add(match)
+    session.commit()
+    session.refresh(match)
+    return match
+
+
+@pytest.mark.parametrize("status", ["saved", "dismissed", "applied"])
+def test_patch_sets_a_user_status(client, session, status):
+    user = _bootstrap_user(client, session)
+    match = _match(session, user)
+    response = client.patch(f"/matches/{match.id}", json={"status": status})
+    assert response.status_code == 200
+    assert response.json()["status"] == status
+    session.refresh(match)
+    assert match.status == status
+
+
+@pytest.mark.parametrize("status", ["stale", "low", "new", "bogus"])
+def test_patch_rejects_a_status_the_user_cannot_set(client, session, status):
+    user = _bootstrap_user(client, session)
+    match = _match(session, user)
+    assert client.patch(f"/matches/{match.id}", json={"status": status}).status_code == 422
+    session.refresh(match)
+    assert match.status == "new"
+
+
+def test_patch_an_unknown_or_another_users_match_is_404(client, session):
+    _bootstrap_user(client, session)
+    other = User(email="other@example.com")
+    session.add(other)
+    session.commit()
+    theirs = _match(session, other)
+    assert client.patch(f"/matches/{theirs.id}", json={"status": "saved"}).status_code == 404
+    assert client.patch("/matches/9999", json={"status": "saved"}).status_code == 404
+    session.refresh(theirs)
+    assert theirs.status == "new"
+
+
+def test_staling_does_not_revive_an_applied_match(client, session):
+    user = _bootstrap_user(client, session)
+    applied = _match(session, user, status="applied", external_id="a")
+    saved = _match(session, user, status="saved", external_id="s")
+    # A matching-relevant preference change stales every match the user has not closed.
+    client.put("/preferences", json={"titles": ["Data Engineer"]})
+    session.refresh(applied)
+    session.refresh(saved)
+    assert applied.status == "applied"
+    assert saved.status == "stale"
+
+
+def test_a_changed_job_does_not_revive_an_applied_match(client, session):
+    user = _bootstrap_user(client, session)
+    match = _match(session, user, status="applied", external_id="c")
+    changed = RawJob(
+        source="t",
+        external_id="c",
+        title="AI Engineer",
+        company="Acme",
+        url="https://x/c",
+        description="a new description",
+    )
+    upsert_jobs(session, [changed])
+    session.refresh(match)
+    assert match.status == "applied"
+
+
+def test_dismissed_and_applied_are_hidden_from_the_default_listing(client, session):
+    user = _bootstrap_user(client, session)
+    for status in ("new", "saved", "dismissed", "applied"):
+        _match(session, user, status=status, external_id=status)
+    listed = {m["job"]["external_id"] for m in client.get("/matches").json()}
+    assert listed == {"new", "saved"}
+
+
+@pytest.mark.parametrize("status", ["dismissed", "applied"])
+def test_they_are_returned_when_asked_for_by_status(client, session, status):
+    user = _bootstrap_user(client, session)
+    _match(session, user, status=status, external_id="x")
+    body = client.get("/matches", params={"status": status}).json()
+    assert [m["status"] for m in body] == [status]

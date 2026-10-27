@@ -9,7 +9,9 @@ from jobscout import cli
 from jobscout.config import Settings
 from jobscout.db import get_engine, init_db
 from jobscout.models import Job, Match, User
+from jobscout.pipeline.search import SearchProgress, SearchResult
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
+from jobscout.sources import registry
 from jobscout.sources.arbeitnow import BASE_URL
 from tests.conftest import load_fixture
 
@@ -429,3 +431,105 @@ def test_repair_descriptions_reports_what_it_changed(tmp_path, monkeypatch):
         job = session.exec(select(Job)).one()
         assert job.description == "Python work. Find more"
         assert job.embedding is None
+
+
+def _fake_search(scores: list[int], ok: bool = True, errors: list[str] | None = None):
+    """Stands in for `run_search`: writes scored matches the way a real run would."""
+
+    def search(session, settings, user_id, deps=None, run_id=None, on_progress=None):
+        for i, score in enumerate(scores):
+            job = Job(
+                source="t",
+                external_id=f"j{i}",
+                title=f"Role {score}",
+                company="Acme",
+                remote=True,
+                url=f"https://x/{i}",
+                description="d",
+                content_hash=f"h{i}",
+            )
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            session.add(
+                Match(job_id=job.id, user_id=user_id, similarity=0.8, score=score, status="new")
+            )
+        session.commit()
+        return SearchResult(
+            run_id=1,
+            ok=ok,
+            terms=["python developer"],
+            fetched=len(scores),
+            sources_ok=1 if ok else 0,
+            sources_failed=0 if ok else 1,
+            candidates=len(scores),
+            evaluated=len(scores),
+            errors=errors or [],
+        )
+
+    return search
+
+
+def test_search_command_prints_ranked_matches(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    monkeypatch.setattr(cli, "run_search", _fake_search([40, 90, 65]))
+    result = runner.invoke(cli.app, ["search"])
+    assert result.exit_code == 0, result.output
+    assert "fetched=3" in result.output
+    ranked = [line for line in result.output.splitlines() if line.startswith("[")]
+    assert ranked == ["[90] Role 90 — Acme", "[65] Role 65 — Acme", "[40] Role 40 — Acme"]
+
+
+def test_search_command_reports_dormant_sources(tmp_path, monkeypatch):
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        sources="himalayas,remotive",
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setitem(registry.SOURCE_MISSING_CREDENTIALS, "remotive", lambda s: ["FAKE_KEY"])
+    monkeypatch.setattr(cli, "run_search", _fake_search([]))
+    result = runner.invoke(cli.app, ["search"])
+    assert "remotive: dormant (missing FAKE_KEY)" in result.output
+
+
+def test_a_failed_search_prints_why_and_exits_1(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    monkeypatch.setattr(
+        cli, "run_search", _fake_search([], ok=False, errors=["ValueError: nothing to search for"])
+    )
+    result = runner.invoke(cli.app, ["search"])
+    assert result.exit_code == 1
+    assert "nothing to search for" in result.output
+
+
+def test_search_command_prints_progress_while_it_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    finish = _fake_search([80])
+
+    def search(session, settings, user_id, deps=None, run_id=None, on_progress=None):
+        assert on_progress is not None, "the command must ask for progress"
+        on_progress(SearchProgress(stage="terms", terms=["python developer"]))
+        on_progress(SearchProgress(stage="source", source="linkedin", term="python", fetched=10))
+        on_progress(
+            SearchProgress(
+                stage="source", source="indeed", term="python", error="SourceBlocked: 429"
+            )
+        )
+        on_progress(SearchProgress(stage="scoring", total=40))
+        on_progress(SearchProgress(stage="evaluated", done=1, total=25))
+        return finish(session, settings, user_id)
+
+    monkeypatch.setattr(cli, "run_search", search)
+    result = runner.invoke(cli.app, ["search"])
+    lines = result.output.splitlines()
+    expected = [
+        "terms: python developer",
+        "linkedin: 10 postings for 'python'",
+        "indeed: failed for 'python': SourceBlocked: 429",
+        "scoring 40 candidates (embeddings first, then up to 15 LLM evaluations)",
+        "  evaluated 1/25",
+    ]
+    positions = [lines.index(line) for line in expected]
+    assert positions == sorted(positions)
+    assert positions[-1] < lines.index("[80] Role 80 — Acme"), "progress comes before the ranking"

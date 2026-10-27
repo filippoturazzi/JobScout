@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from sqlmodel import Session
 
 from jobscout import __version__
-from jobscout.api.routers import jobs, matches, preferences, runs
+from jobscout.api.routers import jobs, matches, preferences, runs, search, sources
 from jobscout.config import get_settings
 from jobscout.db import get_engine, init_db
 from jobscout.logs import configure_logging
@@ -41,6 +41,8 @@ def create_app() -> FastAPI:
     application.include_router(matches.router)
     application.include_router(preferences.router)
     application.include_router(runs.router)
+    application.include_router(search.router)
+    application.include_router(sources.router)
 
     @application.get("/health", tags=["meta"])
     def health() -> dict[str, str]:

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from sqlmodel import Session, col, desc, func, select
 
 from jobscout.config import Settings
-from jobscout.models import Job, Match
+from jobscout.models import CLOSED_STATUSES, Job, Match
 from jobscout.models.base import utcnow
 
 DIGEST_CAP = 20
@@ -27,7 +27,7 @@ def select_unnotified(
         .where(
             col(Match.user_id) == user_id,
             col(Match.notified_at).is_(None),
-            col(Match.status) != "dismissed",
+            col(Match.status).not_in(CLOSED_STATUSES),
             col(Match.score).is_not(None),
             col(Match.score) >= min_score,
             col(Job.is_active).is_(True),

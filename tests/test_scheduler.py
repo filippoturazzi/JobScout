@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -1156,3 +1157,37 @@ def test_a_user_without_an_address_does_not_stop_another_users_digest(session, m
     assert notified[wanted.id] is not None and notified[silent.id] is None
     run = _digest_run(session)
     assert (run.ok, run.counters["users"]) == (True, 1)
+
+
+def test_a_search_on_a_disabled_scheduler_does_not_turn_the_wake_on(session: Session, monkeypatch):
+    # The executor starts for the user's search; SCHEDULER_ENABLED=false still means no
+    # background matching, so a preference save afterwards must not schedule one.
+    monkeypatch.setattr("jobscout.scheduler.search_job", lambda *args: None)
+    user = get_or_create_default_user(session)
+    scheduler = JobScoutScheduler(session.get_bind(), _settings(scheduler_enabled=False))
+    scheduler.start()
+    try:
+        scheduler._scheduler.start(paused=True)
+        scheduler.start_search(user.id)
+        scheduler.wake_matching()
+        assert [job.id for job in scheduler.get_jobs()] == [f"search-{user.id}"]
+    finally:
+        scheduler.shutdown()
+
+
+def test_a_search_waits_for_a_match_run_in_flight(session: Session, monkeypatch):
+    ran = threading.Event()
+    monkeypatch.setattr("jobscout.scheduler.search_job", lambda *args: ran.set())
+    scheduler = JobScoutScheduler(session.get_bind(), _settings())
+    user = get_or_create_default_user(session)
+    scheduler._match_running.acquire()  # a match tick is scoring
+    worker = threading.Thread(target=scheduler._run_search, args=(user.id, 1))
+    worker.start()
+    try:
+        assert not ran.wait(0.3), "the search must not score beside a match run"
+    finally:
+        scheduler._match_running.release()
+    worker.join(5)
+    assert ran.is_set()
+    assert not scheduler._match_running.locked()
+    assert scheduler.search_in_flight(user.id) is None

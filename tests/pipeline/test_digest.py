@@ -65,10 +65,12 @@ def test_never_selects_an_already_notified_match(session: Session):
     assert rows == []
 
 
-def test_never_selects_a_dismissed_match(session: Session):
-    """The user's no survives re-scoring, exactly as it survives staling."""
+@pytest.mark.parametrize("status", ["dismissed", "applied"])
+def test_never_selects_a_closed_match(session: Session, status: str):
+    """The user's verdict survives re-scoring, exactly as it survives staling: a job they
+    said no to, or already applied for, is not news."""
     user = get_or_create_default_user(session)
-    _match(session, user.id, 95, status="dismissed")
+    _match(session, user.id, 95, status=status)
 
     rows, _ = select_unnotified(session, user.id, min_score=70)
 

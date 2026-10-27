@@ -8,7 +8,7 @@ from sqlmodel import Session, col, desc, select, update
 from sqlmodel.sql.expression import Select, SelectOfScalar
 
 from jobscout.config import Settings
-from jobscout.models import Job, Match, Run, UserPreferences
+from jobscout.models import CLOSED_STATUSES, USER_STATUSES, Job, Match, Run, UserPreferences
 from jobscout.pipeline.filters import filter_jobs
 from jobscout.pipeline.ingest import IngestResult, ingest
 from jobscout.pipeline.matching import MatchRun
@@ -61,7 +61,11 @@ def match_listing_statement(
         .order_by(col(Match.score).desc().nulls_last(), col(Match.similarity).desc())
     )
     if status is None:
-        statement = statement.where(col(Match.score).is_not(None))
+        # The user's own verdicts stay out of the default listing, or every search would
+        # bring back the jobs they already said no to (or applied for).
+        statement = statement.where(
+            col(Match.score).is_not(None), col(Match.status).not_in(CLOSED_STATUSES)
+        )
     else:
         statement = statement.where(col(Match.status) == status)
     if min_score > 0:
@@ -83,10 +87,34 @@ def list_matches(
     for, so ``status="low"`` can answer "why didn't this job show up". ``min_score`` is
     applied only when above 0, so the default 0 does not silently drop them again — but
     combining a ``min_score`` above 0 with ``status="low"`` does exclude the unscored
-    rows, because a row with no score cannot clear a floor.
+    rows, because a row with no score cannot clear a floor. Dismissed and applied rows are
+    hidden the same way, and returned the same way when their status is asked for.
     """
     statement = match_listing_statement(user_id, min_score=min_score, status=status)
     return list(session.exec(statement.limit(limit)).all())
+
+
+def set_match_status(
+    session: Session, user_id: int, match_id: int, status: str
+) -> tuple[Match, Job] | None:
+    """Record the user's verdict on one of their matches; ``None`` if it is not theirs."""
+    if status not in USER_STATUSES:
+        raise ValueError(
+            f"status {status!r} cannot be set; expected one of {sorted(USER_STATUSES)}"
+        )
+    row = session.exec(
+        select(Match, Job)
+        .join(Job, col(Match.job_id) == col(Job.id))
+        .where(col(Match.id) == match_id, col(Match.user_id) == user_id)
+    ).first()
+    if row is None:
+        return None
+    match, job = row
+    match.status = status
+    session.add(match)
+    session.commit()
+    session.refresh(match)
+    return match, job
 
 
 def run_listing_statement(job: str | None = None) -> SelectOfScalar[Run]:
@@ -124,7 +152,7 @@ def save_preferences(
 
     session.exec(
         update(Match)
-        .where(col(Match.user_id) == user_id, col(Match.status) != "dismissed")
+        .where(col(Match.user_id) == user_id, col(Match.status).not_in(CLOSED_STATUSES))
         .values(status="stale")
     )
     session.commit()

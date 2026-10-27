@@ -37,7 +37,8 @@ def test_matching_defaults():
     # Sized to the free tier's ~30k embedding tokens/min: the vector is built from the
     # short `job_embedding_text` (~175 tokens), not the full posting. See matching.py.
     assert s.max_embeddings_per_run == 100
-    assert s.max_llm_evaluations_per_run == 25
+    # Sized to the free tier's 20 requests a day, with one left for the search's term extraction.
+    assert s.max_llm_evaluations_per_run == 15
 
 
 def test_matching_settings_from_env(monkeypatch):
