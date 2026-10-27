@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 
 import pytest
+from langchain_core.exceptions import ModelRateLimitError
 from sqlmodel import select
 
 from jobscout.config import Settings
@@ -203,6 +204,33 @@ def test_llm_failure_is_isolated(session):
     assert result.evaluated == 0
     assert len(result.errors) == 2 and "rate limited" in result.errors[0]
     assert session.exec(select(Match)).all() == []
+
+
+def test_a_rate_limit_stops_scoring_and_leaves_the_rest_for_the_next_run(session):
+    # A provider quota (Gemini's free tier: 20 requests a day) does not lift for the next
+    # job; calling again for each one only repeats the same error.
+    user = _user_with_profile(session)
+    for external_id in ("a", "b", "c"):
+        _add_job(session, external_id)
+    limited = CountingChatModel(error=ModelRateLimitError("429 RESOURCE_EXHAUSTED: daily quota"))
+
+    result = run_match(session, _settings(), user.id, deps=_deps(limited))
+
+    assert limited.calls == 1
+    assert result.evaluated == 0
+    assert len(result.errors) == 1
+    assert "rate limit" in result.errors[0] and "2 left for the next run" in result.errors[0]
+    assert "daily quota" in result.errors[0]
+    assert session.exec(select(Match)).all() == []
+
+    later = run_match(session, _settings(), user.id, deps=_deps(CountingChatModel()))
+    assert later.evaluated == 3
+
+
+def test_the_default_evaluation_cap_fits_a_free_tier_day():
+    # One search spends one extraction call plus this many evaluations; Gemini's free tier
+    # allows 20 requests a day, so the default must leave room under it.
+    assert Settings(_env_file=None).max_llm_evaluations_per_run + 1 < 20
 
 
 def test_commit_failure_is_counted_as_an_error_not_a_success(session, monkeypatch):

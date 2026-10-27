@@ -527,7 +527,7 @@ def test_search_command_prints_progress_while_it_runs(tmp_path, monkeypatch):
         "terms: python developer",
         "linkedin: 10 postings for 'python'",
         "indeed: failed for 'python': SourceBlocked: 429",
-        "scoring 40 candidates (embeddings first, then up to 25 LLM evaluations)",
+        "scoring 40 candidates (embeddings first, then up to 15 LLM evaluations)",
         "  evaluated 1/25",
     ]
     positions = [lines.index(line) for line in expected]

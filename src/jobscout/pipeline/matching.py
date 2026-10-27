@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from langchain_core.embeddings import Embeddings
+from langchain_core.exceptions import ModelRateLimitError
 from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
@@ -299,6 +300,19 @@ def run_match(
                 )
                 was_low = False
             session.commit()
+        except ModelRateLimitError as exc:
+            # A quota does not lift for the next job: calling again for each one only
+            # repeats this error (a daily free-tier quota stays exhausted for hours). Stop,
+            # and leave the rest unmatched, so the next run picks them up.
+            session.rollback()
+            left = len(selected) - done
+            log.error("provider rate limit reached; stopping with %d jobs left: %s", left, exc)
+            result.errors.append(
+                f"provider rate limit reached; {left} left for the next run: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            evaluated(done)
+            break
         except Exception as exc:  # isolate one bad job from the rest of the run
             session.rollback()
             log.error("matching failed for job %s: %s: %s", job.id, type(exc).__name__, exc)
