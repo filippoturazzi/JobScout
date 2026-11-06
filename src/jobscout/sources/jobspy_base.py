@@ -149,6 +149,8 @@ class JobSpySource:
     site = ""
     supports_search = True
     fetch_description = False
+    all_remote = False
+    searches_by_location = True
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings

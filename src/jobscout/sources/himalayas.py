@@ -25,6 +25,8 @@ class HimalayasSource:
     name = "himalayas"
     supports_search = True
     term_budget: int | None = None
+    all_remote = True
+    searches_by_location = False
 
     def __init__(self, client: httpx.Client | None = None, max_pages: int = 1) -> None:
         self._client = client

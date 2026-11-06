@@ -40,13 +40,27 @@ def test_extraction_returns_ranked_terms_and_structured_fields():
         "seniority",
         "required_skills",
         "excluded_keywords",
+        "stated_work_modes",
+        "stated_regions",
     }
 
 
 def test_every_structured_field_exists_on_user_preferences():
     for name in ExtractedProfile.model_fields:
-        if name != "terms":
+        if name not in {"terms", "stated_work_modes", "stated_regions"}:
             assert name in UserPreferences.model_fields
+
+
+def test_what_the_paragraph_states_is_reported_without_becoming_a_filter():
+    llm = fake(
+        terms=["python"],
+        stated_work_modes=["Remote", "on-the-moon", "remote", "On-site"],
+        stated_regions=[" Brasil ", "brasil", "Portugal"],
+    )
+    result = extract_profile(PARAGRAPH, llm)
+    assert result.stated_work_modes == ["remote", "onsite"]
+    assert result.stated_regions == ["Brasil", "Portugal"]
+    assert result.work_modes == [] and result.regions == []
 
 
 def test_terms_are_short():
@@ -110,7 +124,10 @@ def _saved_prefs(session, **llm_fields):
     prefs, _ = update_preferences(
         session,
         user.id,
-        {**extracted.model_dump(exclude={"terms"}), "search_terms": extracted.terms},
+        {
+            **extracted.model_dump(exclude={"terms", "stated_work_modes", "stated_regions"}),
+            "search_terms": extracted.terms,
+        },
     )
     return prefs
 

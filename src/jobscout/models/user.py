@@ -27,6 +27,11 @@ class UserPreferences(SQLModel, table=True):
     seniority: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     work_modes: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     regions: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    # Countries ruled out, which is how "abroad" is stored: `regions` empty, the home country
+    # here. A region that names no country has no effect in this list.
+    excluded_regions: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
     min_salary: int | None = None
     salary_currency: str | None = None
     required_skills: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))

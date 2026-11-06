@@ -82,3 +82,5 @@ def test_source_contract(name, monkeypatch):
         assert job.source == name
         assert job.external_id and job.title and job.url and job.description
         assert "<" not in job.description, "description must be plain text"
+        if source.all_remote:
+            assert job.remote, "a board declared all_remote must mark its postings remote"

@@ -7,10 +7,33 @@ import re
 from collections.abc import Iterable
 
 from jobscout.models import Job, UserPreferences
-from jobscout.sources.regions import countries, country_of, names_of
+from jobscout.sources.regions import countries_in, country_of
 from jobscout.sources.text import fold
 
 _TOKEN_RE = re.compile(r"(?:[^\W_]|[+#.])+")
+
+# All of these read folded text (lower case, no accents). A title or location is short enough
+# that the bare word is the work mode, apart from the technology that shares its name. A
+# description is not: "hybrid cloud" and "on-site interviews" say nothing about where the job
+# is, so there it takes a phrase that does.
+_HYBRID_SHORT = re.compile(
+    r"\bhybrid\b(?!\s+(?:cloud|mobile|apps?|infrastructure|search|rag))"
+    r"|(?<!nuvem )\bhibrid[oa]\b"
+)
+_ONSITE_SHORT = re.compile(r"\bon[- ]?site\b|\bpresencial\b|\bin[- ]office\b")
+_LABEL = (
+    r"\b(?:work|working|workplace|location|arrangement|schedule|modelo|regime|trabalho|formato"
+    r"|modalidade|atuacao|jornada)(?:\s+(?:type|mode|model|de\s+\w+))?\s*[:\-\u2013]?\s*"
+)
+_HYBRID_LONG = re.compile(
+    r"\bhybrid\s+(?:role|position|job|work|working|model|schedule|setup|arrangement|policy)\b"
+    rf"|{_LABEL}(?:hybrid|hibrid[oa])\b"
+)
+_ONSITE_LONG = re.compile(
+    r"\b(?:fully|100\s*%?)\s*(?:on[- ]?site|in[- ]office|presencial)\b"
+    r"|\b(?:on[- ]?site|in[- ]office)\s+(?:role|position|job|work)\b"
+    rf"|{_LABEL}(?:on[- ]?site|presencial)\b"
+)
 
 
 def tokenize(text: str) -> list[str]:
@@ -39,12 +62,35 @@ def _passes_exclusions(job: Job, prefs: UserPreferences) -> bool:
     return True
 
 
+def _stated_on_premises_mode(job: Job) -> str | None:
+    """ "hybrid" or "onsite" when a non-remote posting says which it is, else ``None``.
+
+    Boards report only remote or not, so this reads the posting's words. Hybrid is checked
+    first: a hybrid posting often describes its days on site too.
+    """
+    short = fold(f"{job.title} | {job.location or ''}")
+    if _HYBRID_SHORT.search(short):
+        return "hybrid"
+    if _ONSITE_SHORT.search(short):
+        return "onsite"
+    description = fold(job.description)
+    if _HYBRID_LONG.search(description):
+        return "hybrid"
+    if _ONSITE_LONG.search(description):
+        return "onsite"
+    return None
+
+
 def _passes_work_mode(job: Job, prefs: UserPreferences) -> bool:
     modes = {m.lower() for m in prefs.work_modes}
     if not modes:
         return True
     if job.remote:
         return "remote" in modes
+    stated = _stated_on_premises_mode(job)
+    if stated is not None:
+        return stated in modes
+    # The posting does not say, and hiding a job takes evidence.
     return bool(modes & {"hybrid", "onsite"})
 
 
@@ -55,37 +101,48 @@ def _same_region(a: str, b: str) -> bool:
     return bool(fold(a)) and fold(a) == fold(b)
 
 
-def _names_country(location: str, country: str) -> bool:
-    # The whole location is searched, not one comma-separated part at a time: boards order the
-    # parts differently ("São Paulo, SP, Brazil", "Remoto, Brazil", "Greater Curitiba"), so
-    # no one part is reliably the country. Whole tokens still keep "US" out of "Australia".
-    tokens = tokenize(fold(location))
-    names, codes = names_of(country)
-    if any(_contains_sequence(tokens, tokenize(name)) for name in names):
-        return True
-    # A code only counts as the last part: "de" is Germany's and a word in "Rio de Janeiro".
-    return fold(location.rsplit(",", 1)[-1]) in codes
-
-
 def _location_is_in(location: str, region: str) -> bool:
     country = country_of(region)
     if country is not None:
-        return _names_country(location, country)
+        return country in countries_in(location)
     needle = tokenize(fold(region))
     return bool(needle) and _contains_sequence(tokenize(fold(location)), needle)
 
 
+def _countries_of(regions: list[str]) -> set[str]:
+    return {country for country in map(country_of, regions) if country is not None}
+
+
+def _in_excluded_region(job: Job, named: frozenset[str], excluded: set[str]) -> bool:
+    """True when the job is known to be only in countries the user ruled out.
+
+    A posting open to several places stays in as long as one of them is not ruled out, and
+    one that names no country counts as where its source was searched, if that is recorded.
+    """
+    if named:
+        return named <= excluded
+    searched = job.raw.get("searched_region")
+    return isinstance(searched, str) and country_of(searched) in excluded
+
+
 def _passes_region(job: Job, prefs: UserPreferences) -> bool:
-    if not prefs.regions or job.remote:
-        return True
     location = job.location or ""
+    named = countries_in(location)
+    if _in_excluded_region(job, named, _countries_of(prefs.excluded_regions)):
+        return False
+    if not prefs.regions:
+        return True
+    if job.remote:
+        # On a remote posting the location is who may apply: "United States" is closed to
+        # someone in Brazil, while "Worldwide" or nothing at all may not be. It is rejected
+        # only on evidence: it names places, and we know the user's countries, and none match.
+        wanted = _countries_of(prefs.regions)
+        return not wanted or not named or bool(named & wanted)
     searched = job.raw.get("searched_region")
     # The search record vouches only for a location that names no country ("Greater Curitiba").
     # One that names another country wins over it: a site that ignored the search location
     # answers with postings from elsewhere, and saying they are in the region would be a lie.
-    vouched = isinstance(searched, str) and not any(
-        _names_country(location, country) for country in countries()
-    )
+    vouched = isinstance(searched, str) and not named
     for region in prefs.regions:
         if vouched and _same_region(str(searched), region):
             return True

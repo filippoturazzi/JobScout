@@ -6,7 +6,7 @@ never hand-written, so there is nothing to test it against.
 
 import pandas as pd
 import pytest
-from jobspy.model import ScraperInput
+from jobspy.model import Country, ScraperInput
 from pydantic import ConfigDict, ValidationError
 
 from jobscout.config import Settings
@@ -231,3 +231,23 @@ def test_only_a_search_in_a_known_country_is_recorded(monkeypatch, regions):
     jobs = source.fetch(SearchQuery(keywords=["python"], locations=regions))
     assert jobs
     assert all("searched_region" not in job.raw for job in jobs)
+
+
+@pytest.mark.parametrize("region", ["Angola", "Turquia"])
+def test_a_country_indeed_has_no_site_for_is_not_sent_to_it(region):
+    assert country_for([region]) == (None, region)
+
+
+def test_indeed_skips_to_the_first_country_it_has_a_site_for():
+    assert country_for(["Angola", "Argentina"]) == ("argentina", None)
+
+
+@pytest.mark.parametrize(
+    "region",
+    ["Argentina", "França", "Coreia do Sul", "South Korea", "Holanda", "EUA", "Emirados Árabes"],
+)
+def test_a_country_sent_to_indeed_is_one_jobspy_accepts(region):
+    # A value outside JobSpy's enum raises inside ScraperInput, far from the search.
+    country, ignored = country_for([region])
+    assert ignored is None
+    assert Country(country)

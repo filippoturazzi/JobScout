@@ -25,6 +25,8 @@ class ArbeitnowSource:
     name = "arbeitnow"
     supports_search = False
     term_budget: int | None = None
+    all_remote = False
+    searches_by_location = False
 
     def __init__(self, client: httpx.Client | None = None, max_pages: int = 2) -> None:
         self._client = client

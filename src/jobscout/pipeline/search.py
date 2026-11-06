@@ -24,6 +24,7 @@ from jobscout.pipeline.ingest import ingest
 from jobscout.pipeline.matching import run_match, select_candidates
 from jobscout.pipeline.users import get_preferences, update_preferences
 from jobscout.sources.base import JobSource, RawJob, SearchQuery
+from jobscout.sources.regions import country_of
 from jobscout.sources.registry import build_sources, source_statuses
 
 log = logging.getLogger(__name__)
@@ -119,6 +120,8 @@ class _CountedSource:
         self.name = source.name
         self.supports_search = source.supports_search
         self.term_budget = source.term_budget
+        self.all_remote = source.all_remote
+        self.searches_by_location = source.searches_by_location
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         jobs = self._source.fetch(query)
@@ -205,6 +208,22 @@ def _usable_sources(settings: Settings) -> list[JobSource]:
     raise NoUsableSourcesError("no sources are configured (SOURCES is empty)")
 
 
+def _search_places(regions: list[str]) -> list[str]:
+    """The places worth a search of their own: one entry per country, in the user's order.
+
+    A city beside a country adds nothing: the country's search already covers it, and only a
+    country is trusted to narrow a search. Regions that name no country are searched as typed
+    only when no country was given.
+    """
+    typed = [region.strip() for region in regions if region.strip()]
+    by_country: dict[str, str] = {}
+    for region in typed:
+        country = country_of(region)
+        if country is not None:
+            by_country.setdefault(country, region)
+    return list(by_country.values()) or list(dict.fromkeys(typed))
+
+
 def _queries_for(source: JobSource, terms: list[str], prefs: UserPreferences) -> list[SearchQuery]:
     if not source.supports_search:
         # A catalogue source ignores the query and returns everything it has; asking it
@@ -216,6 +235,15 @@ def _queries_for(source: JobSource, terms: list[str], prefs: UserPreferences) ->
     # which is the normal case: an empty query field simply does not narrow the search.
     modes = {mode.lower() for mode in prefs.work_modes}
     remote_only = modes == {"remote"}
+    places = _search_places(prefs.regions)
+    if source.searches_by_location and places:
+        # The budget counts requests, because each one risks a block on a scraped site. The
+        # best term goes to every country before the next term goes to any.
+        pairs = [(term, place) for term in terms for place in places]
+        return [
+            SearchQuery(keywords=[term], locations=[place], remote_only=remote_only)
+            for term, place in pairs[:budget]
+        ]
     return [
         SearchQuery(keywords=[term], locations=list(prefs.regions), remote_only=remote_only)
         for term in terms[:budget]
@@ -233,11 +261,24 @@ def _fetch(
 ) -> None:
     """Search every source, one term per call, isolating each failure from the rest."""
     seen: set[tuple[str, str]] = set()
+    modes = {mode.lower() for mode in prefs.work_modes}
     for source in sources:
+        if source.all_remote and modes and "remote" not in modes:
+            result.errors.append(f"{source.name}: not searched, it only lists remote jobs")
+            continue
         counted = _CountedSource(source, seen)
         batch: list[JobSource] = [counted]
         answered = False
-        for query in _queries_for(source, terms, prefs):
+        queries = _queries_for(source, terms, prefs)
+        if source.searches_by_location:
+            asked = {place for query in queries for place in query.locations}
+            for place in _search_places(prefs.regions):
+                if place not in asked:
+                    result.errors.append(
+                        f"{source.name}: not searched in {place}, "
+                        f"only {len(queries)} searches per run"
+                    )
+        for query in queries:
             (outcome,) = ingest(session, batch, query)
             report(
                 SearchProgress(

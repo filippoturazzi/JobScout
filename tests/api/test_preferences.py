@@ -24,6 +24,12 @@ def test_put_preferences_partial_update(client):
     assert r.json()["min_salary"] == 60000
 
 
+def test_put_preferences_stores_the_countries_ruled_out(client):
+    r = client.put("/preferences", json={"excluded_regions": ["Brasil"]})
+    assert r.status_code == 200
+    assert client.get("/preferences").json()["excluded_regions"] == ["Brasil"]
+
+
 def test_put_preferences_validates_work_mode(client):
     r = client.put("/preferences", json={"work_modes": ["on-the-moon"]})
     assert r.status_code == 422
