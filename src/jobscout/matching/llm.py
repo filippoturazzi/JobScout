@@ -65,6 +65,14 @@ def _import_module(name: str) -> ModuleType:
     return importlib.import_module(name)
 
 
+def provider_key_found(settings: Settings) -> bool:
+    """True when the provider is known and needs no key, or has one. Imports nothing."""
+    provider = PROVIDERS.get(settings.llm_provider)
+    if provider is None:
+        return False
+    return not provider.key_setting or bool(getattr(settings, provider.key_setting, None))
+
+
 def _resolve(settings: Settings) -> tuple[_Provider, ModuleType, str | None]:
     provider = PROVIDERS.get(settings.llm_provider)
     if provider is None:

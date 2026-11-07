@@ -1,9 +1,16 @@
 """Saved searches: one profile (its preferences) and one conversation each, per user."""
 
+from langchain_core.language_models import BaseChatModel
 from sqlmodel import Session, col, delete, desc, select
 
+from jobscout.config import Settings
+from jobscout.matching.llm import MissingProviderError, provider_key_found
+from jobscout.matching.terms import read_profile
 from jobscout.models import Match, Search, SearchJob, UserPreferences
 from jobscout.models.base import utcnow
+from jobscout.pipeline import conversation as conv
+from jobscout.pipeline.conversation import Answer, Conversation, QuestionId
+from jobscout.pipeline.run import save_preferences
 
 DEFAULT_SEARCH_TITLE = "My search"
 
@@ -94,3 +101,73 @@ def delete_search(session: Session, user_id: int, search_id: int) -> None:
     session.exec(delete(UserPreferences).where(col(UserPreferences.search_id) == search_id))
     session.delete(search)
     session.commit()
+
+
+def conversation_of(search: Search) -> Conversation:
+    return Conversation.model_validate(search.conversation)
+
+
+def save_conversation(session: Session, search: Search, conversation: Conversation) -> Search:
+    search.conversation = conversation.model_dump(mode="json")
+    search.title = conv.title(conversation)
+    session.add(search)
+    session.commit()
+    touch(session, search)
+    session.refresh(search)
+    return search
+
+
+def _read(c: Conversation, chat: BaseChatModel) -> Conversation:
+    """Read the whole text once. Any failure is kept on the conversation, not raised."""
+    try:
+        return conv.with_reading(c, read_profile(conv.full_text(c), chat))
+    except Exception as exc:
+        return conv.with_reading_error(c, f"{type(exc).__name__}: {exc}")
+
+
+def create_search(
+    session: Session, settings: Settings, user_id: int, paragraph: str, chat: BaseChatModel
+) -> Search:
+    """A new search from a paragraph, read once. Writes nothing without a provider key."""
+    if not provider_key_found(settings):
+        raise MissingProviderError(
+            f"No API key for LLM_PROVIDER {settings.llm_provider!r}: reading needs one."
+        )
+    if not paragraph.strip():
+        raise ValueError("The profile paragraph is empty; there is nothing to search for.")
+    search = add_search(session, user_id, conv.title(Conversation(paragraph=paragraph)), paragraph)
+    return save_conversation(session, search, _read(Conversation(paragraph=paragraph), chat))
+
+
+def answer_question(
+    session: Session, user_id: int, search_id: int, question: QuestionId, answer: Answer
+) -> Search:
+    search = get_search(session, user_id, search_id)
+    return save_conversation(
+        session, search, conv.answer(conversation_of(search), question, answer)
+    )
+
+
+def refine(
+    session: Session, user_id: int, search_id: int, text: str, chat: BaseChatModel
+) -> Search:
+    """Add text to the paragraph and read it all again. Never runs the search."""
+    search = get_search(session, user_id, search_id)
+    refined = conv.with_refinement(conversation_of(search), text)
+    return save_conversation(session, search, _read(refined, chat))
+
+
+def reread(session: Session, user_id: int, search_id: int, chat: BaseChatModel) -> Search:
+    """ "Try again" after a failed reading."""
+    search = get_search(session, user_id, search_id)
+    return save_conversation(session, search, _read(conversation_of(search), chat))
+
+
+def confirm(session: Session, settings: Settings, user_id: int, search_id: int) -> UserPreferences:
+    """Save what the conversation decided as the search's preferences."""
+    search = get_search(session, user_id, search_id)
+    c = conversation_of(search)
+    changes = conv.to_preferences(c)  # raises QuestionsPendingError
+    prefs, _ = save_preferences(session, settings, search_id, changes)
+    save_conversation(session, search, c.model_copy(update={"confirmed": True}))
+    return prefs

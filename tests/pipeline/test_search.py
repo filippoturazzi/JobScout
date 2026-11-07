@@ -12,16 +12,16 @@ from jobscout.config import Settings
 from jobscout.db import create_engine_from_url, init_db
 from jobscout.matching.graph import GraphDeps
 from jobscout.matching.schemas import EvaluationResult
-from jobscout.matching.terms import ExtractedProfile, profile_hash
+from jobscout.matching.terms import ExtractedProfile, _LLMOutput, profile_hash
 from jobscout.models import Job, Match, Run, SearchJob, UserPreferences
 from jobscout.pipeline.search import (
     MAX_TERMS_PER_SOURCE,
     SearchProgress,
     _queries_for,
     open_search_run,
-    run_search,
 )
-from jobscout.pipeline.users import get_preferences
+from jobscout.pipeline.search import run_search as _run_search
+from jobscout.pipeline.users import get_preferences, update_preferences
 from jobscout.sources.arbeitnow import BASE_URL as ARBEITNOW_URL
 from jobscout.sources.base import RawJob, SearchQuery
 from jobscout.sources.himalayas import BASE_URL as HIMALAYAS_URL
@@ -29,7 +29,7 @@ from jobscout.sources.registry import SOURCE_FACTORIES, SOURCE_MISSING_CREDENTIA
 from jobscout.sources.remotive import BASE_URL as REMOTIVE_URL
 from tests.conftest import load_fixture
 from tests.helpers import fetched, make_search
-from tests.matching.fakes import DeterministicFakeEmbedding
+from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 DIM = 8
 PARAGRAPH = "Junior AI engineer, remote, Python and LangChain."
@@ -126,6 +126,19 @@ def _ok(sample: dict) -> httpx.Response:
     return httpx.Response(200, json=sample)
 
 
+def run_search(session: Session, settings: Settings, search_id: int, deps: Any = None, **kw: Any):
+    """`_run_search` on confirmed terms: those the scripted chat model carries, if the
+    search has none yet. A run reads nothing itself, so the terms must already be stored."""
+    chat = getattr(deps, "chat", None)
+    extraction = getattr(chat, "extraction", None)
+    if (
+        isinstance(extraction, ExtractedProfile)
+        and not get_preferences(session, search_id).search_terms
+    ):
+        update_preferences(session, search_id, {"search_terms": extraction.terms})
+    return _run_search(session, settings, search_id, deps=deps, **kw)
+
+
 def _search(session: Session, paragraph: str = PARAGRAPH, **prefs: Any) -> Any:
     return make_search(session, paragraph, **prefs)
 
@@ -142,108 +155,57 @@ def _jobs(session: Session) -> list[Job]:
 
 
 @respx.mock
-def test_an_unchanged_paragraph_reuses_terms_and_makes_no_llm_call(session, himalayas_sample):
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    search = _search(
-        session,
-        PARAGRAPH,
-        search_terms=["python"],
-        profile_hash=profile_hash(PARAGRAPH),
-    )
-    chat = SearchChatModel(_extraction(["never used"]))
+def test_run_search_uses_confirmed_terms_and_reads_nothing(session, himalayas_sample):
+    route = respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    search = _search(session, PARAGRAPH, search_terms=["python"])
+    chat = CountingChatModel(results=[EvaluationResult(score=80, reasoning="Fits.")])
 
     result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
 
-    assert chat.extraction_calls == 0
     assert result.terms == ["python"]
-    assert get_preferences(session, search.id).search_terms == ["python"]
+    assert _LLMOutput not in chat.schemas
+    assert route.call_count == 1
+    assert route.calls[0].request.url.params["q"] == "python"
 
 
-@respx.mock
-def test_a_changed_paragraph_re_extracts(session, himalayas_sample):
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    search = _search(
-        session,
-        PARAGRAPH,
-        search_terms=["spark"],
-        profile_hash=profile_hash(OTHER_PARAGRAPH),
-    )
-    chat = SearchChatModel(_extraction(["ai engineer", "python"]))
-
-    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
-
-    assert chat.extraction_calls == 1
-    assert result.terms == ["ai engineer", "python"]
-    prefs = get_preferences(session, search.id)
-    assert prefs.search_terms == ["ai engineer", "python"]
-    assert prefs.profile_hash == profile_hash(PARAGRAPH)
-
-
-@respx.mock
-def test_a_stored_hash_with_no_stored_terms_re_extracts(session, himalayas_sample):
-    """A matching hash is only worth reusing when there are terms to reuse."""
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    search = _search(session, PARAGRAPH, search_terms=[], profile_hash=profile_hash(PARAGRAPH))
-    chat = SearchChatModel(_extraction(["python"]))
-
-    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
-
-    assert chat.extraction_calls == 1
-    assert result.terms == ["python"]
-
-
-@respx.mock
-def test_extraction_stores_the_preferences_it_found(session, himalayas_sample):
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+def test_run_search_without_confirmed_terms_fails_the_run(session):
     search = _search(session, PARAGRAPH)
-    chat = SearchChatModel(
-        _extraction(
-            ["python"],
-            seniority=["junior"],
-            required_skills=["Python"],
-            excluded_keywords=["senior"],
-        )
+
+    result = run_search(session, _settings(sources="himalayas"), search.id)
+
+    assert result.ok is False and result.fetched == 0
+    run = _the_run(session)
+    assert run.ok is False and run.finished_at is not None
+    assert run.error is not None and "no confirmed terms" in run.error
+
+
+def test_ranking_scores_pending_jobs_without_fetching(session, monkeypatch):
+    fake = _FakeSource()
+    monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
+    search = _search(session, PARAGRAPH, search_terms=["python"])
+    job = Job(
+        source="t",
+        external_id="j",
+        title="AI Engineer",
+        company="Acme",
+        url="https://x/j",
+        description="Python and LLM work",
+        content_hash="h",
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    fetched(session, search, job)
+    chat = CountingChatModel(results=[EvaluationResult(score=80, reasoning="Fits.")])
+
+    result = run_search(
+        session, _settings(sources=fake.name), search.id, deps=_deps(chat), fetch=False
     )
 
-    run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
-
-    prefs = get_preferences(session, search.id)
-    assert prefs.seniority == ["junior"]
-    assert prefs.required_skills == ["Python"]
-    assert prefs.excluded_keywords == ["senior"]
-
-
-@respx.mock
-def test_an_extraction_that_finds_nothing_does_not_erase_what_the_user_set(
-    session, himalayas_sample
-):
-    """Extraction may add to the profile; it may never silently empty a field."""
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    search = _search(session, PARAGRAPH, required_skills=["Rust"], excluded_keywords=["staff"])
-    chat = SearchChatModel(_extraction(["python"]))
-
-    run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
-
-    prefs = get_preferences(session, search.id)
-    assert prefs.required_skills == ["Rust"]
-    assert prefs.excluded_keywords == ["staff"]
-
-
-@respx.mock
-def test_an_empty_paragraph_writes_a_failed_run_and_fetches_nothing(session):
-    route = respx.get(HIMALAYAS_URL).mock(return_value=httpx.Response(200, json={"jobs": []}))
-    search = _search(session, "")
-    chat = SearchChatModel(_extraction(["python"]))
-
-    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
-
-    assert result.ok is False
-    assert result.fetched == 0
-    assert route.call_count == 0
-    run = _the_run(session)
-    assert (run.job, run.user_id, run.ok) == ("search", search.user_id, False)
-    assert run.finished_at is not None
-    assert run.error is not None and "nothing to search for" in run.error
+    assert fake.queries == []
+    assert result.ok is True and result.evaluated == 1
+    assert (result.fetched, result.sources_ok) == (0, 0)
+    assert _the_run(session).counters["evaluated"] == 1
 
 
 @respx.mock
@@ -759,19 +721,6 @@ def test_a_remote_board_is_searched_when_remote_is_acceptable(session, monkeypat
     fake = _FakeSource(all_remote=True)
     _search_with(session, monkeypatch, fake, ["python"], work_modes=modes)
     assert len(fake.queries) == 1
-
-
-def test_what_a_paragraph_states_does_not_restrict_the_search(session, monkeypatch):
-    fake = _FakeSource()
-    monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
-    search = _search(session)
-    extraction = _extraction(["python"], stated_work_modes=["remote"], stated_regions=["Brasil"])
-    run_search(
-        session, _settings(sources=fake.name), search.id, deps=_deps(SearchChatModel(extraction))
-    )
-    prefs = get_preferences(session, search.id)
-    assert prefs.work_modes == [] and prefs.regions == []
-    assert [(q.locations, q.remote_only) for q in fake.queries] == [([], False)]
 
 
 def test_the_stored_regions_reach_the_source_during_a_run(session, monkeypatch):

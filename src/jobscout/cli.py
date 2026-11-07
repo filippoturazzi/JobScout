@@ -180,7 +180,7 @@ def search(
     """Search every source with the terms from your profile, score, and show the ranking.
 
     The same run `POST /search` starts, here in the foreground, printing each step as it
-    happens. It needs an LLM key: the terms are extracted from your profile paragraph.
+    happens. It needs an LLM key for scoring and a confirmed search (its terms are stored).
     """
     settings = get_settings()
     try:
