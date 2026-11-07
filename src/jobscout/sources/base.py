@@ -13,6 +13,7 @@ class SearchQuery(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     remote_only: bool = False
     locations: list[str] = Field(default_factory=list)
+    city: str | None = None
 
 
 class RawJob(BaseModel):

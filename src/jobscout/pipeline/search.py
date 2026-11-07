@@ -222,11 +222,18 @@ def _queries_for(source: JobSource, terms: list[str], prefs: UserPreferences) ->
         # best term goes to every country before the next term goes to any.
         pairs = [(term, place) for term in terms for place in places]
         return [
-            SearchQuery(keywords=[term], locations=[place], remote_only=remote_only)
+            SearchQuery(
+                keywords=[term], locations=[place], remote_only=remote_only, city=prefs.city
+            )
             for term, place in pairs[:budget]
         ]
     return [
-        SearchQuery(keywords=[term], locations=list(prefs.regions), remote_only=remote_only)
+        SearchQuery(
+            keywords=[term],
+            locations=list(prefs.regions),
+            remote_only=remote_only,
+            city=prefs.city,
+        )
         for term in terms[:budget]
     ]
 

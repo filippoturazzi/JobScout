@@ -7,7 +7,7 @@ import re
 from collections.abc import Iterable
 
 from jobscout.models import Job, UserPreferences
-from jobscout.sources.regions import countries_in, country_of
+from jobscout.sources.regions import countries_in, country_of, is_area
 from jobscout.sources.text import fold
 
 _TOKEN_RE = re.compile(r"(?:[^\W_]|[+#.])+")
@@ -125,6 +125,33 @@ def _in_excluded_region(job: Job, named: frozenset[str], excluded: set[str]) -> 
     return isinstance(searched, str) and country_of(searched) in excluded
 
 
+_WORK_MODE_WORDS = frozenset(
+    {"remote", "remoto", "hybrid", "hibrido", "on-site", "onsite", "presencial", "anywhere"}
+)
+
+
+def _names_no_city(location: str) -> bool:
+    """True when every part of a location is a country, an area or a work mode, or empty."""
+    for part in location.split(","):
+        folded = fold(part).strip()
+        is_place = country_of(folded) is not None or is_area(folded)
+        if folded and not is_place and folded not in _WORK_MODE_WORDS:
+            return False
+    return True
+
+
+def _passes_city(job: Job, location: str, city: str, prefs: UserPreferences) -> bool:
+    """A non-remote job is in the city, or names no city at all but is in the country."""
+    needle = tokenize(fold(city))
+    if needle and _contains_sequence(tokenize(fold(location)), needle):
+        return True
+    wanted = _countries_of(prefs.regions)
+    if location:
+        return bool(countries_in(location) & wanted) and _names_no_city(location)
+    searched = job.raw.get("searched_region")
+    return isinstance(searched, str) and country_of(searched) in wanted
+
+
 def _passes_region(job: Job, prefs: UserPreferences) -> bool:
     location = job.location or ""
     named = countries_in(location)
@@ -138,6 +165,8 @@ def _passes_region(job: Job, prefs: UserPreferences) -> bool:
         # only on evidence: it names places, and we know the user's countries, and none match.
         wanted = _countries_of(prefs.regions)
         return not wanted or not named or bool(named & wanted)
+    if prefs.city:
+        return _passes_city(job, location, prefs.city, prefs)
     searched = job.raw.get("searched_region")
     # The search record vouches only for a location that names no country ("Greater Curitiba").
     # One that names another country wins over it: a site that ignored the search location

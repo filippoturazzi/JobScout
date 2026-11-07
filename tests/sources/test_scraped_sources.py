@@ -251,3 +251,20 @@ def test_a_country_sent_to_indeed_is_one_jobspy_accepts(region):
     country, ignored = country_for([region])
     assert ignored is None
     assert Country(country)
+
+
+def test_linkedin_searches_the_city_with_its_country(monkeypatch):
+    calls = _capture_scrape(monkeypatch)
+    LinkedInSource(Settings(_env_file=None)).fetch(
+        SearchQuery(keywords=["python"], locations=["Brasil"], city="Recife")
+    )
+    assert calls[0]["location"] == "Recife, Brazil"
+
+
+def test_indeed_searches_the_country_when_a_city_is_set(monkeypatch):
+    calls = _capture_scrape(monkeypatch)
+    IndeedSource(Settings(_env_file=None)).fetch(
+        SearchQuery(keywords=["python"], locations=["Brasil"], city="Recife")
+    )
+    assert "location" not in calls[0]
+    assert calls[0]["country_indeed"] == "brazil"

@@ -33,6 +33,8 @@ class UserPreferences(SQLModel, table=True):
     excluded_regions: list[str] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False)
     )
+    # A city inside the country in `regions`; meaningless without one.
+    city: str | None = None
     min_salary: int | None = None
     salary_currency: str | None = None
     required_skills: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))

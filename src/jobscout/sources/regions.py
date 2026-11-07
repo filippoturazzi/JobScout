@@ -252,6 +252,11 @@ def english_name(country: str) -> str:
     return " ".join(word if word in _SMALL_WORDS else word.capitalize() for word in country.split())
 
 
+def is_area(name: str) -> bool:
+    """True when ``name`` is an area such as "Europe" or "LATAM", not a country."""
+    return fold(name) in _AREAS
+
+
 @lru_cache(maxsize=4096)
 def countries_in(location: str) -> frozenset[str]:
     """Every country a location names, directly or through an area such as "Europe".

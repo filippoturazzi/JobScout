@@ -816,3 +816,9 @@ def test_a_search_records_every_job_it_fetched(session, himalayas_sample):
 
     rows = session.exec(select(SearchJob).where(SearchJob.search_id == search.id)).all()
     assert len(rows) == result.fetched == VALID_PER_FIXTURE
+
+
+def test_queries_carry_the_city():
+    prefs = UserPreferences(regions=["Brazil"], city="Recife")
+    queries = _queries_for(_FakeSource(), ["python", "java"], prefs)
+    assert queries and all(q.city == "Recife" for q in queries)

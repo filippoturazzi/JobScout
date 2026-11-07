@@ -327,3 +327,25 @@ def test_a_search_record_in_an_excluded_country_counts_as_its_location(monkeypat
     jobs = _linkedin_jobs(monkeypatch, searched=["Brasil"])
     greater_curitiba = next(j for j in jobs if j.location == "Greater Curitiba")
     assert not job_matches_preferences(greater_curitiba, prefs(excluded_regions=["Brasil"]))
+
+
+@pytest.mark.parametrize(
+    ("location", "remote", "searched", "expected"),
+    [
+        ("São Paulo, SP, Brazil", False, None, True),
+        ("Sao Paulo - SP", False, None, True),
+        ("Brazil", False, None, True),
+        ("Remoto, Brasil", False, None, True),
+        ("Rio de Janeiro, RJ, Brazil", False, None, False),
+        ("Greater Curitiba", False, "Brazil", False),
+        ("", False, "Brazil", True),
+        ("United States", True, None, False),
+        ("Brazil", True, None, True),
+    ],
+)
+def test_city_rule(location, remote, searched, expected):
+    posting = job(location=location, remote=remote)
+    if searched is not None:
+        posting.raw = {"searched_region": searched}
+    p = prefs(regions=["Brazil"], city="São Paulo")
+    assert job_matches_preferences(posting, p) is expected
