@@ -3,7 +3,7 @@
 import threading
 from typing import Any
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, inspect
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
 
@@ -21,7 +21,26 @@ def create_engine_from_url(url: str) -> Engine:
     return create_engine(url)
 
 
+class DatabaseNeedsUpgradeError(RuntimeError):
+    """The database has the shape from before saved searches; `jobscout upgrade-db` fixes it."""
+
+
+def needs_upgrade(engine: Engine) -> bool:
+    """True when `user_preferences` exists without `search_id`, the pre-searches shape."""
+    inspector = inspect(engine)
+    if not inspector.has_table("user_preferences"):
+        return False
+    columns = {column["name"] for column in inspector.get_columns("user_preferences")}
+    return "search_id" not in columns
+
+
 def init_db(engine: Engine) -> None:
+    # Checked first: create_all would add the new tables beside the old ones, and every
+    # query would then fail with a SQL error instead of this sentence.
+    if needs_upgrade(engine):
+        raise DatabaseNeedsUpgradeError(
+            "This database predates saved searches. Back it up and run `jobscout upgrade-db`."
+        )
     SQLModel.metadata.create_all(engine)
 
 

@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -43,6 +44,70 @@ def _isolate_engines(monkeypatch):
     yield
     reset_engines()
     get_settings.cache_clear()
+
+
+_OLD_NOW = "2026-10-01 12:00:00.000000"
+
+
+@pytest.fixture
+def old_db(tmp_path) -> str:
+    """The URL of a SQLite file in the shape `main` had before saved searches, with data."""
+    path = tmp_path / "old.db"
+    connection = sqlite3.connect(path)
+    connection.executescript((FIXTURES / "schema_pre_searches.sql").read_text(encoding="utf-8"))
+    connection.execute(
+        "INSERT INTO user VALUES (1, 'me@example.com', 'en', ?, ?)", (_OLD_NOW, _OLD_NOW)
+    )
+    connection.execute(
+        "INSERT INTO user_preferences (id, user_id, titles, seniority, work_modes, regions,"
+        " excluded_regions, min_salary, salary_currency, required_skills, nice_to_have_skills,"
+        " excluded_keywords, profile_summary, search_terms, profile_hash, profile_embedding,"
+        " min_score_to_notify, notify_email, created_at, updated_at)"
+        " VALUES (3, 1, '[]', '[\"junior\"]', '[\"remote\"]', '[\"Brazil\"]', '[]', NULL, NULL,"
+        " '[\"python\"]', '[]', '[]', ?, '[\"ai engineer\"]', 'hash', ?, 75,"
+        " 'me@example.com', ?, ?)",
+        (
+            "Junior AI engineer, Python, remote from Brazil.",
+            b"\x00\x01",
+            _OLD_NOW,
+            _OLD_NOW,
+        ),
+    )
+    for job_id in (1, 2):
+        connection.execute(
+            "INSERT INTO job (id, source, external_id, title, company, location, remote, url,"
+            " description, tags, first_seen_at, last_seen_at, is_active, content_hash, raw,"
+            " created_at, updated_at) VALUES (?, 'arbeitnow', ?, 'AI Engineer', 'Acme', NULL,"
+            " 1, ?, 'Python LLM work.', '[]', ?, ?, 1, 'h', '{}', ?, ?)",
+            (job_id, f"ext-{job_id}", f"https://x/{job_id}", *[_OLD_NOW] * 4),
+        )
+    connection.execute(
+        'INSERT INTO "match" (id, job_id, user_id, similarity, score, reasoning,'
+        " matched_skills, missing_skills, red_flags, status, llm_model, notified_at,"
+        " created_at, updated_at) VALUES (7, 1, 1, 0.8, 90, 'Good.', '[\"python\"]', '[]',"
+        " '[]', 'applied', 'fake', NULL, ?, ?)",
+        (_OLD_NOW, _OLD_NOW),
+    )
+    connection.execute(
+        'INSERT INTO "match" (id, job_id, user_id, similarity, score, reasoning,'
+        " matched_skills, missing_skills, red_flags, status, llm_model, notified_at,"
+        " created_at, updated_at) VALUES (9, 2, 1, 0.7, 80, 'Fine.', '[]', '[\"go\"]',"
+        " '[]', 'new', 'fake', ?, ?, ?)",
+        ("2026-10-02 08:00:00.000000", _OLD_NOW, _OLD_NOW),
+    )
+    connection.execute(
+        "INSERT INTO run (id, job, user_id, started_at, finished_at, ok, error, counters)"
+        " VALUES (1, 'search', 1, ?, ?, 1, NULL, '{}')",
+        (_OLD_NOW, _OLD_NOW),
+    )
+    connection.execute(
+        "INSERT INTO run (id, job, user_id, started_at, finished_at, ok, error, counters)"
+        " VALUES (2, 'ingest', NULL, ?, ?, 1, NULL, '{}')",
+        (_OLD_NOW, _OLD_NOW),
+    )
+    connection.commit()
+    connection.close()
+    return f"sqlite:///{path}"
 
 
 def load_jsonl(name: str) -> list[dict]:

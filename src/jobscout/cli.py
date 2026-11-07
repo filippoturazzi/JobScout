@@ -1,6 +1,7 @@
 """Command-line interface. Thin shell over ``jobscout.pipeline``."""
 
 import logging
+from datetime import datetime
 from typing import Annotated
 
 import typer
@@ -8,13 +9,14 @@ import uvicorn
 from sqlmodel import Session
 
 from jobscout.config import Settings, get_settings
-from jobscout.db import get_engine, init_db
+from jobscout.db import DatabaseNeedsUpgradeError, get_engine, init_db, needs_upgrade
 from jobscout.logs import configure_logging
 from jobscout.pipeline.matching import MissingProviderError, run_match
 from jobscout.pipeline.repair import repair_descriptions as repair
 from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.search import SearchProgress, run_search
 from jobscout.pipeline.searches import default_search_id
+from jobscout.pipeline.upgrade import backup_sqlite, upgrade_database
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.sources.registry import source_statuses
 
@@ -32,7 +34,11 @@ app = typer.Typer(
 
 def _session() -> Session:
     engine = get_engine(get_settings())
-    init_db(engine)
+    try:
+        init_db(engine)
+    except DatabaseNeedsUpgradeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
     return Session(engine)
 
 
@@ -226,6 +232,21 @@ def repair_descriptions() -> None:
     typer.echo(f"repaired={stats.repaired} unchanged={stats.unchanged} no_payload={stats.skipped}")
     if stats.repaired:
         typer.echo("Run `jobscout match` to re-embed and rescore the repaired jobs.")
+
+
+@app.command()
+def upgrade_db() -> None:
+    """Convert a database from before saved searches, after backing up its SQLite file."""
+    settings = get_settings()
+    engine = get_engine(settings)  # no init_db: it refuses exactly the database to convert
+    if not needs_upgrade(engine):
+        typer.echo("Already up to date.")
+        return
+    backup = backup_sqlite(settings.database_url, datetime.now())
+    if backup is not None:
+        typer.echo(f"Backup: {backup}")
+    report = upgrade_database(engine)
+    typer.echo(f"searches={report.searches} matches={report.matches} runs={report.runs}")
 
 
 @app.command()

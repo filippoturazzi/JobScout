@@ -550,3 +550,31 @@ def test_search_command_prints_progress_while_it_runs(tmp_path, monkeypatch):
     positions = [lines.index(line) for line in expected]
     assert positions == sorted(positions)
     assert positions[-1] < lines.index("[80] Role 80 — Acme"), "progress comes before the ranking"
+
+
+def test_upgrade_db_command_backs_up_and_upgrades(old_db, tmp_path, monkeypatch):
+    settings = Settings(_env_file=None, database_url=old_db)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    result = runner.invoke(cli.app, ["upgrade-db"])
+
+    assert result.exit_code == 0, result.output
+    (backup,) = tmp_path.glob("old.db.bak-*")
+    assert str(backup) in result.output
+    assert "searches=1 matches=2 runs=1" in result.output
+    with Session(get_engine(settings)) as session:
+        assert len(session.exec(select(Search)).all()) == 1
+
+    again = runner.invoke(cli.app, ["upgrade-db"])
+    assert again.exit_code == 0, again.output
+    assert "Already up to date." in again.output
+    assert len(list(tmp_path.glob("old.db.bak-*"))) == 1, "no backup when nothing changes"
+
+
+def test_commands_on_an_old_database_say_to_upgrade(old_db, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: Settings(_env_file=None, database_url=old_db))
+
+    result = runner.invoke(cli.app, ["jobs"])
+
+    assert result.exit_code == 2
+    assert "jobscout upgrade-db" in result.output

@@ -1,3 +1,6 @@
+import logging
+
+import pytest
 from fastapi.testclient import TestClient
 
 import jobscout.api.app as app_module
@@ -44,3 +47,17 @@ def test_lifespan_honours_the_disable_flag(tmp_path, monkeypatch):
 
     with TestClient(app) as client:
         assert client.app.state.scheduler.get_jobs() == []
+
+
+def test_lifespan_refuses_an_old_database(old_db, monkeypatch, caplog):
+    settings = Settings(_env_file=None, database_url=old_db, scheduler_enabled=False)
+    monkeypatch.setattr(db, "get_settings", lambda: settings)
+    monkeypatch.setattr(app_module, "get_settings", lambda: settings)
+
+    with pytest.raises(db.DatabaseNeedsUpgradeError), TestClient(app):
+        pass
+
+    assert any(
+        record.levelno == logging.ERROR and "jobscout upgrade-db" in record.getMessage()
+        for record in caplog.records
+    )

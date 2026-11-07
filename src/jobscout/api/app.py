@@ -1,5 +1,6 @@
 """ASGI application. Run with ``jobscout serve`` or ``uvicorn jobscout.api.app:app``."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -9,17 +10,23 @@ from sqlmodel import Session
 from jobscout import __version__
 from jobscout.api.routers import jobs, matches, preferences, runs, search, sources
 from jobscout.config import get_settings
-from jobscout.db import get_engine, init_db
+from jobscout.db import DatabaseNeedsUpgradeError, get_engine, init_db
 from jobscout.logs import configure_logging
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.scheduler import JobScoutScheduler
+
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     engine = get_engine(settings)
-    init_db(engine)
+    try:
+        init_db(engine)
+    except DatabaseNeedsUpgradeError as exc:
+        log.error("%s", exc)  # the one sentence a user needs, above uvicorn's traceback
+        raise
     with Session(engine) as session:
         get_or_create_default_user(session)
     # A fresh scheduler per lifespan, so start() can never run twice on one instance.

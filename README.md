@@ -154,6 +154,22 @@ Ruling a country out (how "abroad" is stored: `regions` empty, the home country 
 ALTER TABLE user_preferences ADD COLUMN excluded_regions JSON NOT NULL DEFAULT '[]';
 ```
 
+#### Saved searches (2026-11-07)
+
+This version reorganises preferences into saved searches: your preferences become your first
+search, and matches belong to a search instead of directly to you. The `ALTER TABLE` lines
+above do not cover this, and every command stops with a message until the database is
+converted. Run, once:
+
+```bash
+uv run jobscout upgrade-db
+```
+
+It copies the SQLite file to `<file>.bak-YYYYMMDD-HHMMSS` first, then converts it in one
+transaction, keeping every match with its id and status (applied and dismissed included); if
+anything fails, nothing changes. Postgres is not supported by the upgrade (no released install
+uses it).
+
 ## API
 
 | Method | Path            | Description                                   |
