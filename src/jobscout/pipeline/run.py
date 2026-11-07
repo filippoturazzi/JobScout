@@ -34,12 +34,12 @@ def run_ingest(
 
 def list_jobs(
     session: Session,
-    user_id: int,
+    search_id: int,
     limit: int = 50,
     apply_filters: bool = True,
     active_only: bool = True,
 ) -> list[Job]:
-    prefs = get_preferences(session, user_id)
+    prefs = get_preferences(session, search_id)
     statement = select(Job).order_by(col(Job.first_seen_at).desc(), col(Job.id).desc())
     if active_only:
         statement = statement.where(col(Job.is_active).is_(True))
@@ -50,13 +50,13 @@ def list_jobs(
 
 
 def match_listing_statement(
-    user_id: int, min_score: int = 0, status: str | None = None
+    search_id: int, min_score: int = 0, status: str | None = None
 ) -> Select[tuple[Match, Job]]:
     """The `list_matches` query, separated so a test can compile it for another dialect."""
     statement = (
         select(Match, Job)
         .join(Job, col(Match.job_id) == col(Job.id))
-        .where(col(Match.user_id) == user_id, col(Job.is_active).is_(True))
+        .where(col(Match.search_id) == search_id, col(Job.is_active).is_(True))
         # SQLite already sorts NULLs last under DESC; Postgres defaults to NULLS FIRST.
         .order_by(col(Match.score).desc().nulls_last(), col(Match.similarity).desc())
     )
@@ -75,12 +75,12 @@ def match_listing_statement(
 
 def list_matches(
     session: Session,
-    user_id: int,
+    search_id: int,
     min_score: int = 0,
     status: str | None = None,
     limit: int = 50,
 ) -> list[tuple[Match, Job]]:
-    """Matches for one user, best first (unscored rows last). Inactive jobs are hidden.
+    """Matches for one search, best first (unscored rows last). Inactive jobs are hidden.
 
     Unscored rows — the `low` ones the cosine prefilter wrote without calling the LLM —
     are hidden from the default listing but returned when an explicit ``status`` is asked
@@ -93,10 +93,10 @@ def list_matches(
     The default listing also hides jobs the current preferences would no longer select, or a
     narrowed region would keep showing what was scored before. Asking for a status shows them.
     """
-    statement = match_listing_statement(user_id, min_score=min_score, status=status)
+    statement = match_listing_statement(search_id, min_score=min_score, status=status)
     if status is not None:
         return list(session.exec(statement.limit(limit)).all())
-    prefs = get_preferences(session, user_id)
+    prefs = get_preferences(session, search_id)
     rows = session.exec(statement).all()
     return [(match, job) for match, job in rows if job_matches_preferences(job, prefs)][:limit]
 
@@ -141,7 +141,7 @@ def list_runs(session: Session, job: str | None = None, limit: int = 50) -> list
 def save_preferences(
     session: Session,
     settings: Settings,
-    user_id: int,
+    search_id: int,
     changes: dict[str, Any],
     deps: "GraphDeps | None" = None,
     on_changed: Callable[[], None] | None = None,
@@ -153,13 +153,13 @@ def save_preferences(
     fast and cannot fail because matching is unavailable. `settings` and `deps` are unused now
     and kept only for signature stability, so callers and tests need not change.
     """
-    prefs, changed = update_preferences(session, user_id, changes)
+    prefs, changed = update_preferences(session, search_id, changes)
     if not (changed & MATCHING_RELEVANT_FIELDS):
         return prefs, MatchRun()
 
     session.exec(
         update(Match)
-        .where(col(Match.user_id) == user_id, col(Match.status).not_in(CLOSED_STATUSES))
+        .where(col(Match.search_id) == search_id, col(Match.status).not_in(CLOSED_STATUSES))
         .values(status="stale")
     )
     session.commit()

@@ -2,6 +2,7 @@ from sqlmodel import select
 
 from jobscout.models import Job, Match, User
 from jobscout.models.user import non_nullable_preference_fields
+from jobscout.pipeline.searches import default_search_id
 
 
 def test_get_preferences_bootstraps_default_user(client):
@@ -81,7 +82,14 @@ def test_put_preferences_marks_stale_matches_on_matching_relevant_change(client,
     session.add(job)
     session.commit()
     session.refresh(job)
-    match = Match(job_id=job.id, user_id=user.id, similarity=0.5, score=40, status="new")
+    match = Match(
+        job_id=job.id,
+        user_id=user.id,
+        search_id=default_search_id(session, user.id),
+        similarity=0.5,
+        score=40,
+        status="new",
+    )
     session.add(match)
     session.commit()
 

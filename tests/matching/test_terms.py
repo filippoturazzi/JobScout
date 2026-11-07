@@ -117,13 +117,14 @@ def test_terms_are_capped_keeping_the_most_important():
 
 
 def _saved_prefs(session, **llm_fields):
-    from jobscout.pipeline.users import get_or_create_default_user, update_preferences
+    from jobscout.pipeline.users import update_preferences
+    from tests.helpers import make_search
 
     extracted = extract_profile(PARAGRAPH, fake(terms=["ai engineer"], **llm_fields))
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     prefs, _ = update_preferences(
         session,
-        user.id,
+        search.id,
         {
             **extracted.model_dump(exclude={"terms", "stated_work_modes", "stated_regions"}),
             "search_terms": extracted.terms,

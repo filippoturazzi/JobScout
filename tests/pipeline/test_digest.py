@@ -15,6 +15,7 @@ from jobscout.pipeline.digest import (
     mark_notified,
     select_unnotified,
 )
+from jobscout.pipeline.searches import default_search_id
 from jobscout.pipeline.users import get_or_create_default_user
 
 
@@ -38,7 +39,14 @@ def _match(session: Session, user_id: int, score: int | None, **kw: Any) -> Matc
     session.add(job)
     session.commit()
     session.refresh(job)
-    match = Match(job_id=job.id, user_id=user_id, similarity=0.8, score=score, **kw)
+    match = Match(
+        job_id=job.id,
+        user_id=user_id,
+        search_id=default_search_id(session, user_id),
+        similarity=0.8,
+        score=score,
+        **kw,
+    )
     session.add(match)
     session.commit()
     session.refresh(match)

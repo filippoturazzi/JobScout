@@ -7,7 +7,7 @@ from jobscout.matching.graph import GraphDeps
 from jobscout.models import Job, Match
 from jobscout.models.base import utcnow
 from jobscout.pipeline.run import save_preferences
-from jobscout.pipeline.users import get_or_create_default_user, update_preferences
+from tests.helpers import make_search
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 DIM = 8
@@ -50,28 +50,43 @@ def _add_job(session, external_id: str, days_ago: int = 0) -> Job:
 
 
 def test_save_preferences_ignores_irrelevant_changes(session):
-    user = get_or_create_default_user(session)
-    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    search = make_search(session, "Python LLM engineer.")
     job = _add_job(session, "a")
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=50, status="seen"))
+    session.add(
+        Match(
+            job_id=job.id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.9,
+            score=50,
+            status="seen",
+        )
+    )
     session.commit()
     chat = CountingChatModel()
 
-    save_preferences(session, _settings(), user.id, {"min_score_to_notify": 90}, deps=_deps(chat))
+    save_preferences(session, _settings(), search.id, {"min_score_to_notify": 90}, deps=_deps(chat))
 
     assert chat.calls == 0
     assert session.exec(select(Match)).one().status == "seen"
 
 
 def test_save_preferences_never_stales_dismissed(session):
-    user = get_or_create_default_user(session)
-    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    search = make_search(session, "Python LLM engineer.")
     job = _add_job(session, "a")
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, status="dismissed"))
+    session.add(
+        Match(
+            job_id=job.id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.9,
+            status="dismissed",
+        )
+    )
     session.commit()
     chat = CountingChatModel()
 
-    save_preferences(session, _settings(), user.id, {"titles": ["AI Engineer"]}, deps=_deps(chat))
+    save_preferences(session, _settings(), search.id, {"titles": ["AI Engineer"]}, deps=_deps(chat))
 
     assert chat.calls == 0
     assert session.exec(select(Match)).one().status == "dismissed"
@@ -88,26 +103,34 @@ def test_save_preferences_stales_without_evaluating_anything(session, monkeypatc
     for module in (llm_module, matching_module):
         monkeypatch.setattr(module, "embeddings", _forbidden)
         monkeypatch.setattr(module, "chat_model", _forbidden)
-    user = get_or_create_default_user(session)
-    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    search = make_search(session, "Python LLM engineer.")
     job = _add_job(session, "a")
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=50, status="seen"))
+    session.add(
+        Match(
+            job_id=job.id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.9,
+            score=50,
+            status="seen",
+        )
+    )
     session.commit()
 
-    prefs, _ = save_preferences(session, _settings(), user.id, {"titles": ["AI Engineer"]})
+    prefs, _ = save_preferences(session, _settings(), search.id, {"titles": ["AI Engineer"]})
 
     assert prefs.titles == ["AI Engineer"]
     assert session.exec(select(Match)).one().status == "stale"
 
 
 def test_save_preferences_wakes_the_scheduler(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     woken = []
 
     save_preferences(
         session,
         _settings(),
-        user.id,
+        search.id,
         {"profile_summary": "Python LLM engineer."},
         on_changed=lambda: woken.append(True),
     )
@@ -116,14 +139,13 @@ def test_save_preferences_wakes_the_scheduler(session):
 
 
 def test_save_preferences_does_not_wake_on_an_irrelevant_change(session):
-    user = get_or_create_default_user(session)
-    update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+    search = make_search(session, "Python LLM engineer.")
     woken = []
 
     save_preferences(
         session,
         _settings(),
-        user.id,
+        search.id,
         {"min_score_to_notify": 80},
         on_changed=lambda: woken.append(True),
     )
@@ -133,13 +155,13 @@ def test_save_preferences_does_not_wake_on_an_irrelevant_change(session):
 
 def test_save_preferences_survives_a_failing_wake(session):
     """A broken scheduler must not lose a preference save."""
-    user = get_or_create_default_user(session)
+    search = make_search(session)
 
     def _boom() -> None:
         raise RuntimeError("scheduler is down")
 
     prefs, run = save_preferences(
-        session, _settings(), user.id, {"profile_summary": "Python."}, on_changed=_boom
+        session, _settings(), search.id, {"profile_summary": "Python."}, on_changed=_boom
     )
 
     assert prefs.profile_summary == "Python."
@@ -152,15 +174,19 @@ def test_save_preferences_leaves_no_pending_rows_when_the_hook_fails(session):
     `on_changed` is arbitrary caller code. If it dirties the session and then raises,
     the next commit on that session — an unrelated request — would flush its leftovers.
     """
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     job = _add_job(session, "a")
 
     def _dirty_then_fail() -> None:
-        session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=90))
+        session.add(
+            Match(
+                job_id=job.id, user_id=search.user_id, search_id=search.id, similarity=0.9, score=90
+            )
+        )
         raise RuntimeError("scheduler is down")
 
     _prefs, run = save_preferences(
-        session, _settings(), user.id, {"profile_summary": "Python."}, on_changed=_dirty_then_fail
+        session, _settings(), search.id, {"profile_summary": "Python."}, on_changed=_dirty_then_fail
     )
 
     assert run.error == "RuntimeError: scheduler is down"

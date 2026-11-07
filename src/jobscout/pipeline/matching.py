@@ -24,7 +24,7 @@ from jobscout.matching.prompts import (
 )
 from jobscout.matching.schemas import MatchState
 from jobscout.matching.vectors import cosine, dim, pack, unpack
-from jobscout.models import REEVALUATABLE_STATUSES, Job, Match, User, UserPreferences
+from jobscout.models import REEVALUATABLE_STATUSES, Job, Match, Search, User, UserPreferences
 from jobscout.pipeline.filters import job_matches_preferences
 from jobscout.pipeline.users import get_preferences
 
@@ -59,13 +59,13 @@ class MatchRun:
 def select_candidates(
     session: Session,
     prefs: UserPreferences,
-    user_id: int,
+    search_id: int,
     first_seen_after: datetime | None = None,
 ) -> list[Job]:
     """Active jobs passing the deterministic filter that have no match, or a stale one."""
     existing: dict[int, str] = {
         match.job_id: match.status
-        for match in session.exec(select(Match).where(Match.user_id == user_id)).all()
+        for match in session.exec(select(Match).where(Match.search_id == search_id)).all()
     }
     statement = select(Job).where(col(Job.is_active).is_(True))
     if first_seen_after is not None:
@@ -148,12 +148,13 @@ def _ensure_job_embeddings(
     return vectors, embedded_count, embeddings_pending
 
 
-def _upsert_match(session: Session, job_id: int, user_id: int, **values: object) -> None:
+def _upsert_match(session: Session, job_id: int, search: Search, **values: object) -> None:
     match = session.exec(
-        select(Match).where(Match.job_id == job_id, Match.user_id == user_id)
+        select(Match).where(Match.job_id == job_id, Match.search_id == search.id)
     ).first()
     if match is None:
-        match = Match(job_id=job_id, user_id=user_id, similarity=0.0)
+        assert search.id is not None
+        match = Match(job_id=job_id, user_id=search.user_id, search_id=search.id, similarity=0.0)
     for name, value in values.items():
         setattr(match, name, value)
     session.add(match)
@@ -171,25 +172,25 @@ def _default_deps(settings: Settings) -> GraphDeps:
 def run_match(
     session: Session,
     settings: Settings,
-    user_id: int,
+    search_id: int,
     limit: int | None = None,
     dry_run: bool = False,
     deps: GraphDeps | None = None,
     first_seen_after: datetime | None = None,
     on_evaluated: Callable[[int, int], None] | None = None,
 ) -> MatchRun:
-    """Evaluate the best unmatched candidates for one user, bounded by the per-run cap.
+    """Evaluate the best unmatched candidates for one search, bounded by the per-run cap.
 
     ``on_evaluated(done, total)`` is called after each selected job, scored or failed, so a
     caller can show progress; ``total`` is how many were selected.
     """
     result = MatchRun()
-    prefs = get_preferences(session, user_id)
+    prefs = get_preferences(session, search_id)
     if not prefs.profile_summary.strip():
         result.error = "No profile summary set — nothing to match against."
         return result
 
-    candidates = select_candidates(session, prefs, user_id, first_seen_after=first_seen_after)
+    candidates = select_candidates(session, prefs, search_id, first_seen_after=first_seen_after)
     result.candidates = len(candidates)
     if not candidates:
         return result
@@ -243,7 +244,9 @@ def run_match(
         ]
         return result
 
-    user = session.get(User, user_id)
+    search = session.get(Search, search_id)
+    assert search is not None
+    user = session.get(User, search.user_id)
     locale = user.locale if user is not None else "en"
     graph_deps = deps if deps is not None else _default_deps(settings)
     graph = build_graph(graph_deps)
@@ -256,7 +259,7 @@ def run_match(
         assert job.id is not None
         state: MatchState = {
             "job_id": job.id,
-            "user_id": user_id,
+            "user_id": search.user_id,
             "job_text": job_text(job),
             "job_embedding_text": job_embedding_text(job),
             "prompt": build_user_prompt(prefs, job, locale),
@@ -273,7 +276,7 @@ def run_match(
                 _upsert_match(
                     session,
                     job.id,
-                    user_id,
+                    search,
                     similarity=final["similarity"],
                     score=None,
                     reasoning=None,
@@ -288,7 +291,7 @@ def run_match(
                 _upsert_match(
                     session,
                     job.id,
-                    user_id,
+                    search,
                     similarity=final["similarity"],
                     score=evaluation.score,
                     reasoning=evaluation.reasoning,

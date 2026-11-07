@@ -18,7 +18,7 @@ from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
 from jobscout.matching.llm import chat_model
 from jobscout.matching.terms import extract_profile, profile_hash
-from jobscout.models import Run, UserPreferences
+from jobscout.models import Run, Search, UserPreferences
 from jobscout.models.base import utcnow
 from jobscout.pipeline.ingest import ingest
 from jobscout.pipeline.matching import run_match, select_candidates
@@ -129,7 +129,7 @@ class _CountedSource:
         return jobs
 
 
-def open_search_run(session: Session, user_id: int) -> Run:
+def open_search_run(session: Session, search_id: int) -> Run:
     """Open the row before any work starts, so a killed process leaves a failure behind.
 
     Public so a caller that runs the search in the background can hand out the run's id
@@ -138,7 +138,10 @@ def open_search_run(session: Session, user_id: int) -> Run:
     Not ``scheduler.start_run``: ``pipeline`` sits below ``scheduler`` and must not import
     it, and a search has no business pruning the operator's run history on the way past.
     """
-    run = Run(job="search", user_id=user_id)
+    search = session.get(Search, search_id)
+    if search is None:
+        raise LookupError(f"No search {search_id}")
+    run = Run(job="search", user_id=search.user_id, search_id=search_id)
     session.add(run)
     session.commit()
     session.refresh(run)
@@ -163,14 +166,14 @@ def _finish(session: Session, run: Run, result: SearchResult, ok: bool) -> None:
 
 
 def _resolve_terms(
-    session: Session, settings: Settings, user_id: int, deps: GraphDeps | None
+    session: Session, settings: Settings, search_id: int, deps: GraphDeps | None
 ) -> list[str]:
     """The stored terms when the paragraph has not changed, a fresh extraction otherwise.
 
     Raises ``ValueError`` when the paragraph is empty or yields no usable term, so a search
     for the empty string never reaches the sources.
     """
-    prefs = get_preferences(session, user_id)
+    prefs = get_preferences(session, search_id)
     paragraph = prefs.profile_summary
     digest = profile_hash(paragraph)
     # The stored terms are only worth reusing when there are some: a matching hash with an
@@ -185,7 +188,7 @@ def _resolve_terms(
         found = getattr(extracted, name)
         if found:
             changes[name] = found
-    update_preferences(session, user_id, changes)
+    update_preferences(session, search_id, changes)
     return list(extracted.terms)
 
 
@@ -320,12 +323,12 @@ def _fetch(
 def run_search(
     session: Session,
     settings: Settings,
-    user_id: int,
+    search_id: int,
     deps: GraphDeps | None = None,
     run_id: int | None = None,
     on_progress: Callable[[SearchProgress], None] | None = None,
 ) -> SearchResult:
-    """Fetch for one user from every registered source, then score what is pending.
+    """Fetch for one search from every registered source, then score what is pending.
 
     ``run_id`` names a row ``open_search_run`` already wrote; without one, a row is opened
     here. Never raises: it is run in the background and the only way an operator or the
@@ -333,7 +336,7 @@ def run_search(
     """
     result = SearchResult()
     existing = session.get(Run, run_id) if run_id is not None else None
-    run = existing if existing is not None else open_search_run(session, user_id)
+    run = existing if existing is not None else open_search_run(session, search_id)
     result.run_id = run.id
 
     def publish() -> None:
@@ -344,15 +347,15 @@ def run_search(
             on_progress(progress)
 
     try:
-        result.terms = _resolve_terms(session, settings, user_id, deps)
+        result.terms = _resolve_terms(session, settings, search_id, deps)
         # Read once, after term resolution has stored what it found, and shared by the
         # sources' queries and the candidate selection below.
-        prefs = get_preferences(session, user_id)
+        prefs = get_preferences(session, search_id)
         sources = _usable_sources(settings)
     except Exception as exc:
         # Nothing was fetched: the run was over before it started and must say why.
         session.rollback()
-        log.warning("search for user %s could not start: %s", user_id, exc)
+        log.warning("search %s could not start: %s", search_id, exc)
         result.errors.append(f"{type(exc).__name__}: {exc}")
         _finish(session, run, result, ok=False)
         return result
@@ -364,7 +367,7 @@ def run_search(
     try:
         # Published before scoring starts so the page has a denominator to show while it
         # runs; `run_match` selects the same set again for itself.
-        pending = select_candidates(session, prefs, user_id)
+        pending = select_candidates(session, prefs, search_id)
         result.candidates = len(pending)
         result.remaining = len(pending)
         publish()
@@ -373,7 +376,7 @@ def run_search(
         scored = run_match(
             session,
             settings,
-            user_id,
+            search_id,
             deps=deps,
             on_evaluated=lambda done, total: report(
                 SearchProgress(stage="evaluated", done=done, total=total)
@@ -392,7 +395,7 @@ def run_search(
         result.errors.extend(scored.errors)
     except Exception as exc:
         session.rollback()
-        log.exception("scoring failed during the search for user %s", user_id)
+        log.exception("scoring failed during the search %s", search_id)
         result.errors.append(f"{type(exc).__name__}: {exc}")
         _finish(session, run, result, ok=False)
         return result

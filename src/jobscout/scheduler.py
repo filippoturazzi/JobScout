@@ -14,7 +14,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, col, delete, desc, select
 
 from jobscout.config import Settings
-from jobscout.models import Run, User
+from jobscout.models import Run, Search, User
 from jobscout.models.base import utcnow
 from jobscout.notifiers import build_notifier
 from jobscout.notifiers.email import render_digest
@@ -28,6 +28,7 @@ from jobscout.pipeline.liveness import deactivate_stale_jobs
 from jobscout.pipeline.matching import run_match
 from jobscout.pipeline.run import run_ingest
 from jobscout.pipeline.search import open_search_run, run_search
+from jobscout.pipeline.searches import get_or_create_default_search, latest_search
 from jobscout.pipeline.users import get_preferences
 
 log = logging.getLogger(__name__)
@@ -200,11 +201,13 @@ def _match(engine: Engine, settings: Settings, tick: int | None, force: bool) ->
         notes: list[str] = []
         job_errors: list[str] = []
         try:
-            user_ids = [uid for uid in session.exec(select(col(User.id))).all() if uid is not None]
-            if not user_ids:
-                notes.append("no users to match")
-            for user_id in user_ids:
-                result = run_match(session, settings, user_id)
+            search_ids = [
+                sid for sid in session.exec(select(col(Search.id))).all() if sid is not None
+            ]
+            if not search_ids:
+                notes.append("no searches to match")
+            for search_id in search_ids:
+                result = run_match(session, settings, search_id)
                 counters["candidates"] += result.candidates
                 counters["evaluated"] += result.evaluated
                 counters["skipped_low"] += result.skipped_low
@@ -213,7 +216,7 @@ def _match(engine: Engine, settings: Settings, tick: int | None, force: bool) ->
                 counters["errors"] += len(result.errors)
                 job_errors.extend(result.errors)
                 if result.error is not None:
-                    notes.append(f"user {user_id}: {result.error}")
+                    notes.append(f"search {search_id}: {result.error}")
         except Exception as exc:
             session.rollback()
             log.exception("match job failed")
@@ -254,7 +257,11 @@ def _collect_pending(
     for user in session.exec(select(User)).all():
         if user.id is None:
             continue
-        prefs = get_preferences(session, user.id)
+        # Until digests are per search (a later task), the latest search speaks for the user.
+        search = latest_search(session, user.id)
+        if search is None or search.id is None:
+            continue
+        prefs = get_preferences(session, search.id)
         if not prefs.notify_email:
             continue
         if already_sent_today(session, user.id, now_local):
@@ -345,15 +352,15 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
         )
 
 
-def search_job(engine: Engine, settings: Settings, user_id: int, run_id: int) -> None:
-    """One user's search, filling the Run row the scheduler already opened.
+def search_job(engine: Engine, settings: Settings, search_id: int, run_id: int) -> None:
+    """One saved search, filling the Run row the scheduler already opened.
 
     No backoff: a search is the user pressing a button, never a scheduled firing. Never
     raises, for the same reason as `ingest_job`.
     """
     try:
         with Session(engine) as session:
-            run_search(session, settings, user_id, run_id=run_id)
+            run_search(session, settings, search_id, run_id=run_id)
     except Exception:
         log.exception("search job crashed outside its own error handling")
 
@@ -421,7 +428,9 @@ class JobScoutScheduler:
             if in_flight is not None:
                 return in_flight
             with Session(self._engine) as session:
-                run_id = open_search_run(session, user_id).id
+                search_id = get_or_create_default_search(session, user_id).id
+                assert search_id is not None, "a committed search always has an id"
+                run_id = open_search_run(session, search_id).id
             assert run_id is not None, "a committed run always has an id"
             self._searches[user_id] = run_id
         try:
@@ -433,7 +442,7 @@ class JobScoutScheduler:
                 self._run_search,
                 "date",
                 run_date=datetime.now(UTC),  # aware, for the reason given in wake_matching
-                args=[user_id, run_id],
+                args=[user_id, search_id, run_id],
                 id=f"search-{user_id}",
                 replace_existing=True,
                 misfire_grace_time=None,
@@ -444,13 +453,13 @@ class JobScoutScheduler:
             raise
         return run_id
 
-    def _run_search(self, user_id: int, run_id: int) -> None:
+    def _run_search(self, user_id: int, search_id: int, run_id: int) -> None:
         try:
             # Held for the whole search, which scores as it goes: a match tick beside it
             # would evaluate the same (job, user) pairs and collide on the unique constraint.
             # A tick that arrives meanwhile is skipped and logged, as for any overlap.
             with self._match_running:
-                search_job(self._engine, self._settings, user_id, run_id)
+                search_job(self._engine, self._settings, search_id, run_id)
         finally:
             with self._search_lock:
                 self._searches.pop(user_id, None)

@@ -7,6 +7,7 @@ from jobscout.models.match import (
     Match,
 )
 from jobscout.models.run import RUN_JOBS, Run
+from jobscout.models.search import Search
 from jobscout.models.user import (
     PROTECTED_PREFERENCE_FIELDS,
     User,
@@ -24,6 +25,7 @@ __all__ = [
     "Job",
     "Match",
     "Run",
+    "Search",
     "User",
     "UserPreferences",
     "non_nullable_preference_fields",

@@ -7,11 +7,12 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
-from jobscout.models import Job, Match, Run, User, UserPreferences
+from jobscout.models import Job, Match, Run, User
 from jobscout.models.base import utcnow
 from jobscout.pipeline.matching import MatchRun
 from jobscout.pipeline.run import save_preferences
-from jobscout.pipeline.users import get_or_create_default_user
+from jobscout.pipeline.searches import add_search, default_search_id
+from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from jobscout.scheduler import (
     JobScoutScheduler,
     digest_job,
@@ -22,6 +23,7 @@ from jobscout.scheduler import (
     start_run,
     wake_matching,
 )
+from tests.helpers import make_search
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 
@@ -278,9 +280,8 @@ def test_match_job_skipped_by_backoff_writes_no_row(session: Session):
 
 def test_match_job_records_a_crash_instead_of_raising(session: Session, monkeypatch):
     import jobscout.scheduler as scheduler_module
-    from jobscout.pipeline.users import get_or_create_default_user
 
-    get_or_create_default_user(session)
+    make_search(session)
 
     def _boom(*_args, **_kwargs):
         raise RuntimeError("429")
@@ -379,26 +380,23 @@ def test_jobs_never_raise_even_when_the_run_row_cannot_be_written(
 
 
 def _fake_match(results: dict[int, MatchRun]):
-    def _run(_session, _settings, user_id, **_kw):
-        return results[user_id]
+    def _run(_session, _settings, search_id, **_kw):
+        return results[search_id]
 
     return _run
 
 
-def _two_users(session: Session) -> tuple[int, int]:
-    first = get_or_create_default_user(session)
-    second = User(email="second@example.com")
-    session.add(second)
-    session.commit()
-    session.refresh(second)
+def _two_searches(session: Session) -> tuple[int, int]:
+    first = make_search(session, title="first")
+    second = make_search(session, title="second")
     assert first.id is not None and second.id is not None
     return first.id, second.id
 
 
-def test_match_job_aggregates_counters_across_users(session: Session, monkeypatch):
+def test_match_job_aggregates_counters_across_searches(session: Session, monkeypatch):
     import jobscout.scheduler as scheduler_module
 
-    a, b = _two_users(session)
+    a, b = _two_searches(session)
     monkeypatch.setattr(
         scheduler_module,
         "run_match",
@@ -431,7 +429,7 @@ def test_match_job_where_every_evaluation_failed_is_a_failed_run(session: Sessio
     """Otherwise a rate-limited provider never triggers the backoff."""
     import jobscout.scheduler as scheduler_module
 
-    a = get_or_create_default_user(session).id
+    a = make_search(session).id
     assert a is not None
     monkeypatch.setattr(
         scheduler_module,
@@ -449,7 +447,7 @@ def test_match_job_where_every_evaluation_failed_is_a_failed_run(session: Sessio
 def test_match_job_that_only_skipped_low_similarity_is_a_success(session: Session, monkeypatch):
     import jobscout.scheduler as scheduler_module
 
-    a = get_or_create_default_user(session).id
+    a = make_search(session).id
     assert a is not None
     monkeypatch.setattr(
         scheduler_module,
@@ -607,17 +605,26 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
     monkeypatch.setattr(matching_module, "embeddings", lambda _s: DeterministicFakeEmbedding(8))
     settings = _settings(embedding_dim=8, similarity_threshold=-1.0, scheduler_enabled=False)
     engine = session.get_bind()
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     job = _add_stale_job(session, "arbeitnow", "live", days_ago=0)
-    assert job.id is not None and user.id is not None
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.5, score=10, status="new"))
+    assert job.id is not None and search.id is not None
+    session.add(
+        Match(
+            job_id=job.id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.5,
+            score=10,
+            status="new",
+        )
+    )
     session.commit()
 
     woken: list[bool] = []
     save_preferences(
         session,
         settings,
-        user.id,
+        search.id,
         {"profile_summary": "Python LLM engineer."},
         on_changed=lambda: woken.append(True),
     )
@@ -638,7 +645,7 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
 
 def test_a_fresh_install_does_not_accumulate_failed_match_runs(session: Session):
     """No profile means nothing was attempted, and nothing attempted is not everything failed."""
-    get_or_create_default_user(session)
+    make_search(session)
     engine = session.get_bind()
 
     for tick in range(1, 9):
@@ -650,18 +657,18 @@ def test_a_fresh_install_does_not_accumulate_failed_match_runs(session: Session)
     assert all(row.error is not None and "No profile summary" in row.error for row in rows)
 
 
-def test_a_run_with_no_users_is_ok_and_says_why(session: Session):
+def test_a_run_with_no_searches_is_ok_and_says_why(session: Session):
     match_job(session.get_bind(), _settings(), tick=1)
 
     stored = session.exec(select(Run).where(col(Run.job) == "match")).one()
     assert stored.ok is True
-    assert stored.error is not None and "no users" in stored.error.lower()
+    assert stored.error is not None and "no searches" in stored.error.lower()
 
 
 def test_a_forced_match_runs_even_when_deep_in_backoff(session: Session, monkeypatch):
     import jobscout.scheduler as scheduler_module
 
-    a = get_or_create_default_user(session).id
+    a = make_search(session).id
     assert a is not None
     for _ in range(5):
         _record(session, "match", ok=False)
@@ -708,7 +715,7 @@ def test_wake_registers_a_forced_run(session: Session):
 def test_a_genuine_all_errors_run_still_fails_and_still_backs_off(session: Session, monkeypatch):
     import jobscout.scheduler as scheduler_module
 
-    a = get_or_create_default_user(session).id
+    a = make_search(session).id
     assert a is not None
     monkeypatch.setattr(
         scheduler_module,
@@ -730,7 +737,7 @@ def test_a_genuine_all_errors_run_still_fails_and_still_backs_off(session: Sessi
 def test_match_job_without_a_tick_is_never_silently_backed_off_or_skipped(session: Session):
     """tick=None means "no tick known", which must not read as tick 0 (0 % n == 0 for all n)."""
     _record(session, "match", ok=False)
-    get_or_create_default_user(session)
+    make_search(session)
 
     match_job(session.get_bind(), _settings())
 
@@ -799,6 +806,7 @@ def _digest_settings(**kw) -> Settings:
 
 
 def _add_match(session, user_id: int, external_id: str, score: int = 80) -> Match:
+    search_id = default_search_id(session, user_id)
     job = Job(
         source="t",
         external_id=external_id,
@@ -812,7 +820,7 @@ def _add_match(session, user_id: int, external_id: str, score: int = 80) -> Matc
     session.add(job)
     session.commit()
     session.refresh(job)
-    match = Match(job_id=job.id, user_id=user_id, similarity=0.9, score=score)
+    match = Match(job_id=job.id, user_id=user_id, search_id=search_id, similarity=0.9, score=score)
     session.add(match)
     session.commit()
     session.refresh(match)
@@ -821,26 +829,22 @@ def _add_match(session, user_id: int, external_id: str, score: int = 80) -> Matc
 
 def _digest_fixture(session, score: int = 80):
     """A user who wants mail and one match worth announcing."""
-    from jobscout.pipeline.users import update_preferences
-
-    user = get_or_create_default_user(session)
-    update_preferences(session, user.id, {"notify_email": "me@example.com"})
+    search = make_search(session, notify_email="me@example.com")
+    user = session.get(User, search.user_id)
+    assert user is not None and user.id is not None
     _add_match(session, user.id, "a", score)
     return user
 
 
 def _second_user(session, address: str | None = "b@example.com") -> User:
     """A second user with one match waiting, and (optionally) an address."""
-    from jobscout.pipeline.users import update_preferences
-
     user = User(email="second@example.com")
     session.add(user)
     session.commit()
     session.refresh(user)
-    session.add(UserPreferences(user_id=user.id))
-    session.commit()
+    search = add_search(session, user.id, "second")
     if address:
-        update_preferences(session, user.id, {"notify_email": address})
+        update_preferences(session, search.id, {"notify_email": address})
     _add_match(session, user.id, "b")
     return user
 
@@ -935,10 +939,8 @@ def test_digest_job_is_a_no_op_before_the_send_hour(session, monkeypatch, clock)
 
 def test_digest_job_writes_no_run_row_when_there_is_nothing_to_send(session, monkeypatch, clock):
     import jobscout.scheduler as scheduler_module
-    from jobscout.pipeline.users import update_preferences
 
-    user = get_or_create_default_user(session)
-    update_preferences(session, user.id, {"notify_email": "me@example.com"})
+    make_search(session, notify_email="me@example.com")
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: _RecordingNotifier())
 
     digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
@@ -951,8 +953,8 @@ def test_digest_job_skips_a_user_without_an_address(session, monkeypatch, clock)
     suppress the send."""
     import jobscout.scheduler as scheduler_module
 
-    user = get_or_create_default_user(session)
-    _add_match(session, user.id, "a")
+    user_id = make_search(session).user_id
+    _add_match(session, user_id, "a")
     notifier = _RecordingNotifier()
     monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
 
@@ -1181,7 +1183,7 @@ def test_a_search_waits_for_a_match_run_in_flight(session: Session, monkeypatch)
     scheduler = JobScoutScheduler(session.get_bind(), _settings())
     user = get_or_create_default_user(session)
     scheduler._match_running.acquire()  # a match tick is scoring
-    worker = threading.Thread(target=scheduler._run_search, args=(user.id, 1))
+    worker = threading.Thread(target=scheduler._run_search, args=(user.id, 1, 1))
     worker.start()
     try:
         assert not ran.wait(0.3), "the search must not score beside a match run"

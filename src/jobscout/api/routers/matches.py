@@ -7,6 +7,7 @@ from jobscout.api.deps import get_current_user_id, get_session
 from jobscout.api.schemas import JobRead, MatchRead, MatchStatusUpdate
 from jobscout.models import Job, Match
 from jobscout.pipeline.run import list_matches, set_match_status
+from jobscout.pipeline.searches import default_search_id
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
@@ -45,7 +46,8 @@ def read_matches(
 
     Unscored, dismissed and applied rows are hidden unless an explicit `status` is given.
     """
-    rows = list_matches(session, user_id, min_score=min_score, status=status, limit=limit)
+    search_id = default_search_id(session, user_id)
+    rows = list_matches(session, search_id, min_score=min_score, status=status, limit=limit)
     return [_read(match, job) for match, job in rows]
 
 

@@ -6,6 +6,7 @@ from sqlmodel import Session
 from jobscout.api.deps import get_current_user_id, get_session
 from jobscout.api.schemas import JobRead
 from jobscout.pipeline.run import list_jobs
+from jobscout.pipeline.searches import default_search_id
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -17,5 +18,6 @@ def read_jobs(
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     all: Annotated[bool, Query(description="Ignore preferences; return every active job.")] = False,
 ) -> list[JobRead]:
-    jobs = list_jobs(session, user_id, limit=limit, apply_filters=not all)
+    search_id = default_search_id(session, user_id)
+    jobs = list_jobs(session, search_id, limit=limit, apply_filters=not all)
     return [JobRead.model_validate(j) for j in jobs]

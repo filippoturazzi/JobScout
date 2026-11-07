@@ -22,6 +22,8 @@ class Run(SQLModel, table=True):
     # Null for the instance-global jobs (ingest, match, digest); set for a search, which is
     # always one user's. Indexed because the only query on it is "this user's run in flight".
     user_id: int | None = Field(default=None, index=True)
+    # Set for a search run; no foreign key, so the history outlives a deleted search.
+    search_id: int | None = Field(default=None, index=True)
     started_at: datetime = Field(default_factory=utcnow, nullable=False, index=True)
     finished_at: datetime | None = None
     ok: bool = False

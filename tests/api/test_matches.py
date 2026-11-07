@@ -3,6 +3,7 @@ from sqlmodel import select
 
 from jobscout.models import Job, Match, User
 from jobscout.pipeline.ingest import upsert_jobs
+from jobscout.pipeline.searches import default_search_id
 from jobscout.sources.base import RawJob
 
 
@@ -37,11 +38,21 @@ def test_matches_returns_scored_rows_newest_score_first(client, session):
     user = _bootstrap_user(client, session)
     low = _job(session, "low")
     high = _job(session, "high")
-    session.add(Match(job_id=low.id, user_id=user.id, similarity=0.5, score=40, status="new"))
+    session.add(
+        Match(
+            job_id=low.id,
+            user_id=user.id,
+            search_id=default_search_id(session, user.id),
+            similarity=0.5,
+            score=40,
+            status="new",
+        )
+    )
     session.add(
         Match(
             job_id=high.id,
             user_id=user.id,
+            search_id=default_search_id(session, user.id),
             similarity=0.8,
             score=90,
             reasoning="Strong.",
@@ -62,7 +73,16 @@ def test_matches_returns_scored_rows_newest_score_first(client, session):
 def test_matches_hides_inactive_jobs(client, session):
     user = _bootstrap_user(client, session)
     job = _job(session, "gone", active=False)
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=95, status="new"))
+    session.add(
+        Match(
+            job_id=job.id,
+            user_id=user.id,
+            search_id=default_search_id(session, user.id),
+            similarity=0.9,
+            score=95,
+            status="new",
+        )
+    )
     session.commit()
 
     assert client.get("/matches").json() == []
@@ -72,8 +92,26 @@ def test_matches_filters_by_min_score_and_status(client, session):
     user = _bootstrap_user(client, session)
     a = _job(session, "a")
     b = _job(session, "b")
-    session.add(Match(job_id=a.id, user_id=user.id, similarity=0.5, score=40, status="new"))
-    session.add(Match(job_id=b.id, user_id=user.id, similarity=0.9, score=95, status="saved"))
+    session.add(
+        Match(
+            job_id=a.id,
+            user_id=user.id,
+            search_id=default_search_id(session, user.id),
+            similarity=0.5,
+            score=40,
+            status="new",
+        )
+    )
+    session.add(
+        Match(
+            job_id=b.id,
+            user_id=user.id,
+            search_id=default_search_id(session, user.id),
+            similarity=0.9,
+            score=95,
+            status="saved",
+        )
+    )
     session.commit()
 
     assert [m["score"] for m in client.get("/matches", params={"min_score": 50}).json()] == [95]
@@ -87,8 +125,26 @@ def test_unscored_low_rows_are_hidden_by_default_but_returned_for_status_low(cli
     user = _bootstrap_user(client, session)
     scored = _job(session, "scored")
     low = _job(session, "low")
-    session.add(Match(job_id=scored.id, user_id=user.id, similarity=0.7, score=80, status="new"))
-    session.add(Match(job_id=low.id, user_id=user.id, similarity=0.1, score=None, status="low"))
+    session.add(
+        Match(
+            job_id=scored.id,
+            user_id=user.id,
+            search_id=default_search_id(session, user.id),
+            similarity=0.7,
+            score=80,
+            status="new",
+        )
+    )
+    session.add(
+        Match(
+            job_id=low.id,
+            user_id=user.id,
+            search_id=default_search_id(session, user.id),
+            similarity=0.1,
+            score=None,
+            status="low",
+        )
+    )
     session.commit()
 
     default = client.get("/matches").json()
@@ -101,7 +157,14 @@ def test_unscored_low_rows_are_hidden_by_default_but_returned_for_status_low(cli
 
 def _match(session, user, status="new", external_id="m") -> Match:
     job = _job(session, external_id)
-    match = Match(job_id=job.id, user_id=user.id, similarity=0.7, score=70, status=status)
+    match = Match(
+        job_id=job.id,
+        user_id=user.id,
+        search_id=default_search_id(session, user.id),
+        similarity=0.7,
+        score=70,
+        status=status,
+    )
     session.add(match)
     session.commit()
     session.refresh(match)

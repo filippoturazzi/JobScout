@@ -8,6 +8,7 @@ from jobscout.api.app import app
 from jobscout.config import Settings
 from jobscout.models import Run, User
 from jobscout.models.base import utcnow
+from jobscout.pipeline.searches import default_search_id
 from jobscout.scheduler import JobScoutScheduler
 
 
@@ -19,8 +20,8 @@ class _Held:
         self.started = threading.Event()
         self.calls: list[tuple[int, int]] = []
 
-    def __call__(self, engine, settings, user_id, run_id) -> None:
-        self.calls.append((user_id, run_id))
+    def __call__(self, engine, settings, search_id, run_id) -> None:
+        self.calls.append((search_id, run_id))
         self.started.set()
         self.release.wait(5)
 
@@ -52,10 +53,16 @@ def test_post_search_returns_a_run_id_immediately(client, session, held):
     assert response.status_code == 202
     run_id = response.json()["run_id"]
     assert held.started.wait(5), "the search was never scheduled"
-    assert held.calls == [(user_id, run_id)]
+    search_id = default_search_id(session, user_id)
+    assert held.calls == [(search_id, run_id)]
     run = session.get(Run, run_id)
     assert run is not None
-    assert (run.job, run.user_id, run.finished_at) == ("search", user_id, None)
+    assert (run.job, run.user_id, run.search_id, run.finished_at) == (
+        "search",
+        user_id,
+        search_id,
+        None,
+    )
 
 
 def test_a_second_search_returns_the_run_already_in_flight(client, session, held):

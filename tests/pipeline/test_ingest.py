@@ -189,6 +189,7 @@ def test_ingest_result_exposes_ids(session):
 
 def test_changed_jobs_mark_matches_stale_except_dismissed(session):
     from jobscout.models import Match, User
+    from jobscout.pipeline.searches import add_search
 
     upsert_jobs(session, [raw("j1"), raw("j2")], now=T0)
     jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
@@ -197,9 +198,17 @@ def test_changed_jobs_mark_matches_stale_except_dismissed(session):
     session.add(user_a)
     session.add(user_b)
     session.commit()
-    session.add(Match(job_id=jobs["j1"].id, user_id=user_a.id, similarity=0.9, status="new"))
-    session.add(Match(job_id=jobs["j1"].id, user_id=user_b.id, similarity=0.9, status="dismissed"))
-    session.add(Match(job_id=jobs["j2"].id, user_id=user_a.id, similarity=0.9, status="new"))
+    search_a = add_search(session, user_a.id, "a")
+    search_b = add_search(session, user_b.id, "b")
+
+    def match(job, user, search, status):
+        return Match(
+            job_id=job.id, user_id=user.id, search_id=search.id, similarity=0.9, status=status
+        )
+
+    session.add(match(jobs["j1"], user_a, search_a, "new"))
+    session.add(match(jobs["j1"], user_b, search_b, "dismissed"))
+    session.add(match(jobs["j2"], user_a, search_a, "new"))
     session.commit()
 
     upsert_jobs(session, [raw("j1", description="brand new text"), raw("j2")], now=T0)

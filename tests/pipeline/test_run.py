@@ -12,8 +12,9 @@ from jobscout.pipeline.run import (
     run_ingest,
     run_listing_statement,
 )
-from jobscout.pipeline.users import get_or_create_default_user, update_preferences
+from jobscout.pipeline.users import update_preferences
 from jobscout.sources.base import RawJob, SearchQuery
+from tests.helpers import make_search
 
 T0 = datetime(2026, 9, 20, 12, 0, 0)
 
@@ -61,33 +62,32 @@ def test_run_ingest_does_not_need_a_user(session):
 
 
 def test_list_jobs_filters_and_orders(session):
-    user = get_or_create_default_user(session)
-    update_preferences(session, user.id, {"titles": ["AI Engineer"]})
+    search = make_search(session, titles=["AI Engineer"])
     upsert_jobs(session, [raw("old", "AI Engineer"), raw("x", "Data Analyst")], now=T0)
     upsert_jobs(session, [raw("new", "Senior AI Engineer")], now=T0 + timedelta(hours=1))
 
-    jobs = list_jobs(session, user.id)
+    jobs = list_jobs(session, search.id)
     assert [j.external_id for j in jobs] == ["new", "old"]
 
-    everything = list_jobs(session, user.id, apply_filters=False)
+    everything = list_jobs(session, search.id, apply_filters=False)
     assert {j.external_id for j in everything} == {"old", "x", "new"}
 
-    assert len(list_jobs(session, user.id, limit=1)) == 1
+    assert len(list_jobs(session, search.id, limit=1)) == 1
 
 
 def test_list_jobs_hides_inactive_by_default(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     upsert_jobs(session, [raw("a", "AI Engineer")], now=T0)
-    job = list_jobs(session, user.id)[0]
+    job = list_jobs(session, search.id)[0]
     job.is_active = False
     session.add(job)
     session.commit()
-    assert list_jobs(session, user.id) == []
-    assert len(list_jobs(session, user.id, active_only=False)) == 1
+    assert list_jobs(session, search.id) == []
+    assert len(list_jobs(session, search.id, active_only=False)) == 1
 
 
 def test_list_matches_orders_by_score_and_hides_inactive(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     upsert_jobs(
         session,
         [raw("low", "AI Engineer"), raw("high", "AI Engineer"), raw("gone", "AI Engineer")],
@@ -97,24 +97,45 @@ def test_list_matches_orders_by_score_and_hides_inactive(session):
     jobs["gone"].is_active = False
     session.add(jobs["gone"])
     session.add(
-        Match(job_id=jobs["low"].id, user_id=user.id, similarity=0.5, score=40, status="new")
+        Match(
+            job_id=jobs["low"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.5,
+            score=40,
+            status="new",
+        )
     )
     session.add(
-        Match(job_id=jobs["high"].id, user_id=user.id, similarity=0.8, score=90, status="new")
+        Match(
+            job_id=jobs["high"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.8,
+            score=90,
+            status="new",
+        )
     )
     session.add(
-        Match(job_id=jobs["gone"].id, user_id=user.id, similarity=0.9, score=99, status="new")
+        Match(
+            job_id=jobs["gone"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.9,
+            score=99,
+            status="new",
+        )
     )
     session.commit()
 
-    rows = list_matches(session, user.id)
+    rows = list_matches(session, search.id)
 
     assert [job.external_id for _match, job in rows] == ["high", "low"]
-    assert len(list_matches(session, user.id, limit=1)) == 1
+    assert len(list_matches(session, search.id, limit=1)) == 1
 
 
 def test_list_matches_hides_what_the_preferences_no_longer_select(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     upsert_jobs(session, [raw("kept", "AI Engineer"), raw("closed", "AI Engineer")], now=T0)
     jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
     jobs["closed"].remote = True
@@ -123,54 +144,96 @@ def test_list_matches_hides_what_the_preferences_no_longer_select(session):
     jobs["kept"].location = "Worldwide"
     session.add_all([jobs["closed"], jobs["kept"]])
     session.add(
-        Match(job_id=jobs["closed"].id, user_id=user.id, similarity=0.9, score=95, status="new")
+        Match(
+            job_id=jobs["closed"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.9,
+            score=95,
+            status="new",
+        )
     )
     session.add(
-        Match(job_id=jobs["kept"].id, user_id=user.id, similarity=0.5, score=60, status="new")
+        Match(
+            job_id=jobs["kept"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.5,
+            score=60,
+            status="new",
+        )
     )
     session.commit()
-    update_preferences(session, user.id, {"regions": ["Brasil"]})
+    update_preferences(session, search.id, {"regions": ["Brasil"]})
 
-    assert [job.external_id for _, job in list_matches(session, user.id, limit=1)] == ["kept"]
-    assert [job.external_id for _, job in list_matches(session, user.id, status="new")] == [
+    assert [job.external_id for _, job in list_matches(session, search.id, limit=1)] == ["kept"]
+    assert [job.external_id for _, job in list_matches(session, search.id, status="new")] == [
         "closed",
         "kept",
     ]
 
 
 def test_list_matches_hides_unscored_rows_unless_a_status_is_asked_for(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     upsert_jobs(session, [raw("scored", "AI Engineer"), raw("unscored", "AI Engineer")], now=T0)
     jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
     session.add(
-        Match(job_id=jobs["scored"].id, user_id=user.id, similarity=0.7, score=80, status="new")
+        Match(
+            job_id=jobs["scored"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.7,
+            score=80,
+            status="new",
+        )
     )
     session.add(
-        Match(job_id=jobs["unscored"].id, user_id=user.id, similarity=0.1, score=None, status="low")
+        Match(
+            job_id=jobs["unscored"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.1,
+            score=None,
+            status="low",
+        )
     )
     session.commit()
 
-    default = list_matches(session, user.id)
+    default = list_matches(session, search.id)
     assert [job.external_id for _match, job in default] == ["scored"]
 
-    explicit = list_matches(session, user.id, status="low")
+    explicit = list_matches(session, search.id, status="low")
     assert [job.external_id for _match, job in explicit] == ["unscored"]
     assert explicit[0][0].score is None
 
 
 def test_list_matches_orders_unscored_rows_last(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     upsert_jobs(session, [raw("blank", "AI Engineer"), raw("scored", "AI Engineer")], now=T0)
     jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
     session.add(
-        Match(job_id=jobs["blank"].id, user_id=user.id, similarity=0.9, score=None, status="stale")
+        Match(
+            job_id=jobs["blank"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.9,
+            score=None,
+            status="stale",
+        )
     )
     session.add(
-        Match(job_id=jobs["scored"].id, user_id=user.id, similarity=0.1, score=10, status="stale")
+        Match(
+            job_id=jobs["scored"].id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.1,
+            score=10,
+            status="stale",
+        )
     )
     session.commit()
 
-    rows = list_matches(session, user.id, status="stale")
+    rows = list_matches(session, search.id, status="stale")
 
     assert [job.external_id for _match, job in rows] == ["scored", "blank"]
 
@@ -183,7 +246,7 @@ def test_list_matches_spells_nulls_last_for_databases_that_need_it():
     """
     from sqlalchemy.dialects import postgresql
 
-    statement = match_listing_statement(user_id=1)
+    statement = match_listing_statement(search_id=1)
     compiled = str(statement.compile(dialect=postgresql.dialect()))
 
     assert "NULLS LAST" in compiled
