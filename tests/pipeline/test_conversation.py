@@ -222,6 +222,44 @@ def test_changing_the_country_drops_the_city():
     assert pending(other) == ["city"]
 
 
+def test_changing_the_country_drops_the_city_after_a_remote_location_answer():
+    c = conv(seniority=["junior"])
+    c = answer(c, "work_modes", Answer(choice="pick", values=["remote"]))
+    c = answer(c, "location", Answer(choice="country", values=["Brazil"]))
+    c = answer(c, "work_modes", Answer(choice="pick", values=["hybrid"]))
+    c = answer(c, "city", Answer(choice="city", values=["Recife"]))
+    c = answer(c, "country", Answer(choice="country", values=["Portugal"]))
+    assert "city" not in c.answers
+    assert pending(c) == ["city"]
+
+
+def test_anywhere_in_the_world_drops_the_city_even_with_a_stated_country():
+    c = conv(seniority=["junior"], stated_work_modes=["hybrid"], stated_regions=["Brazil"])
+    c = answer(c, "city", Answer(choice="city", values=["Recife"]))
+    c = answer(c, "country", Answer(choice="anywhere"))
+    assert "city" not in c.answers
+    assert summary(c).city is None
+
+
+def test_a_stated_city_does_not_follow_a_different_answered_country():
+    c = everything_stated()
+    assert summary(c).city == "Recife"
+    c = answer(c, "country", Answer(choice="country", values=["Portugal"]))
+    assert summary(c).city is None
+    assert pending(c) == ["city"]
+    same = answer(everything_stated(), "country", Answer(choice="country", values=["Brasil"]))
+    assert summary(same).city == "Recife"
+    assert pending(same) == []
+
+
+def test_a_reopened_junior_search_drops_the_exclusions_when_the_level_changes():
+    prefs = to_preferences(everything_stated(excluded_keywords=["php"]))
+    rebuilt = from_preferences(UserPreferences(user_id=1, search_id=1, **prefs))
+    assert to_preferences(rebuilt)["excluded_keywords"] == prefs["excluded_keywords"]
+    mid = to_preferences(answer(rebuilt, "level", Answer(choice="mid")))
+    assert mid["excluded_keywords"] == ["php"]
+
+
 def test_unknown_country_is_rejected():
     c = conv(seniority=["junior"], stated_work_modes=["hybrid"])
     with pytest.raises(InvalidAnswerError):

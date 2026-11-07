@@ -196,6 +196,19 @@ def _country_known(c: Conversation) -> str | None:
     return _home(c)
 
 
+def _applicable_stated_city(c: Conversation) -> str | None:
+    """The stated city, unless the user answered a country the reading does not state."""
+    city = _stated_city(c)
+    if city is None:
+        return None
+    answered = any(
+        a.choice == "country" for qid, a in c.answers.items() if qid in ("location", "country")
+    )
+    if not answered or _country_known(c) in _stated_countries(c):
+        return city
+    return None
+
+
 def _skills(c: Conversation) -> list[str]:
     if "skills" in c.answers:
         return list(c.answers["skills"].values)
@@ -220,7 +233,11 @@ def _is_pending(c: Conversation, qid: QuestionId) -> bool:
         case "country":
             return not _remote_only(c) and _country_known(c) is None
         case "city":
-            return not _remote_only(c) and _country_known(c) is not None and _stated_city(c) is None
+            return (
+                not _remote_only(c)
+                and _country_known(c) is not None
+                and _applicable_stated_city(c) is None
+            )
         case "skills":
             return not r.required_skills and bool(r.suggested_skills)
     return False
@@ -334,7 +351,7 @@ def answer(c: Conversation, qid: QuestionId, a: Answer) -> Conversation:
     answers[qid] = stored
     if qid in ("location", "country"):
         changed = c.model_copy(update={"answers": answers})
-        if _home(changed) != _home(c):
+        if _home(changed) != _home(c) or _country_known(changed) != _country_known(c):
             answers.pop("city", None)
     asked = c.asked if qid in c.asked else [*c.asked, qid]
     return c.model_copy(
@@ -366,7 +383,7 @@ def summary(c: Conversation) -> Summary:
         if country is not None:
             a = c.answers.get("city")
             if a is None:
-                city = _stated_city(c)
+                city = _applicable_stated_city(c)
             elif a.choice == "city":
                 city = a.values[0]
     return Summary(
@@ -453,6 +470,7 @@ def from_preferences(prefs: UserPreferences) -> Conversation:
     """The confirmed conversation that saved ``prefs``, rebuilt for the summary."""
     answers: dict[QuestionId, Answer] = {}
     reading_seniority: list[str] = []
+    junior = bool(prefs.seniority) and prefs.seniority[0] in _JUNIOR_LEVELS
     stated_regions: list[str] = []
     if prefs.seniority and prefs.seniority[0] in LEVELS:
         answers["level"] = Answer(choice=prefs.seniority[0])
@@ -488,7 +506,12 @@ def from_preferences(prefs: UserPreferences) -> Conversation:
     reading = ExtractedProfile(
         terms=list(prefs.search_terms),
         seniority=reading_seniority,
-        excluded_keywords=list(prefs.excluded_keywords),
+        # The junior exclusions were added by the level; they return only with that level.
+        excluded_keywords=[
+            word
+            for word in prefs.excluded_keywords
+            if not (junior and word.lower() in JUNIOR_EXCLUSIONS)
+        ],
         stated_regions=stated_regions,
     )
     return Conversation(
