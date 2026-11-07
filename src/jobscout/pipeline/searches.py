@@ -2,7 +2,7 @@
 
 from sqlmodel import Session, col, delete, desc, select
 
-from jobscout.models import Match, Search, UserPreferences
+from jobscout.models import Match, Search, SearchJob, UserPreferences
 from jobscout.models.base import utcnow
 
 DEFAULT_SEARCH_TITLE = "My search"
@@ -61,6 +61,25 @@ def default_search_id(session: Session, user_id: int) -> int:
     return search_id
 
 
+def record_fetched(session: Session, search_id: int, job_ids: list[int]) -> int:
+    """Note that this search fetched these jobs. Returns how many pairs were new."""
+    wanted = list(dict.fromkeys(job_ids))
+    known: set[int] = set()
+    for start in range(0, len(wanted), 500):
+        chunk = wanted[start : start + 500]
+        known.update(
+            session.exec(
+                select(SearchJob.job_id).where(
+                    SearchJob.search_id == search_id, col(SearchJob.job_id).in_(chunk)
+                )
+            ).all()
+        )
+    new = [job_id for job_id in wanted if job_id not in known]
+    session.add_all(SearchJob(search_id=search_id, job_id=job_id) for job_id in new)
+    session.commit()
+    return len(new)
+
+
 def touch(session: Session, search: Search) -> None:
     search.last_used_at = utcnow()
     session.add(search)
@@ -68,9 +87,10 @@ def touch(session: Session, search: Search) -> None:
 
 
 def delete_search(session: Session, user_id: int, search_id: int) -> None:
-    """Remove a search with its matches and preferences. The jobs stay."""
+    """Remove a search with its matches, fetched-job links and preferences. The jobs stay."""
     search = get_search(session, user_id, search_id)
     session.exec(delete(Match).where(col(Match.search_id) == search_id))
+    session.exec(delete(SearchJob).where(col(SearchJob.search_id) == search_id))
     session.exec(delete(UserPreferences).where(col(UserPreferences.search_id) == search_id))
     session.delete(search)
     session.commit()

@@ -14,7 +14,7 @@ from jobscout.models import Job, Match, UserPreferences
 from jobscout.pipeline.matching import run_match, select_candidates
 from jobscout.pipeline.run import list_matches
 from jobscout.pipeline.users import get_preferences, update_preferences
-from tests.helpers import make_search
+from tests.helpers import fetched, make_search
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 DIM = 8
@@ -42,6 +42,7 @@ def _deps(
 
 def _add_job(
     session,
+    search,
     external_id: str,
     title: str = "AI Engineer",
     posted_at: datetime | None = None,
@@ -64,6 +65,7 @@ def _add_job(
     session.add(job)
     session.commit()
     session.refresh(job)
+    fetched(session, search, job)
     return job
 
 
@@ -73,7 +75,7 @@ def _search_with_profile(session):
 
 def test_no_profile_summary_evaluates_nothing(session):
     search = make_search(session)
-    _add_job(session, "a")
+    _add_job(session, search, "a")
     result = run_match(session, _settings(), search.id, deps=_deps(CountingChatModel()))
     assert result.evaluated == 0
     assert result.error is not None and "profile" in result.error.lower()
@@ -81,7 +83,7 @@ def test_no_profile_summary_evaluates_nothing(session):
 
 def test_evaluates_candidates_and_persists_matches(session):
     search = _search_with_profile(session)
-    job = _add_job(session, "a")
+    job = _add_job(session, search, "a")
     chat = CountingChatModel(
         results=[EvaluationResult(score=88, reasoning="Fits.", matched_skills=["Python"])]
     )
@@ -107,7 +109,7 @@ def test_evaluates_candidates_and_persists_matches(session):
 
 def test_below_threshold_writes_low_without_calling_the_llm(session):
     search = _search_with_profile(session)
-    _add_job(session, "a")
+    _add_job(session, search, "a")
     chat = CountingChatModel()
 
     result = run_match(session, _settings(), search.id, deps=_deps(chat, threshold=1.1))
@@ -120,7 +122,7 @@ def test_below_threshold_writes_low_without_calling_the_llm(session):
 
 def test_second_run_is_idempotent(session):
     search = _search_with_profile(session)
-    _add_job(session, "a")
+    _add_job(session, search, "a")
     chat = CountingChatModel()
     run_match(session, _settings(), search.id, deps=_deps(chat))
 
@@ -141,7 +143,7 @@ def test_cap_limits_evaluations_and_takes_the_highest_similarities(session):
         "Staff AI Engineer",
         "Lead AI Engineer",
     ]
-    jobs = [_add_job(session, f"j{i}", title=title) for i, title in enumerate(titles)]
+    jobs = [_add_job(session, search, f"j{i}", title=title) for i, title in enumerate(titles)]
     fake = DeterministicFakeEmbedding(size=DIM)
     profile_vector = fake.embed_query(profile_text(get_preferences(session, search.id)))
     similarities = {
@@ -166,8 +168,8 @@ def test_cap_limits_evaluations_and_takes_the_highest_similarities(session):
 
 def test_stale_is_reevaluated_and_dismissed_is_not(session):
     search = _search_with_profile(session)
-    stale_job = _add_job(session, "stale-one")
-    dismissed_job = _add_job(session, "dismissed-one")
+    stale_job = _add_job(session, search, "stale-one")
+    dismissed_job = _add_job(session, search, "dismissed-one")
     session.add(
         Match(
             job_id=stale_job.id,
@@ -199,7 +201,7 @@ def test_stale_is_reevaluated_and_dismissed_is_not(session):
 
 def test_dry_run_previews_without_calling_the_llm(session):
     search = _search_with_profile(session)
-    _add_job(session, "a")
+    _add_job(session, search, "a")
     chat = CountingChatModel()
 
     result = run_match(session, _settings(), search.id, dry_run=True, deps=_deps(chat))
@@ -211,8 +213,8 @@ def test_dry_run_previews_without_calling_the_llm(session):
 
 def test_llm_failure_is_isolated(session):
     search = _search_with_profile(session)
-    _add_job(session, "a")
-    _add_job(session, "b")
+    _add_job(session, search, "a")
+    _add_job(session, search, "b")
     chat = CountingChatModel(error=RuntimeError("rate limited"))
 
     result = run_match(session, _settings(), search.id, deps=_deps(chat))
@@ -227,7 +229,7 @@ def test_a_rate_limit_stops_scoring_and_leaves_the_rest_for_the_next_run(session
     # job; calling again for each one only repeats the same error.
     search = _search_with_profile(session)
     for external_id in ("a", "b", "c"):
-        _add_job(session, external_id)
+        _add_job(session, search, external_id)
     limited = CountingChatModel(error=ModelRateLimitError("429 RESOURCE_EXHAUSTED: daily quota"))
 
     result = run_match(session, _settings(), search.id, deps=_deps(limited))
@@ -251,7 +253,7 @@ def test_the_default_evaluation_cap_fits_a_free_tier_day():
 
 def test_commit_failure_is_counted_as_an_error_not_a_success(session, monkeypatch):
     search = _search_with_profile(session)
-    _add_job(session, "a")
+    _add_job(session, search, "a")
     chat = CountingChatModel()
     original_commit = session.commit
     calls = {"n": 0}
@@ -275,8 +277,8 @@ def test_commit_failure_is_counted_as_an_error_not_a_success(session, monkeypatc
 
 def test_select_candidates_applies_the_deterministic_filter(session):
     search = _search_with_profile(session)
-    _add_job(session, "good", title="AI Engineer")
-    _add_job(session, "bad", title="Data Analyst")
+    _add_job(session, search, "good", title="AI Engineer")
+    _add_job(session, search, "bad", title="Data Analyst")
 
     candidates = select_candidates(session, get_preferences(session, search.id), search.id)
 
@@ -285,9 +287,11 @@ def test_select_candidates_applies_the_deterministic_filter(session):
 
 def test_candidates_come_back_newest_first_with_undated_jobs_last(session):
     search = make_search(session)
-    _add_job(session, "yesterday", title="yesterday", posted_at=datetime(2026, 10, 23, 9, 0))
-    _add_job(session, "undated", title="undated", posted_at=None)
-    _add_job(session, "today", title="today", posted_at=datetime(2026, 10, 24, 9, 0))
+    _add_job(
+        session, search, "yesterday", title="yesterday", posted_at=datetime(2026, 10, 23, 9, 0)
+    )
+    _add_job(session, search, "undated", title="undated", posted_at=None)
+    _add_job(session, search, "today", title="today", posted_at=datetime(2026, 10, 24, 9, 0))
 
     candidates = select_candidates(session, UserPreferences(), search_id=search.id)
 
@@ -296,8 +300,8 @@ def test_candidates_come_back_newest_first_with_undated_jobs_last(session):
 
 def test_undated_candidates_sort_by_when_jobscout_first_saw_them(session):
     search = make_search(session)
-    _add_job(session, "seen-early", first_seen_at=datetime(2026, 10, 1, 8, 0))
-    _add_job(session, "seen-late", first_seen_at=datetime(2026, 10, 20, 8, 0))
+    _add_job(session, search, "seen-early", first_seen_at=datetime(2026, 10, 1, 8, 0))
+    _add_job(session, search, "seen-late", first_seen_at=datetime(2026, 10, 20, 8, 0))
 
     candidates = select_candidates(session, UserPreferences(), search_id=search.id)
 
@@ -308,7 +312,7 @@ def test_dry_run_never_builds_the_chat_client(session, monkeypatch):
     import jobscout.pipeline.matching as matching_module
 
     search = _search_with_profile(session)
-    _add_job(session, "a")
+    _add_job(session, search, "a")
 
     def _explode(_settings):
         raise AssertionError("dry run must not construct a chat model")
@@ -325,7 +329,7 @@ def test_dry_run_never_builds_the_chat_client(session, monkeypatch):
 
 def test_missing_provider_surfaces_as_error(session, monkeypatch):
     search = _search_with_profile(session)
-    _add_job(session, "a")
+    _add_job(session, search, "a")
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
     with pytest.raises(Exception, match="GOOGLE_API_KEY"):
@@ -335,7 +339,7 @@ def test_missing_provider_surfaces_as_error(session, monkeypatch):
 def test_embedding_work_is_bounded_per_run(session):
     search = _search_with_profile(session)
     for i in range(5):
-        _add_job(session, f"j{i}")
+        _add_job(session, search, f"j{i}")
 
     result = run_match(
         session, _settings(max_embeddings_per_run=2), search.id, deps=_deps(CountingChatModel())
@@ -363,7 +367,7 @@ def test_a_failing_chunk_keeps_the_embeddings_already_paid_for(session, monkeypa
 
     search = _search_with_profile(session)
     for i in range(4):
-        _add_job(session, f"j{i}")
+        _add_job(session, search, f"j{i}")
     monkeypatch.setattr(matching_module, "_EMBED_CHUNK", 2)
     embed = FailsOnTheSecondBatch(size=DIM)
     deps = GraphDeps(
@@ -384,7 +388,7 @@ def test_a_failing_chunk_keeps_the_embeddings_already_paid_for(session, monkeypa
 def test_vectors_of_the_wrong_dimension_are_re_embedded(session):
     """The upgrade path of every existing install: EMBEDDING_DIM changed under stored blobs."""
     search = _search_with_profile(session)
-    job = _add_job(session, "a")
+    job = _add_job(session, search, "a")
     prefs = get_preferences(session, search.id)
     stale_blob = pack([0.0] * 16)
     job.embedding = stale_blob
@@ -407,7 +411,7 @@ def test_vectors_of_the_wrong_dimension_are_re_embedded(session):
 def test_a_provider_dimension_mismatch_warns_once_per_run(session, caplog):
     """Providers that ignore output_dimensionality re-embed the profile on every run."""
     search = _search_with_profile(session)
-    _add_job(session, "a")
+    _add_job(session, search, "a")
 
     with caplog.at_level(logging.WARNING, logger="jobscout.pipeline.matching"):
         run_match(session, _settings(embedding_dim=768), search.id, deps=_deps(CountingChatModel()))
@@ -421,7 +425,7 @@ def test_a_provider_dimension_mismatch_warns_once_per_run(session, caplog):
 def test_later_runs_pick_up_the_remaining_embeddings(session):
     search = _search_with_profile(session)
     for i in range(3):
-        _add_job(session, f"j{i}")
+        _add_job(session, search, f"j{i}")
     settings = _settings(max_embeddings_per_run=1)
 
     run_match(session, settings, search.id, deps=_deps(CountingChatModel()))
@@ -434,7 +438,7 @@ def test_a_cached_profile_embedding_is_not_recomputed_on_the_next_run(session):
     """The profile vector is paid for once; only the jobs are embedded again."""
     search = _search_with_profile(session)
     for i in range(2):
-        _add_job(session, f"j{i}")
+        _add_job(session, search, f"j{i}")
     embed = DeterministicFakeEmbedding(size=DIM)
     settings = _settings(max_embeddings_per_run=1)
 
@@ -452,7 +456,7 @@ def test_run_match_logs_the_similarity_distribution(session, caplog):
     search = _search_with_profile(session)
     titles = ["AI Engineer", "Data Scientist", "Backend Developer"]
     update_preferences(session, search.id, {"titles": titles})
-    jobs = [_add_job(session, f"j{i}", title=title) for i, title in enumerate(titles)]
+    jobs = [_add_job(session, search, f"j{i}", title=title) for i, title in enumerate(titles)]
     fake = DeterministicFakeEmbedding(size=DIM)
     profile_vector = fake.embed_query(profile_text(get_preferences(session, search.id)))
     sims = sorted(cosine(fake.embed_query(job_embedding_text(job)), profile_vector) for job in jobs)
@@ -472,7 +476,7 @@ def test_run_match_logs_the_similarity_distribution(session, caplog):
 def test_run_match_writes_matches_for_the_search(session):
     search = _search_with_profile(session)
     other = make_search(session, "Something else.", title="Other")
-    _add_job(session, "a")
+    _add_job(session, search, "a")
 
     run_match(session, _settings(), search.id, deps=_deps(CountingChatModel()))
 
@@ -480,3 +484,13 @@ def test_run_match_writes_matches_for_the_search(session):
     assert matches
     assert all(m.search_id == search.id and m.user_id == search.user_id for m in matches)
     assert list_matches(session, other.id) == []
+
+
+def test_a_search_only_scores_jobs_it_fetched(session):
+    a = make_search(session, "Python LLM engineer.", titles=["AI Engineer"], title="A")
+    b = make_search(session, "Python LLM engineer.", titles=["AI Engineer"], title="B")
+    job = _add_job(session, a, "only-a")
+
+    prefs_a, prefs_b = get_preferences(session, a.id), get_preferences(session, b.id)
+    assert select_candidates(session, prefs_b, b.id) == []
+    assert select_candidates(session, prefs_a, a.id) == [job]

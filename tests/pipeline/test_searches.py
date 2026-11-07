@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from sqlmodel import select
 
-from jobscout.models import Job, Match, Search, UserPreferences
+from jobscout.models import Job, Match, Search, SearchJob, UserPreferences
 from jobscout.models.base import utcnow
 from jobscout.pipeline.searches import (
     SearchNotFoundError,
@@ -13,16 +13,17 @@ from jobscout.pipeline.searches import (
     get_search,
     latest_search,
     list_searches,
+    record_fetched,
     touch,
 )
 from jobscout.pipeline.users import get_or_create_default_user, get_preferences
 from tests.helpers import make_search
 
 
-def _job(session) -> Job:
+def _job(session, external_id: str = "j") -> Job:
     job = Job(
         source="t",
-        external_id="j",
+        external_id=external_id,
         title="AI Engineer",
         company="Acme",
         url="https://x/j",
@@ -77,6 +78,8 @@ def test_delete_search_removes_its_preferences_and_matches_but_not_jobs(session)
     job = _job(session)
     for s in (search, other):
         session.add(Match(job_id=job.id, user_id=s.user_id, search_id=s.id, similarity=0.5))
+    record_fetched(session, search.id, [job.id])
+    record_fetched(session, other.id, [job.id])
     session.commit()
 
     delete_search(session, search.user_id, search.id)
@@ -84,6 +87,7 @@ def test_delete_search_removes_its_preferences_and_matches_but_not_jobs(session)
     assert session.get(Search, search.id) is None
     assert [p.search_id for p in session.exec(select(UserPreferences)).all()] == [other.id]
     assert [m.search_id for m in session.exec(select(Match)).all()] == [other.id]
+    assert [r.search_id for r in session.exec(select(SearchJob)).all()] == [other.id]
     assert session.exec(select(Job)).one().id == job.id
 
 
@@ -104,3 +108,11 @@ def test_default_user_has_no_preferences_until_a_search_exists(session):
     add_search(session, user.id, "first")
 
     assert len(session.exec(select(UserPreferences)).all()) == 1
+
+
+def test_record_fetched_is_idempotent(session):
+    s = make_search(session)
+    j1, j2 = _job(session, "j1"), _job(session, "j2")
+    assert record_fetched(session, s.id, [j1.id, j2.id]) == 2
+    assert record_fetched(session, s.id, [j2.id]) == 0
+    assert len(session.exec(select(SearchJob)).all()) == 2

@@ -13,7 +13,7 @@ from jobscout.pipeline.search import SearchProgress, SearchResult
 from jobscout.sources import registry
 from jobscout.sources.arbeitnow import BASE_URL
 from tests.conftest import load_fixture
-from tests.helpers import make_search
+from tests.helpers import fetched, make_search
 
 runner = CliRunner()
 
@@ -121,7 +121,7 @@ def test_match_without_provider_key_exits_2(tmp_path, monkeypatch):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     with Session(get_engine(_settings(tmp_path))) as session:
         init_db(get_engine(_settings(tmp_path)))
-        make_search(session, "Python engineer.")
+        search = make_search(session, "Python engineer.")
         session.add(
             Job(
                 source="t",
@@ -135,6 +135,7 @@ def test_match_without_provider_key_exits_2(tmp_path, monkeypatch):
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     result = runner.invoke(cli.app, ["match"])
 
@@ -202,7 +203,7 @@ def test_match_dry_run_lists_candidates_without_calling_the_llm(tmp_path, monkey
     engine = get_engine(_settings(tmp_path))
     init_db(engine)
     with Session(engine) as session:
-        make_search(session, "Python LLM engineer.")
+        search = make_search(session, "Python LLM engineer.")
         session.add(
             Job(
                 source="t",
@@ -216,6 +217,7 @@ def test_match_dry_run_lists_candidates_without_calling_the_llm(tmp_path, monkey
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     def _explode(_settings):
         raise AssertionError("a dry run must not construct a chat model")
@@ -247,7 +249,7 @@ def test_match_scores_and_persists_a_candidate_end_to_end(tmp_path, monkeypatch)
     engine = get_engine(settings)
     init_db(engine)
     with Session(engine) as session:
-        make_search(session, "Python LLM engineer.")
+        search = make_search(session, "Python LLM engineer.")
         session.add(
             Job(
                 source="t",
@@ -261,6 +263,7 @@ def test_match_scores_and_persists_a_candidate_end_to_end(tmp_path, monkeypatch)
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     monkeypatch.setattr(matching_module, "chat_model", lambda _settings: CountingChatModel())
     monkeypatch.setattr(
@@ -284,7 +287,7 @@ def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, mo
     engine = get_engine(_settings(tmp_path))
     init_db(engine)
     with Session(engine) as session:
-        make_search(session, "Python LLM engineer.")
+        search = make_search(session, "Python LLM engineer.")
         session.add(
             Job(
                 source="t",
@@ -298,6 +301,7 @@ def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, mo
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     def _rate_limited(_settings):
         raise RuntimeError("429 RESOURCE_EXHAUSTED")
@@ -340,7 +344,7 @@ def test_match_keeps_the_stack_out_of_the_terminal(tmp_path, monkeypatch, caplog
     engine = get_engine(_settings(tmp_path))
     init_db(engine)
     with Session(engine) as session:
-        make_search(session, "Python LLM engineer.")
+        search = make_search(session, "Python LLM engineer.")
         session.add(
             Job(
                 source="t",
@@ -354,6 +358,7 @@ def test_match_keeps_the_stack_out_of_the_terminal(tmp_path, monkeypatch, caplog
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     def _rate_limited(_settings):
         raise RuntimeError("429 RESOURCE_EXHAUSTED")

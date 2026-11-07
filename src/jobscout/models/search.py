@@ -21,3 +21,13 @@ class Search(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=utcnow, nullable=False, sa_column_kwargs={"onupdate": utcnow}
     )
+
+
+class SearchJob(SQLModel, table=True):
+    """A job a search fetched. A search scores only the jobs it fetched, never the whole table."""
+
+    __tablename__ = "search_job"
+
+    search_id: int = Field(foreign_key="search.id", primary_key=True)
+    job_id: int = Field(foreign_key="job.id", primary_key=True)
+    first_fetched_at: datetime = Field(default_factory=utcnow, nullable=False)

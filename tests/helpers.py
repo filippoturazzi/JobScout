@@ -4,8 +4,8 @@ from typing import Any
 
 from sqlmodel import Session
 
-from jobscout.models import Search
-from jobscout.pipeline.searches import add_search
+from jobscout.models import Job, Search
+from jobscout.pipeline.searches import add_search, record_fetched
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 
 
@@ -20,3 +20,9 @@ def make_search(
     if prefs:
         update_preferences(session, search.id, prefs)
     return search
+
+
+def fetched(session: Session, search: Search, *jobs: Job) -> None:
+    """Record that `search` fetched `jobs`, so it will score them."""
+    assert search.id is not None
+    record_fetched(session, search.id, [job.id for job in jobs if job.id is not None])

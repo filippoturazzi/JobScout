@@ -13,7 +13,7 @@ from jobscout.db import create_engine_from_url, init_db
 from jobscout.matching.graph import GraphDeps
 from jobscout.matching.schemas import EvaluationResult
 from jobscout.matching.terms import ExtractedProfile, profile_hash
-from jobscout.models import Job, Match, Run, UserPreferences
+from jobscout.models import Job, Match, Run, SearchJob, UserPreferences
 from jobscout.pipeline.search import (
     MAX_TERMS_PER_SOURCE,
     SearchProgress,
@@ -28,7 +28,7 @@ from jobscout.sources.himalayas import BASE_URL as HIMALAYAS_URL
 from jobscout.sources.registry import SOURCE_FACTORIES, SOURCE_MISSING_CREDENTIALS
 from jobscout.sources.remotive import BASE_URL as REMOTIVE_URL
 from tests.conftest import load_fixture
-from tests.helpers import make_search
+from tests.helpers import fetched, make_search
 from tests.matching.fakes import DeterministicFakeEmbedding
 
 DIM = 8
@@ -448,8 +448,9 @@ def test_a_run_with_no_source_configured_at_all_says_so(session):
 
 
 @respx.mock
-def test_scoring_covers_an_active_job_this_run_did_not_fetch(session, himalayas_sample):
-    """The candidate set is every active job with no match or a stale one — not the catch."""
+def test_scoring_covers_a_job_an_earlier_run_of_this_search_fetched(session, himalayas_sample):
+    """The candidate set is every job this search ever fetched that is unscored or stale — not
+    only the catch of the current run."""
     respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
     old = Job(
         source="t",
@@ -464,6 +465,7 @@ def test_scoring_covers_an_active_job_this_run_did_not_fetch(session, himalayas_
     session.commit()
     session.refresh(old)
     search = _search(session)
+    fetched(session, search, old)
     chat = SearchChatModel(_extraction(["python"]))
 
     result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
@@ -800,3 +802,17 @@ def test_a_block_on_the_second_term_keeps_the_first_term_jobs(session, monkeypat
     assert any("429" in e for e in result.errors)
     assert [q.keywords for q in fake.queries] == [["python"], ["sql"]]
     assert len(_jobs(session)) == 1, "what was fetched before the block is kept"
+
+
+@respx.mock
+def test_a_search_records_every_job_it_fetched(session, himalayas_sample):
+    # Two terms against a source that answers both with the same fixture: every posting
+    # answers twice, and must still be one SearchJob row and one count.
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python", "llm"]))
+
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
+
+    rows = session.exec(select(SearchJob).where(SearchJob.search_id == search.id)).all()
+    assert len(rows) == result.fetched == VALID_PER_FIXTURE

@@ -74,6 +74,7 @@ class UpsertStats:
     merged: int = 0
     created_ids: list[int] = field(default_factory=list)
     changed_ids: list[int] = field(default_factory=list)
+    seen_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -86,6 +87,7 @@ class IngestResult:
     merged: int = 0
     created_ids: list[int] = field(default_factory=list)
     changed_ids: list[int] = field(default_factory=list)
+    seen_ids: list[int] = field(default_factory=list)
     error: str | None = None
 
 
@@ -160,6 +162,7 @@ def upsert_jobs(
 
     created_jobs: list[Job] = []
     changed_jobs: list[Job] = []
+    touched: list[Job] = []
     for key, raw in by_key.items():
         new_hash = content_hash(raw.title, raw.description)
         job = existing.get(key)
@@ -173,6 +176,7 @@ def upsert_jobs(
                 twin.is_active = True
                 _record_duplicate(twin, raw)
                 session.add(twin)
+                touched.append(twin)
                 stats.merged += 1
                 continue
             job = Job(
@@ -187,10 +191,12 @@ def upsert_jobs(
             if new_fingerprint is not None:
                 by_fingerprint[new_fingerprint] = job
             created_jobs.append(job)
+            touched.append(job)
             stats.created += 1
             continue
 
         # Every sighting: liveness + metadata refresh.
+        touched.append(job)
         job.last_seen_at = now
         job.is_active = True
         duplicates = job.raw.get("duplicates")
@@ -215,6 +221,7 @@ def upsert_jobs(
     session.flush()  # assigns ids for the new rows
     stats.created_ids = [job.id for job in created_jobs if job.id is not None]
     stats.changed_ids = [job.id for job in changed_jobs if job.id is not None]
+    stats.seen_ids = list(dict.fromkeys(job.id for job in touched if job.id is not None))
     _mark_matches_stale(session, stats.changed_ids)
     session.commit()
     return stats
@@ -253,5 +260,6 @@ def ingest(
             stats.merged,
         )
         result.created_ids, result.changed_ids = stats.created_ids, stats.changed_ids
+        result.seen_ids = stats.seen_ids
         results.append(result)
     return results

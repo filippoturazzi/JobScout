@@ -23,7 +23,7 @@ from jobscout.scheduler import (
     start_run,
     wake_matching,
 )
-from tests.helpers import make_search
+from tests.helpers import fetched, make_search
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 
@@ -608,6 +608,7 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
     search = make_search(session)
     job = _add_stale_job(session, "arbeitnow", "live", days_ago=0)
     assert job.id is not None and search.id is not None
+    fetched(session, search, job)
     session.add(
         Match(
             job_id=job.id,

@@ -24,7 +24,15 @@ from jobscout.matching.prompts import (
 )
 from jobscout.matching.schemas import MatchState
 from jobscout.matching.vectors import cosine, dim, pack, unpack
-from jobscout.models import REEVALUATABLE_STATUSES, Job, Match, Search, User, UserPreferences
+from jobscout.models import (
+    REEVALUATABLE_STATUSES,
+    Job,
+    Match,
+    Search,
+    SearchJob,
+    User,
+    UserPreferences,
+)
 from jobscout.pipeline.filters import job_matches_preferences
 from jobscout.pipeline.users import get_preferences
 
@@ -62,12 +70,13 @@ def select_candidates(
     search_id: int,
     first_seen_after: datetime | None = None,
 ) -> list[Job]:
-    """Active jobs passing the deterministic filter that have no match, or a stale one."""
+    """Jobs this search fetched, active and passing the filter, with no match or a stale one."""
     existing: dict[int, str] = {
         match.job_id: match.status
         for match in session.exec(select(Match).where(Match.search_id == search_id)).all()
     }
-    statement = select(Job).where(col(Job.is_active).is_(True))
+    fetched = select(SearchJob.job_id).where(SearchJob.search_id == search_id)
+    statement = select(Job).where(col(Job.is_active).is_(True), col(Job.id).in_(fetched))
     if first_seen_after is not None:
         statement = statement.where(col(Job.first_seen_at) >= first_seen_after)
     # Freshest first: the caps spend the user's LLM key on the head of this list. Undated

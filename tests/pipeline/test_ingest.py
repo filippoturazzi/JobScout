@@ -449,3 +449,14 @@ def test_a_twin_keeps_its_description_when_the_row_has_none(session):
     upsert_jobs(session, [_vacancy("indeed", "i1", description="The full text.")])
     [job] = session.exec(select(Job)).all()
     assert job.raw["duplicates"][0]["description"] == "The full text."
+
+
+def test_seen_ids_cover_created_updated_and_merged_rows(session):
+    first = upsert_jobs(session, [_vacancy("linkedin", "l1")])
+    a = session.exec(select(Job)).one()
+    assert first.seen_ids == [a.id]
+
+    second = upsert_jobs(session, [_vacancy("linkedin", "l1"), _vacancy("indeed", "i1")])
+
+    assert second.merged == 1 and second.created == 0
+    assert second.seen_ids == [a.id]

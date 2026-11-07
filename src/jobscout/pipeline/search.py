@@ -22,8 +22,9 @@ from jobscout.models import Run, Search, UserPreferences
 from jobscout.models.base import utcnow
 from jobscout.pipeline.ingest import ingest
 from jobscout.pipeline.matching import run_match, select_candidates
+from jobscout.pipeline.searches import record_fetched
 from jobscout.pipeline.users import get_preferences, update_preferences
-from jobscout.sources.base import JobSource, RawJob, SearchQuery
+from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.regions import country_of
 from jobscout.sources.registry import build_sources, source_statuses
 
@@ -104,29 +105,6 @@ class SearchProgress:
     error: str | None = None
     done: int = 0
     total: int = 0
-
-
-class _CountedSource:
-    """A source that records the distinct postings it hands back over a whole run.
-
-    One posting answers several terms, and ``fetched`` must count it once or the progress
-    bar reports work that does not exist. ``ingest`` returns counts, not keys, so the keys
-    are collected here, where the raw postings still exist.
-    """
-
-    def __init__(self, source: JobSource, seen: set[tuple[str, str]]) -> None:
-        self._source = source
-        self._seen = seen
-        self.name = source.name
-        self.supports_search = source.supports_search
-        self.term_budget = source.term_budget
-        self.all_remote = source.all_remote
-        self.searches_by_location = source.searches_by_location
-
-    def fetch(self, query: SearchQuery) -> list[RawJob]:
-        jobs = self._source.fetch(query)
-        self._seen.update((job.source, job.external_id) for job in jobs)
-        return jobs
 
 
 def open_search_run(session: Session, search_id: int) -> Run:
@@ -255,6 +233,7 @@ def _queries_for(source: JobSource, terms: list[str], prefs: UserPreferences) ->
 
 def _fetch(
     session: Session,
+    search_id: int,
     sources: list[JobSource],
     terms: list[str],
     prefs: UserPreferences,
@@ -263,14 +242,13 @@ def _fetch(
     report: Callable[[SearchProgress], None],
 ) -> None:
     """Search every source, one term per call, isolating each failure from the rest."""
-    seen: set[tuple[str, str]] = set()
+    seen: set[int] = set()
     modes = {mode.lower() for mode in prefs.work_modes}
     for source in sources:
         if source.all_remote and modes and "remote" not in modes:
             result.errors.append(f"{source.name}: not searched, it only lists remote jobs")
             continue
-        counted = _CountedSource(source, seen)
-        batch: list[JobSource] = [counted]
+        batch: list[JobSource] = [source]
         answered = False
         queries = _queries_for(source, terms, prefs)
         if source.searches_by_location:
@@ -299,6 +277,8 @@ def _fetch(
                 # source that just answered 429 will not answer the next four either.
                 break
             answered = True
+            record_fetched(session, search_id, outcome.seen_ids)
+            seen.update(outcome.seen_ids)
             result.fetched = len(seen)
             publish()
         # A source counts as ok once it has answered at all, even if a later term failed:
@@ -362,7 +342,7 @@ def run_search(
 
     publish()
     report(SearchProgress(stage="terms", terms=list(result.terms)))
-    _fetch(session, sources, result.terms, prefs, result, publish, report)
+    _fetch(session, search_id, sources, result.terms, prefs, result, publish, report)
 
     try:
         # Published before scoring starts so the page has a denominator to show while it
