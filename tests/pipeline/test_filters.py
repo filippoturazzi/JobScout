@@ -10,7 +10,9 @@ from jobscout.sources.linkedin import LinkedInSource
 from tests.conftest import load_jsonl
 
 
-def job(title="AI Engineer", location="Berlin, Germany", remote=False, tags=None) -> Job:
+def job(
+    title="AI Engineer", location="Berlin, Germany", remote=False, tags=None, description=""
+) -> Job:
     return Job(
         source="t",
         external_id=title.lower(),
@@ -19,7 +21,7 @@ def job(title="AI Engineer", location="Berlin, Germany", remote=False, tags=None
         location=location,
         remote=remote,
         url="https://x",
-        description="",
+        description=description,
         tags=tags or [],
         content_hash="h",
     )
@@ -50,13 +52,12 @@ def test_work_modes():
     assert job_matches_preferences(job(remote=True), prefs(work_modes=["remote", "onsite"]))
 
 
-def test_regions_apply_to_onsite_only():
+def test_regions_decide_on_site_jobs_by_location():
     p = prefs(regions=["Germany", "Portugal"])
     assert job_matches_preferences(job(location="Berlin, Germany"), p)
     assert job_matches_preferences(job(location="lisbon, portugal"), p)
     assert not job_matches_preferences(job(location="Paris, France"), p)
     assert not job_matches_preferences(job(location=None), p)
-    assert job_matches_preferences(job(location="Paris, France", remote=True), p)
 
 
 def test_titles_match_by_word_subset():
@@ -182,3 +183,147 @@ def test_a_search_record_never_overrules_a_location_naming_another_country(monke
     jobs = _linkedin_jobs(monkeypatch, ["Brasil"], capture="linkedin_location_brasil.jsonl")
     assert {j.location.rsplit(", ", 1)[-1] for j in jobs if j.location} == {"USA"}
     assert filter_jobs(jobs, prefs(regions=["Brasil"])) == []
+
+
+# ---- a remote job is open to the places it names
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "United States",  # the most common value on the boards
+        "India",
+        "Canada, United Kingdom, United States",
+        "Europe, USA, Canada, APAC",
+        "Europe",
+    ],
+)
+def test_a_remote_job_limited_to_elsewhere_fails_the_region(location):
+    remote = job(location=location, remote=True)
+    assert not job_matches_preferences(remote, prefs(regions=["Brasil"]))
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        None,  # Himalayas sends no restriction at all
+        "Worldwide",
+        "Remoto, Brazil",
+        "Argentina, Brazil, Chile, Uruguay",
+        "Latin America",
+        "LATAM",
+        "Greater Rio de Janeiro",  # names no country, so nothing says it is closed to Brazil
+    ],
+)
+def test_a_remote_job_that_may_be_open_to_the_region_passes(location):
+    assert job_matches_preferences(job(location=location, remote=True), prefs(regions=["Brasil"]))
+
+
+def test_an_area_counts_for_the_countries_inside_it():
+    remote_in_europe = job(location="Europe", remote=True)
+    assert job_matches_preferences(remote_in_europe, prefs(regions=["Portugal"]))
+    assert not job_matches_preferences(remote_in_europe, prefs(regions=["Canada"]))
+
+
+def test_a_city_alone_cannot_judge_where_a_remote_job_is_open():
+    # No table says which country "Recife" is in, and hiding a job takes evidence.
+    remote = job(location="United States", remote=True)
+    assert job_matches_preferences(remote, prefs(regions=["Recife"]))
+
+
+def test_a_search_record_does_not_vouch_for_a_country_outside_the_old_table(monkeypatch):
+    # France was unknown to the table, so "Paris, France" passed as "names no country".
+    rows = load_jsonl("linkedin_sample.jsonl")
+    rows[0]["location"] = "Paris, France"
+    rows[0]["is_remote"] = False
+
+    def fake(**kwargs):
+        frame = pd.DataFrame(rows[:1])
+        frame.attrs = {"errors": {}, "warnings": {}}
+        return frame
+
+    monkeypatch.setattr(jobspy_base, "scrape_jobs", fake)
+    [raw] = LinkedInSource(Settings(_env_file=None)).fetch(
+        SearchQuery(keywords=["python"], locations=["Brasil"])
+    )
+    posting = Job(**raw.model_dump(), content_hash="h")
+    assert not job_matches_preferences(posting, prefs(regions=["Brasil"]))
+
+
+# ---- hybrid and on-site are told apart when the posting says which it is
+
+
+@pytest.mark.parametrize(
+    "posting",
+    [
+        {"title": "AI Engineer (Hybrid)"},
+        {"title": "Engenheiro de IA - Híbrido"},
+        {"location": "Hybrid - São Paulo, Brazil"},
+        {"description": "Modelo de trabalho: híbrido, 3 dias no escritório."},
+        {"description": "This is a hybrid role based in Lisbon."},
+    ],
+)
+def test_a_hybrid_posting_answers_only_to_hybrid(posting):
+    hybrid = job(**posting)
+    assert job_matches_preferences(hybrid, prefs(work_modes=["hybrid"]))
+    assert not job_matches_preferences(hybrid, prefs(work_modes=["onsite"]))
+
+
+@pytest.mark.parametrize(
+    "posting",
+    [
+        {"title": "Desenvolvedor Python - Presencial"},
+        {"title": "AI Engineer (On-site)"},
+        {"description": "Regime de trabalho: 100% presencial em Curitiba."},
+        {"description": "This is a fully on-site position."},
+    ],
+)
+def test_an_on_site_posting_answers_only_to_on_site(posting):
+    on_site = job(**posting)
+    assert job_matches_preferences(on_site, prefs(work_modes=["onsite"]))
+    assert not job_matches_preferences(on_site, prefs(work_modes=["hybrid"]))
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "",
+        "Experience with hybrid cloud and hybrid mobile apps.",
+        "Reuniões presenciais com clientes e on-site interviews.",
+    ],
+)
+def test_a_posting_that_does_not_say_stays_a_candidate_for_both(description):
+    unknown = job(description=description)
+    assert job_matches_preferences(unknown, prefs(work_modes=["hybrid"]))
+    assert job_matches_preferences(unknown, prefs(work_modes=["onsite"]))
+
+
+def test_a_hybrid_posting_passes_when_both_modes_are_accepted():
+    hybrid = job(title="AI Engineer (Hybrid)")
+    assert job_matches_preferences(hybrid, prefs(work_modes=["hybrid", "onsite"]))
+
+
+# ---- "abroad": anywhere except the countries the user rules out
+
+
+@pytest.mark.parametrize(
+    ("location", "remote"),
+    [("São Paulo, Brazil", False), ("Brazil", True), ("Recife, PE, BR", False)],
+)
+def test_an_excluded_country_removes_its_jobs(location, remote):
+    p = prefs(excluded_regions=["Brasil"])
+    assert not job_matches_preferences(job(location=location, remote=remote), p)
+
+
+@pytest.mark.parametrize(
+    "location",
+    [None, "Worldwide", "Berlin, Germany", "Argentina, Brazil, Chile", "Latin America"],
+)
+def test_an_excluded_country_leaves_jobs_open_elsewhere(location):
+    assert job_matches_preferences(job(location=location), prefs(excluded_regions=["Brasil"]))
+
+
+def test_a_search_record_in_an_excluded_country_counts_as_its_location(monkeypatch):
+    jobs = _linkedin_jobs(monkeypatch, searched=["Brasil"])
+    greater_curitiba = next(j for j in jobs if j.location == "Greater Curitiba")
+    assert not job_matches_preferences(greater_curitiba, prefs(excluded_regions=["Brasil"]))

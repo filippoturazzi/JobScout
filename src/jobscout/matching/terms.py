@@ -26,6 +26,8 @@ Rules:
 - seniority: e.g. junior, mid, senior.
 - required_skills: skills the candidate insists on.
 - excluded_keywords: words that must NOT appear in a job title (e.g. "senior" for a junior).
+- stated_work_modes: the work modes the text says it wants: remote, hybrid or onsite.
+- stated_regions: the countries or cities the text says it wants to work in.
 - Use only what the text states. Leave a field empty rather than guess."""
 
 
@@ -40,6 +42,12 @@ class _LLMOutput(BaseModel):
     required_skills: list[str] = Field(default_factory=list, description="Must-have skills.")
     excluded_keywords: list[str] = Field(
         default_factory=list, description="Words to reject in a job title."
+    )
+    stated_work_modes: list[str] = Field(
+        default_factory=list, description="Work modes the text states: remote, hybrid, onsite."
+    )
+    stated_regions: list[str] = Field(
+        default_factory=list, description="Countries or cities the text states."
     )
 
 
@@ -56,6 +64,10 @@ class ExtractedProfile(_LLMOutput):
     The search terms already decided what was fetched, ranking by score is the filter, and
     the paragraph itself (``profile_summary``) reaches the match prompt verbatim. Do not
     "fix" the empty fields.
+
+    ``stated_work_modes`` and ``stated_regions`` are how a paragraph's "remote" still counts:
+    nothing filters on them. They are what the conversation shows already selected, and only
+    the user's confirmation turns them into ``work_modes`` and ``regions``.
     """
 
     titles: list[str] = Field(default_factory=list)
@@ -67,6 +79,19 @@ def profile_hash(paragraph: str) -> str:
     """Stable fingerprint of the paragraph's words; whitespace changes do not alter it."""
     normalized = " ".join(paragraph.split())
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+_WORK_MODES = {
+    "remote": "remote",
+    "remoto": "remote",
+    "hybrid": "hybrid",
+    "hibrido": "hybrid",
+    "híbrido": "hybrid",
+    "onsite": "onsite",
+    "on-site": "onsite",
+    "on site": "onsite",
+    "presencial": "onsite",
+}
 
 
 def _dedupe(values: list[str]) -> list[str]:
@@ -100,4 +125,12 @@ def extract_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
         seniority=[value.lower() for value in _dedupe(raw.seniority)],
         required_skills=_dedupe(raw.required_skills),
         excluded_keywords=_dedupe(raw.excluded_keywords),
+        stated_work_modes=_dedupe(
+            [
+                _WORK_MODES[mode.strip().lower()]
+                for mode in raw.stated_work_modes
+                if mode.strip().lower() in _WORK_MODES
+            ]
+        ),
+        stated_regions=_dedupe(raw.stated_regions),
     )

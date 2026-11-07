@@ -37,6 +37,7 @@ class PreferencesRead(BaseModel):
     seniority: list[str]
     work_modes: list[str]
     regions: list[str]
+    excluded_regions: list[str]
     min_salary: int | None
     salary_currency: str | None
     required_skills: list[str]
@@ -57,6 +58,7 @@ class PreferencesUpdate(BaseModel):
     seniority: list[str] | None = None
     work_modes: list[WorkMode] | None = None
     regions: list[str] | None = None
+    excluded_regions: list[str] | None = None
     min_salary: int | None = Field(default=None, ge=0)
     salary_currency: str | None = Field(default=None, min_length=3, max_length=3)
     required_skills: list[str] | None = None

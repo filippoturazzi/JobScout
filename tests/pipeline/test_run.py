@@ -113,6 +113,31 @@ def test_list_matches_orders_by_score_and_hides_inactive(session):
     assert len(list_matches(session, user.id, limit=1)) == 1
 
 
+def test_list_matches_hides_what_the_preferences_no_longer_select(session):
+    user = get_or_create_default_user(session)
+    upsert_jobs(session, [raw("kept", "AI Engineer"), raw("closed", "AI Engineer")], now=T0)
+    jobs = {j.external_id: j for j in session.exec(select(Job)).all()}
+    jobs["closed"].remote = True
+    jobs["closed"].location = "United States"
+    jobs["kept"].remote = True
+    jobs["kept"].location = "Worldwide"
+    session.add_all([jobs["closed"], jobs["kept"]])
+    session.add(
+        Match(job_id=jobs["closed"].id, user_id=user.id, similarity=0.9, score=95, status="new")
+    )
+    session.add(
+        Match(job_id=jobs["kept"].id, user_id=user.id, similarity=0.5, score=60, status="new")
+    )
+    session.commit()
+    update_preferences(session, user.id, {"regions": ["Brasil"]})
+
+    assert [job.external_id for _, job in list_matches(session, user.id, limit=1)] == ["kept"]
+    assert [job.external_id for _, job in list_matches(session, user.id, status="new")] == [
+        "closed",
+        "kept",
+    ]
+
+
 def test_list_matches_hides_unscored_rows_unless_a_status_is_asked_for(session):
     user = get_or_create_default_user(session)
     upsert_jobs(session, [raw("scored", "AI Engineer"), raw("unscored", "AI Engineer")], now=T0)

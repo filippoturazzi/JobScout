@@ -57,6 +57,12 @@ class JobSource(Protocol):
     # default (``pipeline.search.MAX_TERMS_PER_SOURCE``). Scraped sources set a smaller
     # number because every posting they return is an HTTP request.
     term_budget: int | None
+    # True when every posting on the board is remote, so someone who refuses remote work has
+    # nothing to find there and the board is not searched for them.
+    all_remote: bool
+    # True when the source narrows by ``SearchQuery.locations``, so each country is a search
+    # of its own. A source that ignores locations would return the same postings each time.
+    searches_by_location: bool
 
     def fetch(self, query: SearchQuery) -> list[RawJob]:
         """Fetch postings from the source. Must return everything fetched; never drop

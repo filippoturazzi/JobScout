@@ -79,6 +79,7 @@ def test_non_nullable_fields_are_derived_from_the_table():
             "seniority",
             "work_modes",
             "regions",
+            "excluded_regions",
             "required_skills",
             "nice_to_have_skills",
             "excluded_keywords",

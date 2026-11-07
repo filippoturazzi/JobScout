@@ -9,7 +9,7 @@ from sqlmodel.sql.expression import Select, SelectOfScalar
 
 from jobscout.config import Settings
 from jobscout.models import CLOSED_STATUSES, USER_STATUSES, Job, Match, Run, UserPreferences
-from jobscout.pipeline.filters import filter_jobs
+from jobscout.pipeline.filters import filter_jobs, job_matches_preferences
 from jobscout.pipeline.ingest import IngestResult, ingest
 from jobscout.pipeline.matching import MatchRun
 from jobscout.pipeline.users import MATCHING_RELEVANT_FIELDS, get_preferences, update_preferences
@@ -89,9 +89,16 @@ def list_matches(
     combining a ``min_score`` above 0 with ``status="low"`` does exclude the unscored
     rows, because a row with no score cannot clear a floor. Dismissed and applied rows are
     hidden the same way, and returned the same way when their status is asked for.
+
+    The default listing also hides jobs the current preferences would no longer select, or a
+    narrowed region would keep showing what was scored before. Asking for a status shows them.
     """
     statement = match_listing_statement(user_id, min_score=min_score, status=status)
-    return list(session.exec(statement.limit(limit)).all())
+    if status is not None:
+        return list(session.exec(statement.limit(limit)).all())
+    prefs = get_preferences(session, user_id)
+    rows = session.exec(statement).all()
+    return [(match, job) for match, job in rows if job_matches_preferences(job, prefs)][:limit]
 
 
 def set_match_status(

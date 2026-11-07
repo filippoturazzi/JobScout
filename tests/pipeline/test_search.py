@@ -617,8 +617,12 @@ class _FakeSource:
         term_budget: int | None = None,
         warnings: list[str] | None = None,
         block_on: str | None = None,
+        all_remote: bool = False,
+        searches_by_location: bool = False,
     ) -> None:
         self.name = name
+        self.all_remote = all_remote
+        self.searches_by_location = searches_by_location
         self.supports_search = supports_search
         self.term_budget = term_budget
         self.warnings = warnings if warnings is not None else []
@@ -684,6 +688,88 @@ def test_a_catalogue_source_is_still_asked_once():
     prefs = UserPreferences(regions=["Brasil"], work_modes=["remote"])
     queries = _queries_for(_FakeSource(supports_search=False), ["a", "b"], prefs)
     assert queries == [SearchQuery()]
+
+
+def _pairs(queries: list[SearchQuery]) -> list[tuple[str, list[str]]]:
+    return [(q.keywords[0], q.locations) for q in queries]
+
+
+def test_a_location_search_reaches_every_country_within_its_budget():
+    prefs = UserPreferences(regions=["Brasil", "Portugal"])
+    source = _FakeSource(term_budget=3, searches_by_location=True)
+    assert _pairs(_queries_for(source, ["a", "b", "c"], prefs)) == [
+        ("a", ["Brasil"]),
+        ("a", ["Portugal"]),
+        ("b", ["Brasil"]),
+    ]
+
+
+def test_a_city_beside_a_country_spends_no_location_search():
+    prefs = UserPreferences(regions=["Recife", "Brasil", "Brazil"])
+    source = _FakeSource(term_budget=2, searches_by_location=True)
+    assert _pairs(_queries_for(source, ["a", "b"], prefs)) == [
+        ("a", ["Brasil"]),
+        ("b", ["Brasil"]),
+    ]
+
+
+def test_a_region_that_is_no_country_is_still_searched_as_typed():
+    prefs = UserPreferences(regions=["Recife"])
+    source = _FakeSource(term_budget=2, searches_by_location=True)
+    assert _pairs(_queries_for(source, ["a"], prefs)) == [("a", ["Recife"])]
+
+
+def test_no_region_searches_each_term_with_no_location():
+    source = _FakeSource(term_budget=2, searches_by_location=True)
+    assert _pairs(_queries_for(source, ["a", "b", "c"], UserPreferences())) == [
+        ("a", []),
+        ("b", []),
+    ]
+
+
+def test_a_source_without_location_search_is_asked_once_per_term():
+    prefs = UserPreferences(regions=["Brasil", "Portugal"])
+    queries = _queries_for(_FakeSource(), ["a", "b"], prefs)
+    assert _pairs(queries) == [("a", ["Brasil", "Portugal"]), ("b", ["Brasil", "Portugal"])]
+
+
+def test_countries_past_the_budget_are_named_in_the_run(session, monkeypatch):
+    fake = _FakeSource(term_budget=2, searches_by_location=True)
+    result = _search_with(
+        session, monkeypatch, fake, ["python"], regions=["Brasil", "Portugal", "Spain"]
+    )
+    assert [q.locations for q in fake.queries] == [["Brasil"], ["Portugal"]]
+    assert [e for e in result.errors if "Spain" in e] == [
+        "fake: not searched in Spain, only 2 searches per run"
+    ]
+
+
+def test_a_remote_board_is_skipped_for_someone_who_refuses_remote(session, monkeypatch):
+    fake = _FakeSource(all_remote=True)
+    result = _search_with(session, monkeypatch, fake, ["python"], work_modes=["onsite", "hybrid"])
+    assert fake.queries == []
+    assert result.sources_ok == 0 and result.sources_failed == 0
+    assert result.errors == ["fake: not searched, it only lists remote jobs"]
+
+
+@pytest.mark.parametrize("modes", [[], ["remote"], ["onsite", "Remote"]])
+def test_a_remote_board_is_searched_when_remote_is_acceptable(session, monkeypatch, modes):
+    fake = _FakeSource(all_remote=True)
+    _search_with(session, monkeypatch, fake, ["python"], work_modes=modes)
+    assert len(fake.queries) == 1
+
+
+def test_what_a_paragraph_states_does_not_restrict_the_search(session, monkeypatch):
+    fake = _FakeSource()
+    monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
+    user = _user(session)
+    extraction = _extraction(["python"], stated_work_modes=["remote"], stated_regions=["Brasil"])
+    run_search(
+        session, _settings(sources=fake.name), user.id, deps=_deps(SearchChatModel(extraction))
+    )
+    prefs = get_preferences(session, user.id)
+    assert prefs.work_modes == [] and prefs.regions == []
+    assert [(q.locations, q.remote_only) for q in fake.queries] == [([], False)]
 
 
 def test_the_stored_regions_reach_the_source_during_a_run(session, monkeypatch):

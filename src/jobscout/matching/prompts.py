@@ -20,7 +20,8 @@ Rules:
 - Use only what the two texts state. Never invent skills, seniority or benefits.
 - List a skill under matched_skills only if the job asks for it AND the profile shows it.
 - red_flags are concrete mismatches (seniority far off, wrong location for an on-site role,
-  salary below the stated minimum, contract type), not vague doubts.
+  a remote role limited to places the candidate is not in, salary below the stated minimum,
+  contract type), not vague doubts.
 - Score bands: 0-39 wrong role, 40-59 adjacent, 60-79 plausible, 80-100 strong fit."""
 
 
@@ -33,6 +34,7 @@ def profile_text(prefs: UserPreferences) -> str:
         ("Required skills", prefs.required_skills),
         ("Nice to have", prefs.nice_to_have_skills),
         ("Regions", prefs.regions),
+        ("Excluded regions", prefs.excluded_regions),
         ("Work modes", prefs.work_modes),
     ):
         if values:
@@ -69,8 +71,8 @@ def job_text(job: Job) -> str:
 def job_embedding_text(job: Job) -> str:
     """Short, role-focused rendering used for the vector — not what the LLM is shown.
 
-    Deliberately omits company, salary and location: the deterministic filter already
-    handles region and salary, so spending vector budget on them only blurs the role.
+    Deliberately omits company, salary and location: the deterministic filter handles region
+    and the LLM prompt carries salary, so spending vector budget on them only blurs the role.
     """
     parts = [f"Title: {job.title}"]
     if job.tags:

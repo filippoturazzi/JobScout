@@ -8,23 +8,29 @@ partitioned by domain, and python-jobspy 1.4.1 raises on one), so with no recogn
 this source does not search.
 """
 
+from jobspy.model import Country
+
 from jobscout.sources.base import RawJob, SearchQuery
 from jobscout.sources.jobspy_base import JobSpySource
 from jobscout.sources.regions import country_of
 
+# ``ScraperInput`` raises on any other value. Turkey is written "türkiye" there and "turkey" in
+# our table, so it stays out rather than being special-cased for one market.
+_INDEED_COUNTRIES = frozenset(country.value for country in Country)
+
 
 def country_for(regions: list[str]) -> tuple[str | None, str | None]:
-    """The JobSpy country for the first recognised region, and a value it had to ignore.
+    """The JobSpy country for the first region with an Indeed site, and a value it ignored.
 
-    Only the first recognised region is used: searching every region times every term would
-    multiply the block risk by the number of regions. Returns ``(None, value)`` when regions
-    were given but none is recognised (``value`` is the first one), and ``(None, None)`` when
-    there are none.
+    ``pipeline.search`` sends one country per query, within the source's search budget, so
+    the list here normally has one entry. Returns ``(None, value)`` when regions were given
+    but Indeed has no site for any of them (``value`` is the first one), and ``(None, None)``
+    when there are none.
     """
     given = [region for region in regions if region.strip()]
     for region in given:
         country = country_of(region)
-        if country is not None:
+        if country in _INDEED_COUNTRIES:
             return country, None
     return None, (given[0] if given else None)
 

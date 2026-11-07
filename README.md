@@ -147,6 +147,13 @@ writes `São Paulo, SP, Brazil`, and LinkedIn titles carry suffixes Indeed's do 
 kept strict on purpose, because a loose one would silently delete real vacancies; the column is
 infrastructure for the next aggregating source more than a feature today.
 
+Ruling a country out (how "abroad" is stored: `regions` empty, the home country in
+`excluded_regions`) adds one more column:
+
+```sql
+ALTER TABLE user_preferences ADD COLUMN excluded_regions JSON NOT NULL DEFAULT '[]';
+```
+
 ## API
 
 | Method | Path            | Description                                   |
