@@ -136,11 +136,13 @@ export async function renderSearch(root, ctx, id) {
     pollTimer = null;
     if (!guard.isCurrent(mine) || !ui.run) return;
     const runId = ui.run.id;
+    const wasRunning = ui.runningId;
     try {
       const [run, list] = await Promise.all([
         api.get(`/searches/${id}/runs/${runId}`),
         api.get(`/searches/${id}/matches`),
-        refreshStatus().catch(() => null),
+        // Silent: a notifying refresh would redraw the sidebar (and close the menu) every 2 s.
+        refreshStatus({ silent: true }).catch(() => null),
       ]);
       if (!guard.isCurrent(mine)) return;
       ui.run = run;
@@ -155,18 +157,21 @@ export async function renderSearch(root, ctx, id) {
         } catch (e) {
           // Keep the list we have.
         }
-        refreshSearches().catch(() => {});
       }
     } catch (e) {
       if (!guard.isCurrent(mine)) return;
       try {
-        await refreshStatus();
+        await refreshStatus({ silent: true });
       } catch (err) {
         // Keep what we knew; the next poll asks again.
       }
       if (!guard.isCurrent(mine)) return;
       ui.runningId = runningId();
     }
+    // The sidebar's running marker changes once, when the run ends or is found interrupted:
+    // one notifying refresh then, never on every poll.
+    const ended = Boolean(ui.run && ui.run.finished_at) || ui.runningId !== wasRunning;
+    if (ended && !shouldKeepPolling(view())) refreshSearches().catch(() => {});
     refreshDetail();
     drawRun();
     schedule();

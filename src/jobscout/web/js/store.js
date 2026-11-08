@@ -13,9 +13,10 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-export async function refreshStatus() {
+// silent: update the status without redrawing the app (a run's polling reads it itself).
+export async function refreshStatus({ silent = false } = {}) {
   state.status = await api.get("/status");
-  notify();
+  if (!silent) notify();
   return state.status;
 }
 
