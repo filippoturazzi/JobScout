@@ -39,6 +39,17 @@ test("class, aria, data and boolean attributes", () => {
   assert.equal(b.getAttribute("hidden"), null);
 });
 
+test("a string on* attribute throws and sets nothing", () => {
+  const el = document.createElement("a");
+  assert.throws(() => h("a", { onclick: "alert(1)" }), TypeError);
+  assert.equal(el.getAttribute("onclick"), null);
+});
+
+test("srcdoc and string style are refused", () => {
+  assert.throws(() => h("iframe", { srcdoc: "<p>x</p>" }), TypeError);
+  assert.throws(() => h("p", { style: "color:red" }), TypeError);
+});
+
 test("mount replaces the children", () => {
   const root = h("div", {}, "old");
   mount(root, "new", null, h("b", {}, "x"));

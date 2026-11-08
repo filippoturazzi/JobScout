@@ -8,6 +8,7 @@
   "delete_confirm": "Excluir esta busca?",
   "cancel": "Cancelar",
   "search_running": "Em andamento",
+  "delete_failed": "Não foi possível excluir esta busca. Tente de novo.",
   "search_busy": "Outra busca está em andamento.",
   "menu": "Menu",
   "home_title": "Que vaga você procura?",

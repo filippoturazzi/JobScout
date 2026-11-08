@@ -8,6 +8,7 @@
   "delete_confirm": "Delete this search?",
   "cancel": "Cancel",
   "search_running": "Running",
+  "delete_failed": "Could not delete this search. Try again.",
   "search_busy": "Another search is running.",
   "menu": "Menu",
   "home_title": "What job are you looking for?",

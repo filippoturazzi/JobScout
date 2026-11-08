@@ -8,7 +8,7 @@ import { refreshSearches } from "./store.js";
 
 // Which search row is asking "Delete this search?", and which one was refused because a run is going.
 let confirmingId = null;
-let busyId = null;
+let errorFor = null; // { id, key }
 
 function navLink(href, name, iconName, route, routeName) {
   const current = route.name === routeName;
@@ -50,11 +50,11 @@ function searchRow(s, route, rerender) {
         class: "js-btn js-btn--ghost sb-del",
         type: "button",
         "aria-label": `${t("delete")}: ${s.title}`,
-        onclick: () => { confirmingId = s.id; busyId = null; rerender(); },
+        onclick: () => { confirmingId = s.id; errorFor = null; rerender(); },
       },
       icon("trash"),
     ),
-    busyId === s.id ? h("p", { class: "text-body-sm sb-error", role: "alert" }, t("search_busy")) : null,
+    errorFor && errorFor.id === s.id ? h("p", { class: "text-body-sm sb-error", role: "alert" }, t(errorFor.key)) : null,
   );
 }
 
@@ -62,17 +62,13 @@ async function remove(id, route, rerender) {
   try {
     await api.del(`/searches/${id}`);
     confirmingId = null;
-    busyId = null;
+    errorFor = null;
     if (route.name === "search" && route.id === id) go("/");
     await refreshSearches();
   } catch (e) {
-    if (e && e.code === "search_busy") {
-      confirmingId = null;
-      busyId = id;
-      rerender();
-    } else {
-      throw e;
-    }
+    confirmingId = null;
+    errorFor = { id, key: e && e.code === "search_busy" ? "search_busy" : "delete_failed" };
+    rerender();
   }
 }
 
