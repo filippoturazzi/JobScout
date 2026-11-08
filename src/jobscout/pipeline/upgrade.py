@@ -113,7 +113,9 @@ def upgrade_database(engine: Engine) -> UpgradeReport:
             conversation = from_preferences(prefs)
             search = Search(
                 user_id=user_id,
-                title=title(conversation) if prefs.search_terms else UNTITLED,
+                title=title(conversation)
+                if conversation.reading is not None and conversation.reading.terms
+                else UNTITLED,
                 conversation=conversation.model_dump(mode="json"),
             )
             result = connection.execute(

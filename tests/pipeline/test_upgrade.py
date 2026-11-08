@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from jobscout.db import create_engine_from_url, init_db, needs_upgrade
 from jobscout.models import Match, Run, Search, SearchJob, UserPreferences
 from jobscout.pipeline import upgrade
-from jobscout.pipeline.conversation import Conversation, summary
+from jobscout.pipeline.conversation import Conversation, pending, summary, to_preferences
 from jobscout.pipeline.upgrade import UpgradeReport, backup_sqlite, upgrade_database
 
 
@@ -57,6 +57,43 @@ def test_upgrade_names_a_search_without_terms_my_search(old_db):
     with Session(engine) as session:
         (search,) = session.exec(select(Search)).all()
     assert search.title == "My search"
+    conversation = Conversation.model_validate(search.conversation)
+    assert conversation.confirmed is False, "a search with no role is not confirmed"
+    assert pending(conversation) == ["role"]
+
+
+def _set_old_prefs(old_db: str, assignments: str) -> None:
+    connection = sqlite3.connect(make_url(old_db).database or "")
+    connection.execute(f"UPDATE user_preferences SET {assignments}")
+    connection.commit()
+    connection.close()
+
+
+def test_upgrade_keeps_a_city_without_a_country_and_asks_the_country(old_db):
+    _set_old_prefs(old_db, "work_modes = '[\"hybrid\"]', regions = '[\"Recife\"]'")
+
+    engine, _ = _upgraded(old_db)
+
+    with Session(engine) as session:
+        (search,) = session.exec(select(Search)).all()
+    conversation = Conversation.model_validate(search.conversation)
+    assert summary(conversation).city == "Recife"
+    assert pending(conversation) == ["country"]
+    assert conversation.confirmed is False
+
+
+def test_upgrade_folds_titles_into_the_terms(old_db):
+    _set_old_prefs(old_db, "titles = '[\"Data Engineer\"]', search_terms = '[]'")
+
+    engine, _ = _upgraded(old_db)
+
+    with Session(engine) as session:
+        (search,) = session.exec(select(Search)).all()
+    conversation = Conversation.model_validate(search.conversation)
+    assert conversation.reading is not None
+    assert conversation.reading.terms == ["Data Engineer"]
+    assert search.title == "Junior Data Engineer"
+    assert to_preferences(conversation)["titles"] == []
 
 
 def test_upgrade_keeps_matches_with_their_status_and_ids(old_db):

@@ -170,6 +170,8 @@ It copies the SQLite file to `<file>.bak-YYYYMMDD-HHMMSS` first, then converts i
 transaction, keeping every match with its id and status (applied and dismissed included); if
 anything fails, nothing changes. Postgres is not supported by the upgrade (no released install
 uses it).
+Stored `titles` become the first search terms, and the next "Search jobs" saves them as terms only
+(`titles` empty), since the conversation owns the preferences now.
 
 ## API
 

@@ -427,29 +427,108 @@ def test_title_falls_back_to_the_paragraph():
             "location",
             Answer(choice="abroad"),
         ),
-        lambda: answer(
-            answer(
-                conv(seniority=["mid"], stated_work_modes=["remote"]),
-                "location",
-                Answer(choice="anywhere"),
-            ),
-            "skills",
-            Answer(choice="pick", values=[]),
-        ),
-        lambda: answer(
-            answer(conv(), "level", Answer(choice="any")),
-            "work_modes",
-            Answer(choice="any"),
-        ),
     ],
 )
 def test_from_preferences_round_trips_through_to_preferences(build):
-    c = build()
-    if pending(c) == ["country"]:
-        c = answer(c, "country", Answer(choice="anywhere"))
-    prefs = to_preferences(c)
+    prefs = to_preferences(build())
     stored = UserPreferences(user_id=1, search_id=1, **prefs)
     rebuilt = from_preferences(stored)
     assert rebuilt.confirmed is True
     assert pending(rebuilt) == []
     assert to_preferences(rebuilt) == prefs
+
+
+def _remote_anywhere() -> Conversation:
+    c = conv(seniority=["mid"], stated_work_modes=["remote"])
+    c = answer(c, "location", Answer(choice="anywhere"))
+    return answer(c, "skills", Answer(choice="pick", values=[]))
+
+
+def _any_everything() -> Conversation:
+    c = answer(conv(), "level", Answer(choice="any"))
+    c = answer(c, "work_modes", Answer(choice="any"))
+    return answer(c, "country", Answer(choice="anywhere"))
+
+
+@pytest.mark.parametrize(
+    ("build", "reopened"),
+    [
+        (_remote_anywhere, {"location": Answer(choice="anywhere")}),
+        (
+            _any_everything,
+            {
+                "level": Answer(choice="any"),
+                "work_modes": Answer(choice="any"),
+                "country": Answer(choice="anywhere"),
+            },
+        ),
+    ],
+)
+def test_an_empty_stored_field_is_asked_again_and_the_same_answer_round_trips(build, reopened):
+    """Nothing stored is not an answer: the rebuilt search asks again and is not confirmed."""
+    prefs = to_preferences(build())
+    rebuilt = from_preferences(UserPreferences(user_id=1, search_id=1, **prefs))
+    assert pending(rebuilt) == list(reopened)
+    assert rebuilt.confirmed is False
+    for qid, given in reopened.items():
+        rebuilt = answer(rebuilt, qid, given)
+    assert to_preferences(rebuilt) == prefs
+
+
+def _stored(**kw) -> UserPreferences:
+    values: dict[str, object] = {
+        "profile_summary": PARAGRAPH,
+        "search_terms": ["ai engineer"],
+        "seniority": ["junior"],
+    }
+    values.update(kw)
+    return UserPreferences(user_id=1, search_id=1, **values)
+
+
+def test_a_stored_city_with_no_country_is_kept_and_the_country_asked():
+    rebuilt = from_preferences(_stored(work_modes=["hybrid"], regions=["Recife"]))
+    assert summary(rebuilt).city == "Recife"
+    assert pending(rebuilt) == ["country"]
+    assert rebuilt.confirmed is False
+    with pytest.raises(QuestionsPendingError):
+        to_preferences(rebuilt)
+
+
+def test_a_stored_area_is_not_turned_into_anywhere():
+    rebuilt = from_preferences(_stored(work_modes=["remote"], regions=["Europe"]))
+    assert pending(rebuilt) == ["location"]
+    assert rebuilt.confirmed is False
+
+
+def test_stored_titles_lead_the_terms_and_are_cleared_on_save():
+    rebuilt = from_preferences(
+        _stored(
+            titles=["AI Engineer", "ML Engineer"],
+            search_terms=["ai engineer", "python"],
+            work_modes=["remote"],
+            regions=["Brazil"],
+        )
+    )
+    assert rebuilt.reading is not None
+    assert rebuilt.reading.terms == ["AI Engineer", "ML Engineer", "python"]
+    assert to_preferences(rebuilt)["titles"] == []
+
+
+def test_empty_stored_fields_stay_open_to_a_reading():
+    rebuilt = from_preferences(
+        _stored(seniority=[], required_skills=[], work_modes=["remote"], regions=["Brazil"])
+    )
+    assert "level" not in rebuilt.answers
+    assert "skills" not in rebuilt.answers
+    refined = with_reading(
+        with_refinement(rebuilt, "Mid level, Go."),
+        reading(seniority=["mid"], required_skills=["go"]),
+    )
+    s = summary(refined)
+    assert (s.level, s.skills) == ("mid", ["go"])
+
+
+def test_a_rebuilt_search_with_no_terms_is_not_confirmed():
+    rebuilt = from_preferences(_stored(search_terms=[], work_modes=["remote"], regions=["Brazil"]))
+    assert pending(rebuilt) == ["role"]
+    assert rebuilt.confirmed is False

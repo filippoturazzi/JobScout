@@ -386,6 +386,8 @@ def summary(c: Conversation) -> Summary:
                 city = _applicable_stated_city(c)
             elif a.choice == "city":
                 city = a.values[0]
+        elif "country" not in c.answers:
+            city = _stated_city(c)  # shown while the country question is still open
     return Summary(
         role=terms[0] if terms else None,
         terms=terms,
@@ -425,6 +427,7 @@ def to_preferences(c: Conversation) -> dict[str, object]:
         "profile_summary": text,
         "profile_hash": profile_hash(text),
         "search_terms": s.terms,
+        "titles": [],  # the role lives in the terms; a stored title filter would hide jobs
         "seniority": seniority,
         "excluded_keywords": _dedupe(excluded_keywords),
         "work_modes": s.work_modes,
@@ -444,7 +447,8 @@ def widenings(c: Conversation) -> list[tuple[str, QuestionId, Answer]]:
             result.append(
                 (f"include_{mode}", "work_modes", Answer(choice="pick", values=[*modes, mode]))
             )
-    if summary(c).city is not None:
+    s = summary(c)
+    if s.city is not None and s.country is not None:
         result.append(("whole_country", "city", Answer(choice="anywhere")))
     level = _level(c)
     if level is not None and level != "any":
@@ -467,7 +471,14 @@ def title(c: Conversation) -> str:
 
 
 def from_preferences(prefs: UserPreferences) -> Conversation:
-    """The confirmed conversation that saved ``prefs``, rebuilt for the summary."""
+    """The conversation that saved ``prefs``, rebuilt for the summary.
+
+    Only a field with a stored value becomes an answer: an empty one is left open, so a later
+    reading can fill it, or its question is asked again. A region that names no country (a
+    city, an area such as "Europe") is kept as stated by the reading rather than read as
+    "anywhere". Stored ``titles`` lead the terms; the conversation saves them as terms only.
+    The result is confirmed only when no question is pending.
+    """
     answers: dict[QuestionId, Answer] = {}
     reading_seniority: list[str] = []
     junior = bool(prefs.seniority) and prefs.seniority[0] in _JUNIOR_LEVELS
@@ -476,16 +487,14 @@ def from_preferences(prefs: UserPreferences) -> Conversation:
         answers["level"] = Answer(choice=prefs.seniority[0])
     elif prefs.seniority:
         reading_seniority = list(prefs.seniority)
-    else:
-        answers["level"] = Answer(choice="any")
-    answers["work_modes"] = (
-        Answer(choice="pick", values=list(prefs.work_modes))
-        if prefs.work_modes
-        else Answer(choice="any")
-    )
+    if prefs.work_modes:
+        answers["work_modes"] = Answer(choice="pick", values=list(prefs.work_modes))
     countries = [n for n in (_country(r) for r in prefs.regions) if n is not None]
+    unresolved = len(countries) < len(prefs.regions)
     if set(prefs.work_modes) == {"remote"}:
-        if len(countries) > 1:
+        if unresolved:
+            stated_regions = list(prefs.regions)
+        elif len(countries) > 1:
             stated_regions = countries
         elif countries:
             answers["location"] = Answer(choice="country", values=countries)
@@ -493,18 +502,19 @@ def from_preferences(prefs: UserPreferences) -> Conversation:
             answers["location"] = Answer(
                 choice="abroad", values=[str(_country(prefs.excluded_regions[0]))]
             )
-        else:
-            answers["location"] = Answer(choice="anywhere")
-    elif countries:
-        answers["country"] = Answer(choice="country", values=countries[:1])
-        answers["city"] = (
-            Answer(choice="city", values=[prefs.city]) if prefs.city else Answer(choice="anywhere")
-        )
     else:
-        answers["country"] = Answer(choice="anywhere")
-    answers["skills"] = Answer(choice="pick", values=list(prefs.required_skills))
+        if unresolved:
+            stated_regions = list(prefs.regions)
+        elif countries:
+            answers["country"] = Answer(choice="country", values=countries[:1])
+        if prefs.city and countries:
+            answers["city"] = Answer(choice="city", values=[prefs.city])
+        elif prefs.city and prefs.city not in stated_regions:
+            stated_regions.append(prefs.city)
+    if prefs.required_skills:
+        answers["skills"] = Answer(choice="pick", values=list(prefs.required_skills))
     reading = ExtractedProfile(
-        terms=list(prefs.search_terms),
+        terms=_dedupe([*prefs.titles, *prefs.search_terms]),
         seniority=reading_seniority,
         # The junior exclusions were added by the level; they return only with that level.
         excluded_keywords=[
@@ -514,10 +524,10 @@ def from_preferences(prefs: UserPreferences) -> Conversation:
         ],
         stated_regions=stated_regions,
     )
-    return Conversation(
+    rebuilt = Conversation(
         paragraph=prefs.profile_summary,
         reading=reading,
         answers=answers,
         asked=[qid for qid in QUESTION_ORDER if qid in answers],
-        confirmed=True,
     )
+    return rebuilt.model_copy(update={"confirmed": not pending(rebuilt)})
