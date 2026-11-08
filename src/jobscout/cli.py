@@ -21,7 +21,7 @@ from jobscout.pipeline.searches import (
     latest_search,
     list_searches,
 )
-from jobscout.pipeline.upgrade import backup_sqlite, upgrade_database
+from jobscout.pipeline.upgrade import UnsupportedDatabaseError, backup_sqlite, upgrade_database
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.sources.registry import source_statuses
 
@@ -295,10 +295,14 @@ def upgrade_db() -> None:
     if not needs_upgrade(engine):
         typer.echo("Already up to date.")
         return
-    backup = backup_sqlite(settings.database_url, datetime.now())
-    if backup is not None:
-        typer.echo(f"Backup: {backup}")
-    report = upgrade_database(engine)
+    try:
+        backup = backup_sqlite(settings.database_url, datetime.now())
+        if backup is not None:
+            typer.echo(f"Backup: {backup}")
+        report = upgrade_database(engine)
+    except (FileExistsError, UnsupportedDatabaseError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
     typer.echo(f"searches={report.searches} matches={report.matches} runs={report.runs}")
 
 

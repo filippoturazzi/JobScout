@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 from jobscout import cli
 from jobscout.config import Settings
-from jobscout.db import get_engine, init_db
+from jobscout.db import create_engine_from_url, get_engine, init_db, needs_upgrade
 from jobscout.models import Job, Match, Search, User
 from jobscout.models.base import utcnow
 from jobscout.pipeline.search import SearchProgress, SearchResult
@@ -592,6 +592,36 @@ def test_upgrade_db_command_backs_up_and_upgrades(old_db, tmp_path, monkeypatch)
     assert again.exit_code == 0, again.output
     assert "Already up to date." in again.output
     assert len(list(tmp_path.glob("old.db.bak-*"))) == 1, "no backup when nothing changes"
+
+
+def test_upgrade_db_refuses_postgres(old_db, monkeypatch):
+    engine = create_engine_from_url(old_db)
+    monkeypatch.setattr(engine.dialect, "name", "postgresql")
+    settings = Settings(_env_file=None, database_url="postgresql://u:p@localhost/jobscout")
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "get_engine", lambda _settings: engine)
+
+    result = runner.invoke(cli.app, ["upgrade-db"])
+
+    assert result.exit_code == 2
+    assert "SQLite" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_upgrade_db_refuses_to_overwrite_a_backup(old_db, monkeypatch):
+    settings = Settings(_env_file=None, database_url=old_db)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    def taken(url, now):
+        raise FileExistsError("Backup target already exists: old.db.bak-1")
+
+    monkeypatch.setattr(cli, "backup_sqlite", taken)
+
+    result = runner.invoke(cli.app, ["upgrade-db"])
+
+    assert result.exit_code == 2
+    assert "Backup target already exists: old.db.bak-1" in result.output
+    assert needs_upgrade(get_engine(settings)) is True, "no conversion without a backup"
 
 
 def test_commands_on_an_old_database_say_to_upgrade(old_db, monkeypatch):

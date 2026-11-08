@@ -7,9 +7,9 @@ must survive. SQLite only: no released install ran on Postgres.
 """
 
 import logging
-import shutil
+import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -34,14 +34,25 @@ class UpgradeReport:
     runs: int
 
 
+class UnsupportedDatabaseError(RuntimeError):
+    """The database to upgrade is not SQLite."""
+
+
 def backup_sqlite(url: str, now: datetime) -> Path | None:
-    """Copy a SQLite file to `<file>.bak-YYYYMMDD-HHMMSS`; None for in-memory or other URLs."""
+    """Copy a SQLite file to `<file>.bak-YYYYMMDD-HHMMSS`; None for in-memory or other URLs.
+
+    Uses SQLite's backup API, which copies a consistent snapshot even with the database open
+    elsewhere. Raises `FileExistsError` rather than overwrite an earlier backup.
+    """
     parsed = make_url(url)
     if parsed.get_backend_name() != "sqlite" or parsed.database in (None, "", ":memory:"):
         return None
     source = Path(parsed.database)
     target = source.with_name(f"{source.name}.bak-{now:%Y%m%d-%H%M%S}")
-    shutil.copy2(source, target)
+    if target.exists():
+        raise FileExistsError(f"Backup target already exists: {target}")
+    with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+        src.backup(dst)
     return target
 
 
@@ -91,9 +102,18 @@ def _add_run_search_id(connection: Connection) -> None:
 
 
 def upgrade_database(engine: Engine) -> UpgradeReport:
-    """Rebuild a pre-searches database in place, in one transaction; a no-op when current."""
+    """Rebuild a pre-searches database in place, in one transaction; a no-op when current.
+
+    Raises `UnsupportedDatabaseError` for anything but SQLite: the rows are inserted with
+    their old ids, which would leave Postgres sequences behind, and no backup is taken there.
+    """
     if not needs_upgrade(engine):
         return UpgradeReport(searches=0, matches=0, runs=0)
+    if engine.dialect.name != "sqlite":
+        raise UnsupportedDatabaseError(
+            f"upgrade-db converts SQLite databases only, not {engine.dialect.name}; "
+            "no released install ran on another database."
+        )
     tables = SQLModel.metadata.tables
     searches = matches = runs = 0
     with _transaction(engine) as connection:

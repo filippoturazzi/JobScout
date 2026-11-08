@@ -9,7 +9,12 @@ from jobscout.db import create_engine_from_url, init_db, needs_upgrade
 from jobscout.models import Match, Run, Search, SearchJob, UserPreferences
 from jobscout.pipeline import upgrade
 from jobscout.pipeline.conversation import Conversation, pending, summary, to_preferences
-from jobscout.pipeline.upgrade import UpgradeReport, backup_sqlite, upgrade_database
+from jobscout.pipeline.upgrade import (
+    UnsupportedDatabaseError,
+    UpgradeReport,
+    backup_sqlite,
+    upgrade_database,
+)
 
 
 def _upgraded(url: str):
@@ -164,14 +169,53 @@ def test_upgrade_rolls_back_when_it_fails(old_db, monkeypatch):
     assert needs_upgrade(create_engine_from_url(old_db)) is True
 
 
+def _sqlite_file(path) -> None:
+    connection = sqlite3.connect(path)
+    connection.execute("CREATE TABLE t (v TEXT)")
+    connection.execute("INSERT INTO t VALUES ('database row')")
+    connection.commit()
+    connection.close()
+
+
 def test_backup_copies_the_sqlite_file(tmp_path):
     path = tmp_path / "jobscout.db"
-    path.write_bytes(b"database bytes")
+    _sqlite_file(path)
 
     backup = backup_sqlite(f"sqlite:///{path}", datetime(2026, 11, 7, 9, 5, 3))
 
     assert backup == tmp_path / "jobscout.db.bak-20261107-090503"
-    assert backup.read_bytes() == b"database bytes"
+    copy = sqlite3.connect(backup)
+    rows = copy.execute("SELECT v FROM t").fetchall()
+    copy.close()
+    assert rows == [("database row",)]
     assert backup_sqlite("sqlite://", datetime(2026, 11, 7)) is None
     assert backup_sqlite("sqlite:///:memory:", datetime(2026, 11, 7)) is None
     assert backup_sqlite("postgresql://u:p@localhost/jobscout", datetime(2026, 11, 7)) is None
+
+
+def test_backup_refuses_to_overwrite_an_existing_target(tmp_path):
+    path = tmp_path / "jobscout.db"
+    _sqlite_file(path)
+    target = tmp_path / "jobscout.db.bak-20261107-090503"
+    target.write_bytes(b"an earlier backup")
+
+    with pytest.raises(FileExistsError, match=r"jobscout\.db\.bak-20261107-090503"):
+        backup_sqlite(f"sqlite:///{path}", datetime(2026, 11, 7, 9, 5, 3))
+
+    assert target.read_bytes() == b"an earlier backup"
+
+
+def test_upgrade_refuses_a_database_that_is_not_sqlite(old_db, monkeypatch):
+    engine = create_engine_from_url(old_db)
+    monkeypatch.setattr(engine.dialect, "name", "postgresql")
+
+    with pytest.raises(UnsupportedDatabaseError, match="SQLite"):
+        upgrade_database(engine)
+
+    monkeypatch.undo()
+    assert needs_upgrade(engine) is True, "nothing was converted"
+
+
+def test_a_current_database_that_is_not_sqlite_is_simply_up_to_date(engine, monkeypatch):
+    monkeypatch.setattr(engine.dialect, "name", "postgresql")
+    assert upgrade_database(engine) == UpgradeReport(searches=0, matches=0, runs=0)
