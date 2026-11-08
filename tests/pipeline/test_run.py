@@ -330,6 +330,31 @@ def test_my_jobs_shows_a_job_found_twice_once_at_its_best_score(session):
     assert sorted(item.searches) == [(a.id, "A"), (b.id, "B")]
 
 
+def test_my_jobs_never_lists_a_match_whose_search_is_gone(session):
+    search = make_search(session)
+    kept, orphan = _job(session, "kept"), _job(session, "orphan")
+    _scored(session, search, kept, 70)
+    session.add(
+        Match(job_id=orphan.id, user_id=search.user_id, search_id=9999, similarity=0.8, score=95)
+    )
+    session.add(
+        Match(
+            job_id=orphan.id,
+            user_id=search.user_id,
+            search_id=9998,
+            similarity=0.8,
+            score=90,
+            status="saved",
+        )
+    )
+    session.commit()
+
+    result = list_my_jobs(session, search.user_id)
+
+    assert [i.job.id for i in result.items] == [kept.id]
+    assert result.counts == {"all": 1, "saved": 0, "applied": 0}
+
+
 def test_my_jobs_names_searches_by_most_recently_used_first(session):
     a = make_search(session, title="A")
     b = make_search(session, title="B")

@@ -135,10 +135,14 @@ class MyJobs:
 def _best_per_job(
     session: Session, user_id: int, tab: MyJobTab, search_id: int | None
 ) -> list[tuple[Match, Job]]:
-    """The user's best-scored match for each active job in the tab, best first."""
+    """The user's best-scored match for each active job in the tab, best first.
+
+    Joined to `Search` so a match left behind by a deleted search is never listed.
+    """
     statement = (
         select(Match, Job)
         .join(Job, col(Match.job_id) == col(Job.id))
+        .join(Search, col(Match.search_id) == col(Search.id))
         .where(col(Match.user_id) == user_id, col(Job.is_active).is_(True))
         .order_by(
             col(Match.score).desc().nulls_last(),

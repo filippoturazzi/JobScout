@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from sqlmodel import Session, col, desc, func, select
 
 from jobscout.config import Settings
-from jobscout.models import CLOSED_STATUSES, Job, Match
+from jobscout.models import CLOSED_STATUSES, Job, Match, Search
 from jobscout.models.base import utcnow
 from jobscout.pipeline.searches import list_searches
 from jobscout.pipeline.users import get_preferences
@@ -36,6 +36,8 @@ def select_unnotified(
     statement = (
         select(Match, Job)
         .join(Job, col(Match.job_id) == col(Job.id))
+        # A match left behind by a deleted search is never announced.
+        .join(Search, col(Match.search_id) == col(Search.id))
         .where(
             col(Match.user_id) == user_id,
             col(Match.notified_at).is_(None),

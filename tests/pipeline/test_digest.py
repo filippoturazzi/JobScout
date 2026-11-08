@@ -65,6 +65,20 @@ def test_selects_only_matches_above_the_threshold(session: Session):
     assert held == 0
 
 
+def test_never_selects_a_match_whose_search_is_gone(session: Session):
+    user = get_or_create_default_user(session)
+    kept = _match(session, user.id, 80)
+    orphan = _match(session, user.id, 95)
+    orphan.search_id = 9999
+    session.add(orphan)
+    session.commit()
+
+    rows, held = select_unnotified(session, user.id, min_score=70)
+
+    assert [m.id for m, _ in rows] == [kept.id]
+    assert held == 0
+
+
 def test_never_selects_an_already_notified_match(session: Session):
     user = get_or_create_default_user(session)
     _match(session, user.id, 80, notified_at=utcnow())
