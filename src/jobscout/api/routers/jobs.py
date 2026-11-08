@@ -5,10 +5,18 @@ from sqlmodel import Session
 
 from jobscout.api.deps import get_current_user_id, get_session
 from jobscout.api.schemas import JobRead
+from jobscout.models import Job
+from jobscout.pipeline.filters import work_mode_of
 from jobscout.pipeline.run import list_jobs
 from jobscout.pipeline.searches import get_search, latest_search
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def read_job(job: Job) -> JobRead:
+    read = JobRead.model_validate(job)
+    read.work_mode = work_mode_of(job)
+    return read
 
 
 @router.get("", response_model=list[JobRead])
@@ -29,4 +37,4 @@ def read_jobs(
         latest = latest_search(session, user_id)
         search_id = latest.id if latest is not None else None
     jobs = list_jobs(session, search_id, limit=limit, apply_filters=not all)
-    return [JobRead.model_validate(j) for j in jobs]
+    return [read_job(j) for j in jobs]

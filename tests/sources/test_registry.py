@@ -73,3 +73,13 @@ def test_the_scheduler_is_off_by_default(monkeypatch):
 
 def test_arbeitnow_does_not_support_search():
     assert ArbeitnowSource().supports_search is False
+
+
+def test_all_source_statuses_lists_the_unconfigured_ones_as_off():
+    from jobscout.sources.registry import all_source_statuses
+
+    statuses = all_source_statuses(Settings(_env_file=None, sources="himalayas"))
+    assert statuses[0].name == "himalayas" and statuses[0].active
+    rest = statuses[1:]
+    assert {s.name for s in rest} == set(SOURCE_FACTORIES) - {"himalayas"}
+    assert all(not s.active and s.reason == "off" for s in rest)

@@ -3,9 +3,12 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib.resources import files
+from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
 from jobscout import __version__
@@ -92,6 +95,16 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    web_dir = Path(str(files("jobscout") / "web"))
+
+    @application.get("/", include_in_schema=False)
+    def page() -> FileResponse:
+        return FileResponse(
+            web_dir / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"}
+        )
+
+    # Mounted last: every API route above keeps its path.
+    application.mount("/static", StaticFiles(directory=web_dir), name="static")
     return application
 
 

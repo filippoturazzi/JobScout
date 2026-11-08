@@ -349,3 +349,12 @@ def test_city_rule(location, remote, searched, expected):
         posting.raw = {"searched_region": searched}
     p = prefs(regions=["Brazil"], city="São Paulo")
     assert job_matches_preferences(posting, p) is expected
+
+
+def test_work_mode_of():
+    from jobscout.pipeline.filters import work_mode_of
+
+    assert work_mode_of(job(remote=True)) == "remote"
+    assert work_mode_of(job(title="AI Engineer (Hybrid)")) == "hybrid"
+    assert work_mode_of(job(title="AI Engineer, on-site")) == "onsite"
+    assert work_mode_of(job()) is None

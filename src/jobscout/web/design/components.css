@@ -1,0 +1,42 @@
+/* Jobscout — componentes base (classes js-*). Requer tokens.css carregado antes e as fontes do Google Fonts (ver DESIGN.md). */
+
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); margin: 0; }
+.js-pad { padding: var(--space-4); }
+.js-row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.js-meta { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .02em; color: var(--ink-muted); }
+
+/* Button */
+.js-btn { font: 600 13px/16px var(--font-sans); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); }
+.js-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.js-btn--primary { background: var(--brand); color: var(--on-brand); }
+.js-btn--primary:hover { background: var(--brand-hover); }
+.js-btn--secondary { background: var(--surface-raised); color: var(--ink); border-color: var(--border-strong); }
+.js-btn--ghost { background: transparent; color: var(--ink-muted); }
+.js-btn--ghost:hover { color: var(--ink); background: var(--surface-raised); }
+
+/* Tag */
+.js-tag { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .02em; text-transform: uppercase; padding: 2px var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--ink-muted); background: var(--surface); display: inline-flex; align-items: center; gap: var(--space-1); }
+.js-tag--match { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; border-radius: var(--radius-pill); padding: 2px var(--space-3); }
+.js-tag--remote { color: var(--info); }
+.js-tag--success { color: var(--success); }
+
+/* JobCard */
+.js-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: grid; gap: var(--space-3); cursor: pointer; }
+.js-card:hover { background: var(--surface-raised); }
+.js-card[aria-selected="true"] { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.js-card__top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
+.js-card__title { font: 600 18px/24px var(--font-display); letter-spacing: -0.01em; margin: 0; color: var(--ink); }
+.js-card__company { font-size: 13px; line-height: 18px; color: var(--ink-muted); margin: var(--space-1) 0 0; }
+.js-card__tags { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* PreferenceInput */
+.js-pref { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: grid; gap: var(--space-3); }
+.js-pref label { font: 600 13px/16px var(--font-sans); color: var(--ink); }
+.js-pref textarea { font: 400 15px/22px var(--font-sans); color: var(--ink); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-3); min-height: 96px; resize: vertical; }
+.js-pref textarea::placeholder { color: var(--ink-muted); }
+.js-pref textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.js-pref__foot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+
+/* Logo lockup */
+.js-logo { display: inline-flex; align-items: center; gap: var(--space-2); font: 700 28px/1 var(--font-display); letter-spacing: -0.03em; color: var(--ink); }
+.js-logo img { height: 36px; width: 36px; }

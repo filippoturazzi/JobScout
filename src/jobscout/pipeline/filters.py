@@ -5,6 +5,7 @@ Coarse by design: its job is to drop obvious non-candidates, not to rank.
 
 import re
 from collections.abc import Iterable
+from typing import Literal
 
 from jobscout.models import Job, UserPreferences
 from jobscout.sources.regions import countries_in, country_of, is_area
@@ -62,7 +63,7 @@ def _passes_exclusions(job: Job, prefs: UserPreferences) -> bool:
     return True
 
 
-def _stated_on_premises_mode(job: Job) -> str | None:
+def _stated_on_premises_mode(job: Job) -> Literal["hybrid", "onsite"] | None:
     """ "hybrid" or "onsite" when a non-remote posting says which it is, else ``None``.
 
     Boards report only remote or not, so this reads the posting's words. Hybrid is checked
@@ -79,6 +80,13 @@ def _stated_on_premises_mode(job: Job) -> str | None:
     if _ONSITE_LONG.search(description):
         return "onsite"
     return None
+
+
+def work_mode_of(job: Job) -> Literal["remote", "hybrid", "onsite"] | None:
+    """The job's work mode: remote when the board says so, else what the posting states."""
+    if job.remote:
+        return "remote"
+    return _stated_on_premises_mode(job)
 
 
 def _passes_work_mode(job: Job, prefs: UserPreferences) -> bool:

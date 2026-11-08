@@ -328,3 +328,44 @@ def test_run_read_includes_sources(client, session, chat):
     session.refresh(run)
     body = client.get(f"/searches/{created['id']}/runs/{run.id}").json()
     assert body["sources"] == [entry]
+
+
+def test_a_question_can_be_read_by_id(client, chat):
+    search_id = _create(client).json()["id"]
+    response = client.get(f"/searches/{search_id}/questions/level")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "level"
+    values = [o["choice"] for o in body["options"]]
+    assert values[0] == "intern"
+    assert values[-1] == "any"
+    assert client.get(f"/searches/{search_id}/questions/nope").status_code == 422
+
+
+def test_reading_a_question_of_another_users_search_is_404(client, session):
+    get_or_create_default_user(session)
+    other = User(email="other@example.com")
+    session.add(other)
+    session.commit()
+    theirs = Search(user_id=other.id, title="theirs")
+    session.add(theirs)
+    session.commit()
+    assert client.get(f"/searches/{theirs.id}/questions/level").status_code == 404
+
+
+def test_job_read_carries_the_work_mode(client, session):
+    remote = _job(session, "r")
+    hybrid = Job(
+        source="t",
+        external_id="h",
+        title="AI Engineer (Hybrid)",
+        company="Acme",
+        remote=False,
+        url="https://x/h",
+        description="d",
+        content_hash="h-h",
+    )
+    session.add(hybrid)
+    session.commit()
+    modes = {j["external_id"]: j["work_mode"] for j in client.get("/jobs?all=true").json()}
+    assert modes == {remote.external_id: "remote", "h": "hybrid"}

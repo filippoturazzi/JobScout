@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jobscout — tela principal (referência)</title>
+<link rel="icon" href="../logos/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  .app { max-width: 1200px; margin: 0 auto; padding: var(--space-6); display: grid; gap: var(--space-6); }
+  header { display: flex; justify-content: space-between; align-items: center; }
+  .main { display: grid; grid-template-columns: 400px 1fr; gap: var(--space-6); align-items: start; }
+  .list { display: grid; gap: var(--space-4); }
+  .detail { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-6); display: grid; gap: var(--space-4); position: sticky; top: var(--space-6); }
+  .detail h1, .detail h2, .detail p { margin: 0; }
+  .detail h2 { color: var(--ink); }
+  .detail p, .detail li { color: var(--ink); }
+  .muted { color: var(--ink-muted); }
+  .link { color: var(--accent-text); }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 0; width: 100%; }
+  @media (max-width: 800px) { .main { grid-template-columns: 1fr; } .detail { position: static; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <span class="js-logo"><img src="../logos/jobscout-mark.svg" alt="">jobscout</span>
+    <button class="js-btn js-btn--ghost" onclick="var h=document.documentElement;h.dataset.theme=h.dataset.theme==='light'?'dark':'light'">Alternar tema</button>
+  </header>
+
+  <form class="js-pref" onsubmit="return false">
+    <label for="pref">Que vaga você procura?</label>
+    <textarea id="pref" placeholder="Ex.: Sou dev Python com 1 ano de experiência e projetos com LLMs. Busco vaga júnior de AI Engineer, remoto ou em SP, Brasil ou exterior, a partir de R$ 6 mil.">Sou dev Python com projetos de RAG e agentes. Procuro vaga júnior de AI Engineer, remoto (Brasil ou exterior) ou híbrido em São Paulo.</textarea>
+    <div class="js-pref__foot"><span class="js-meta">5 plataformas ativas · 38 vagas encontradas</span><button class="js-btn js-btn--primary">Buscar vagas</button></div>
+  </form>
+
+  <div class="main">
+    <div class="list">
+      <article class="js-card" aria-selected="true">
+        <div class="js-card__top"><div><h3 class="js-card__title">Engenheiro(a) de IA Júnior</h3><p class="js-card__company">Empresa Exemplo · São Paulo, SP</p></div><span class="js-tag js-tag--match">92%</span></div>
+        <div class="js-card__tags"><span class="js-tag">LinkedIn</span><span class="js-tag js-tag--remote">Remoto</span><span class="js-tag">Júnior</span></div>
+        <div class="js-meta">R$ 6–8 mil · há 2h</div>
+      </article>
+      <article class="js-card">
+        <div class="js-card__top"><div><h3 class="js-card__title">ML Engineer (LLM Apps)</h3><p class="js-card__company">Acme Labs · Lisboa, PT</p></div><span class="js-tag js-tag--match">78%</span></div>
+        <div class="js-card__tags"><span class="js-tag">Indeed</span><span class="js-tag">Híbrido</span><span class="js-tag">Pleno</span></div>
+        <div class="js-meta">€ 40–50k/ano · há 1d</div>
+      </article>
+      <article class="js-card">
+        <div class="js-card__top"><div><h3 class="js-card__title">Desenvolvedor(a) Backend Python</h3><p class="js-card__company">Startup Exemplo · Remoto</p></div><span class="js-tag js-tag--match">71%</span></div>
+        <div class="js-card__tags"><span class="js-tag">Gupy</span><span class="js-tag js-tag--remote">Remoto</span><span class="js-tag js-tag--success">✓ Candidatado</span></div>
+        <div class="js-meta">há 3d</div>
+      </article>
+    </div>
+
+    <section class="detail">
+      <div class="js-card__tags"><span class="js-tag js-tag--match">92% match</span><span class="js-tag">LinkedIn</span><span class="js-tag js-tag--remote">Remoto</span></div>
+      <h1 class="text-h1">Engenheiro(a) de IA Júnior</h1>
+      <p class="text-body-sm muted">Empresa Exemplo · São Paulo, SP · <span class="js-meta">publicada há 2h</span></p>
+      <div class="js-row"><button class="js-btn js-btn--primary">Candidatar-se</button><button class="js-btn js-btn--secondary">Salvar vaga</button><button class="js-btn js-btn--ghost">Ignorar</button></div>
+      <hr>
+      <h2 class="text-h2">Por que combina com você</h2>
+      <p class="text-body">Você pediu vaga júnior remota com foco em LLMs; a vaga pede Python, RAG e experiência com APIs de modelos.</p>
+      <h2 class="text-h2">Descrição</h2>
+      <p class="text-body">Texto da descrição da vaga como veio da plataforma. <a class="link" href="#">Abrir original</a></p>
+    </section>
+  </div>
+</div>
+</body>
+</html>

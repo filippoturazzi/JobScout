@@ -24,6 +24,12 @@ Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `
 - Distribution is self-hosting only. The hosted demo (quotas, BYOK) was dropped on 2026-10-23: do not propose it.
 - English for code, comments, README; READMEs also in pt-BR and es later.
 
+## UI
+
+- Read `src/jobscout/web/design/DESIGN.md` before any UI work. The page is plain HTML/CSS/ES modules under `src/jobscout/web/`, with no framework and no build step.
+- Tokens only (`var(--...)` from `design/tokens.css`, `js-*` classes from `design/components.css`); never a literal colour or size. Every screen must work in both themes (dark is the default).
+- Copy lives in `web/locales/*.json`, in English and pt-BR; the conversational-page spec's English+pt-BR rule overrides DESIGN.md's pt-BR-only line.
+
 ## Architecture rules
 
 Dependencies point only downward: `sources` (HTTP → `RawJob`, no DB) · `matching` (no HTTP, no sources) · `notifiers` (depend only on `config` and `models`) · `pipeline` (the only composer: ingest/upsert, filters, liveness, matching, repair, run) · `api`, `cli` and `scheduler` (APScheduler jobs; `scheduler.py` sits beside `api`/`cli`) are thin shells over `pipeline`. Adding a job board must be one file in `sources/` plus one fixture-based test; the generic contract test in `tests/` runs against every registered source.

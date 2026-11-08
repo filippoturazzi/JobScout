@@ -48,6 +48,18 @@ def build_sources(settings: Settings) -> list[JobSource]:
     ]
 
 
+def all_source_statuses(settings: Settings) -> list[SourceStatus]:
+    """The configured sources, then every other registered one as off."""
+    statuses = source_statuses(settings)
+    configured = {s.name for s in statuses}
+    off = [
+        SourceStatus(name=name, active=False, reason="off")
+        for name in SOURCE_FACTORIES
+        if name not in configured
+    ]
+    return [*statuses, *off]
+
+
 def source_statuses(settings: Settings) -> list[SourceStatus]:
     _check_known(settings)
     statuses: list[SourceStatus] = []

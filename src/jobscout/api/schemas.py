@@ -27,6 +27,7 @@ class JobRead(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
     is_active: bool
+    work_mode: Literal["remote", "hybrid", "onsite"] | None = None
 
 
 class MatchRead(BaseModel):

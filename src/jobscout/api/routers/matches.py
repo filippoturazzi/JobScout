@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from jobscout.api.deps import get_current_user_id, get_session
-from jobscout.api.schemas import JobRead, MatchRead, MatchStatusUpdate
+from jobscout.api.routers.jobs import read_job
+from jobscout.api.schemas import MatchRead, MatchStatusUpdate
 from jobscout.models import Job, Match
 from jobscout.pipeline.run import set_match_status
 
@@ -23,7 +24,7 @@ def read_match(match: Match, job: Job) -> MatchRead:
         red_flags=match.red_flags,
         status=match.status,
         llm_model=match.llm_model,
-        job=JobRead.model_validate(job),
+        job=read_job(job),
     )
 
 

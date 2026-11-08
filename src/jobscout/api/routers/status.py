@@ -10,7 +10,7 @@ from jobscout.matching.llm import provider_key_found
 from jobscout.models import User
 from jobscout.pipeline.users import set_locale
 from jobscout.scheduler import JobScoutScheduler
-from jobscout.sources.registry import source_statuses
+from jobscout.sources.registry import all_source_statuses
 
 router = APIRouter(tags=["status"])
 
@@ -26,7 +26,7 @@ def read_status(request: Request, user: Annotated[User, Depends(get_current_user
         llm_provider=settings.llm_provider,
         llm_model=settings.llm_model,
         embedding_model=settings.embedding_model,
-        sources=source_statuses(settings),
+        sources=all_source_statuses(settings),
         running_search_id=running[0] if running is not None else None,
         locale=user.locale,
     )

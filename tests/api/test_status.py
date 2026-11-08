@@ -29,3 +29,15 @@ def test_locale_is_saved(client, session):
     assert client.get("/status").json()["locale"] == "pt-BR"
     assert client.put("/me/locale", json={"locale": "fr"}).status_code == 422
     assert session.exec(select(User)).one().locale == "pt-BR"
+
+
+def test_status_lists_off_sources_after_the_configured_ones(client, monkeypatch, fake_scheduler):
+    from jobscout.config import get_settings
+
+    monkeypatch.setenv("SOURCES", "himalayas")
+    get_settings.cache_clear()
+    sources = client.get("/status").json()["sources"]
+    assert sources[0] == {"name": "himalayas", "active": True, "reason": None}
+    rest = sources[1:]
+    assert {s["name"] for s in rest} == {"arbeitnow", "remotive", "linkedin", "indeed"}
+    assert all(s["active"] is False and s["reason"] == "off" for s in rest)
