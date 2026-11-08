@@ -7,7 +7,7 @@ import { refreshSearches, refreshStatus, state, subscribe } from "./js/store.js"
 import { renderSidebar } from "./js/sidebar.js";
 import { renderHome } from "./js/views/home.js";
 import { renderSettings } from "./js/views/settings.js";
-import { renderSearch } from "./js/views/search.js";
+import { leaveSearch, renderSearch } from "./js/views/search.js";
 
 function applyTheme() {
   let theme = "dark";
@@ -49,6 +49,7 @@ async function start() {
   let mountedKey = null;
   function render(force = false) {
     const route = currentRoute();
+    if (route.name !== "search") leaveSearch();
     renderSidebar(sidebar, state, route, () => render());
     const key = route.name === "search" ? `search:${route.id}` : route.name;
     if (force === true || key !== mountedKey || key === "my-jobs") {

@@ -46,6 +46,7 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
   return {
     el,
     focus: () => field.focus(),
+    getText: () => field.value,
     setText: (s) => {
       field.value = s;
     },

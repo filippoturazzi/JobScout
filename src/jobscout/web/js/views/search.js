@@ -8,21 +8,27 @@ import { refreshSearches } from "../store.js";
 import { composer } from "../composer.js";
 import { buildTranscript } from "../transcript.js";
 import { renderEntries } from "../conversation.js";
+import { createGuard } from "../guard.js";
 
-let token = 0;
+const guard = createGuard();
+
+// Called by the shell when another view takes the page: late responses must not redraw over it.
+export function leaveSearch() {
+  guard.invalidate();
+}
 
 export async function renderSearch(root, ctx, id) {
-  const mine = ++token;
+  const mine = guard.next();
   mount(root, h("div", { class: "app-column" }));
   let search;
   try {
     search = await api.get(`/searches/${id}`);
   } catch (e) {
-    if (mine !== token) return;
+    if (!guard.isCurrent(mine)) return;
     mount(root, h("div", { class: "app-column" }, h("p", { class: "text-body conv-error", role: "alert" }, t("request_failed"))));
     return;
   }
-  if (mine !== token) return;
+  if (!guard.isCurrent(mine)) return;
 
   const ui = { editing: null, error: null, otherFor: null, reading: false, busy: false, sources: [] };
   const status = ctx.state.status;
@@ -39,17 +45,17 @@ export async function renderSearch(root, ctx, id) {
     ui.error = null;
     try {
       const next = await call();
-      if (mine !== token) return;
+      if (!guard.isCurrent(mine)) return;
       search = next;
       after();
       refreshSearches().catch(() => {});
     } catch (e) {
-      if (mine !== token) return;
+      if (!guard.isCurrent(mine)) return;
       problem(qid, e);
     } finally {
       ui.busy = false;
     }
-    if (mine === token) draw();
+    if (guard.isCurrent(mine)) draw();
   }
 
   const handlers = {
@@ -66,12 +72,12 @@ export async function renderSearch(root, ctx, id) {
     onEdit: async (qid) => {
       try {
         const q = await api.get(`/searches/${id}/questions/${qid}`);
-        if (mine !== token) return;
+        if (!guard.isCurrent(mine)) return;
         ui.editing = q;
         ui.otherFor = null;
         ui.error = null;
       } catch (e) {
-        if (mine !== token) return;
+        if (!guard.isCurrent(mine)) return;
         problem(qid, e);
       }
       draw();
@@ -81,7 +87,7 @@ export async function renderSearch(root, ctx, id) {
       draw();
       return mutate("composer", () => api.post(`/searches/${id}/reread`), () => {}).finally(() => {
         ui.reading = false;
-        if (mine === token) draw();
+        if (guard.isCurrent(mine)) draw();
       });
     },
   };
@@ -100,7 +106,11 @@ export async function renderSearch(root, ctx, id) {
     });
   }
 
+  let box = null;
+
   function draw() {
+    // A failed submit keeps what the user typed.
+    const kept = ui.error && box ? box.getText() : "";
     const active = search.question;
     const roleActive = Boolean(active) && active.id === "role";
     const locked = Boolean(active) && !roleActive && !ui.otherFor;
@@ -109,7 +119,8 @@ export async function renderSearch(root, ctx, id) {
     else if (locked) placeholder = t("composer_locked");
     else if (search.latest_run) placeholder = t("composer_refine");
 
-    const box = composer({ placeholder, locked, primary: false, submitLabel: t("send"), disabled: ui.busy, onSubmit: submitText });
+    box = composer({ placeholder, locked, primary: false, submitLabel: t("send"), disabled: ui.busy, onSubmit: submitText });
+    if (kept) box.setText(kept);
     const entries = buildTranscript(search, t);
     const column = h("div", { class: "app-column conv" }, renderEntries(entries, search, ui, handlers));
     const composerError = ui.error && ui.error.qid === "composer" ? ui.error.text : null;
