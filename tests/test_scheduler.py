@@ -12,9 +12,10 @@ from jobscout.models.base import utcnow
 from jobscout.pipeline.matching import MatchRun
 from jobscout.pipeline.run import save_preferences
 from jobscout.pipeline.searches import add_search, default_search_id
-from jobscout.pipeline.users import get_or_create_default_user, update_preferences
+from jobscout.pipeline.users import update_preferences
 from jobscout.scheduler import (
     JobScoutScheduler,
+    SearchBusyError,
     digest_job,
     finish_run,
     ingest_job,
@@ -1165,26 +1166,25 @@ def test_a_user_without_an_address_does_not_stop_another_users_digest(session, m
 def test_a_search_on_a_disabled_scheduler_does_not_turn_the_wake_on(session: Session, monkeypatch):
     # The executor starts for the user's search; SCHEDULER_ENABLED=false still means no
     # background matching, so a preference save afterwards must not schedule one.
-    monkeypatch.setattr("jobscout.scheduler.search_job", lambda *args: None)
-    user = get_or_create_default_user(session)
+    monkeypatch.setattr("jobscout.scheduler.search_job", lambda *args, **kw: None)
+    search = make_search(session)
     scheduler = JobScoutScheduler(session.get_bind(), _settings(scheduler_enabled=False))
     scheduler.start()
     try:
         scheduler._scheduler.start(paused=True)
-        scheduler.start_search(user.id)
+        scheduler.start_search(search.id)
         scheduler.wake_matching()
-        assert [job.id for job in scheduler.get_jobs()] == [f"search-{user.id}"]
+        assert [job.id for job in scheduler.get_jobs()] == ["search"]
     finally:
         scheduler.shutdown()
 
 
 def test_a_search_waits_for_a_match_run_in_flight(session: Session, monkeypatch):
     ran = threading.Event()
-    monkeypatch.setattr("jobscout.scheduler.search_job", lambda *args: ran.set())
+    monkeypatch.setattr("jobscout.scheduler.search_job", lambda *args, **kw: ran.set())
     scheduler = JobScoutScheduler(session.get_bind(), _settings())
-    user = get_or_create_default_user(session)
     scheduler._match_running.acquire()  # a match tick is scoring
-    worker = threading.Thread(target=scheduler._run_search, args=(user.id, 1, 1))
+    worker = threading.Thread(target=scheduler._run_search, args=(1, 1, True))
     worker.start()
     try:
         assert not ran.wait(0.3), "the search must not score beside a match run"
@@ -1193,4 +1193,118 @@ def test_a_search_waits_for_a_match_run_in_flight(session: Session, monkeypatch)
     worker.join(5)
     assert ran.is_set()
     assert not scheduler._match_running.locked()
-    assert scheduler.search_in_flight(user.id) is None
+    assert scheduler.running_search() is None
+
+
+class _Gate:
+    """Stands in for `search_job`: records each call and holds it until released."""
+
+    def __init__(self) -> None:
+        self.release = threading.Event()
+        self.started = threading.Event()
+        self.calls: list[tuple[int, int, bool]] = []
+
+    def __call__(self, engine, settings, search_id, run_id, fetch=True) -> None:
+        self.calls.append((search_id, run_id, fetch))
+        self.started.set()
+        self.release.wait(5)
+
+
+@pytest.fixture
+def gate(session: Session, monkeypatch):
+    work = _Gate()
+    monkeypatch.setattr("jobscout.scheduler.search_job", work)
+    scheduler = JobScoutScheduler(session.get_bind(), _settings(scheduler_enabled=False))
+    work.scheduler = scheduler
+    yield work
+    work.release.set()
+    scheduler.shutdown()
+
+
+def _wait_free(scheduler: JobScoutScheduler) -> None:
+    import time
+
+    deadline = time.monotonic() + 5
+    while scheduler.running_search() is not None:
+        assert time.monotonic() < deadline, "the finished search never freed the slot"
+        time.sleep(0.02)
+
+
+def test_a_second_start_of_the_same_search_returns_its_run(session: Session, gate):
+    search = make_search(session)
+    first = gate.scheduler.start_search(search.id)
+    assert gate.started.wait(5)
+    assert gate.scheduler.start_search(search.id, fetch=False) == first
+    assert gate.scheduler.running_search() == (search.id, first)
+    assert len(gate.calls) == 1
+
+
+def test_starting_another_search_while_one_runs_is_refused(session: Session, gate):
+    first = make_search(session, title="first")
+    second = make_search(session, title="second")
+    gate.scheduler.start_search(first.id)
+    assert gate.started.wait(5)
+    with pytest.raises(SearchBusyError, match="Another search is running") as caught:
+        gate.scheduler.start_search(second.id)
+    assert caught.value.search_id == first.id
+    assert len(gate.calls) == 1
+
+
+def test_ranking_starts_a_run_without_fetching(session: Session, gate):
+    search = make_search(session)
+    run_id = gate.scheduler.start_search(search.id, fetch=False)
+    assert gate.started.wait(5)
+    assert gate.calls == [(search.id, run_id, False)]
+
+
+def test_a_start_fetches_by_default(session: Session, gate):
+    search = make_search(session)
+    gate.scheduler.start_search(search.id)
+    assert gate.started.wait(5)
+    assert gate.calls[0][2] is True
+
+
+def test_the_slot_frees_after_the_search_finishes(session: Session, gate):
+    first = make_search(session, title="first")
+    second = make_search(session, title="second")
+    gate.scheduler.start_search(first.id)
+    assert gate.started.wait(5)
+    gate.release.set()
+    _wait_free(gate.scheduler)
+    gate.release.clear()
+    gate.started.clear()
+    run_id = gate.scheduler.start_search(second.id)
+    assert gate.started.wait(5)
+    assert gate.calls[-1][:2] == (second.id, run_id)
+
+
+def test_the_slot_frees_when_scheduling_fails(session: Session, gate, monkeypatch):
+    search = make_search(session)
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("no executor")
+
+    monkeypatch.setattr(gate.scheduler._scheduler, "add_job", boom)
+    with pytest.raises(RuntimeError, match="no executor"):
+        gate.scheduler.start_search(search.id)
+    assert gate.scheduler.running_search() is None
+
+
+def test_match_job_scores_every_search(session: Session, monkeypatch):
+    import jobscout.pipeline.matching as matching_module
+
+    monkeypatch.setattr(matching_module, "chat_model", lambda _s: CountingChatModel())
+    monkeypatch.setattr(matching_module, "embeddings", lambda _s: DeterministicFakeEmbedding(8))
+    settings = _settings(embedding_dim=8, similarity_threshold=-1.0, scheduler_enabled=False)
+    first = make_search(session, title="first", profile_summary="Python LLM engineer.")
+    second = make_search(session, title="second", profile_summary="Data engineer.")
+    job_a = _add_stale_job(session, "arbeitnow", "a", days_ago=0)
+    job_b = _add_stale_job(session, "arbeitnow", "b", days_ago=0)
+    fetched(session, first, job_a)
+    fetched(session, second, job_b)
+
+    match_job(session.get_bind(), settings, tick=1)
+
+    session.expire_all()
+    pairs = {(m.search_id, m.job_id) for m in session.exec(select(Match)).all()}
+    assert pairs == {(first.id, job_a.id), (second.id, job_b.id)}

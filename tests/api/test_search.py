@@ -20,7 +20,7 @@ class _Held:
         self.started = threading.Event()
         self.calls: list[tuple[int, int]] = []
 
-    def __call__(self, engine, settings, search_id, run_id) -> None:
+    def __call__(self, engine, settings, search_id, run_id, fetch=True) -> None:
         self.calls.append((search_id, run_id))
         self.started.set()
         self.release.wait(5)
@@ -75,12 +75,12 @@ def test_a_second_search_returns_the_run_already_in_flight(client, session, held
 
 
 def test_a_search_after_the_last_one_finished_starts_a_new_run(client, session, held):
-    user_id = _user_id(client, session)
+    _user_id(client, session)
     first = client.post("/search").json()["run_id"]
     assert held.started.wait(5)
     held.release.set()
     deadline = time.monotonic() + 5
-    while held.scheduler.search_in_flight(user_id) is not None:
+    while held.scheduler.running_search() is not None:
         assert time.monotonic() < deadline, "the finished search was never released"
         time.sleep(0.02)
     second = client.post("/search").json()["run_id"]

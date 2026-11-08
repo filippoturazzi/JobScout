@@ -6,13 +6,16 @@ from sqlmodel import Session
 from jobscout.api.deps import get_current_user_id, get_session
 from jobscout.api.schemas import RunRead, SearchStarted
 from jobscout.models import Run
+from jobscout.pipeline.searches import default_search_id
 
 router = APIRouter(prefix="/search", tags=["search"])
 
 
 @router.post("", status_code=202, response_model=SearchStarted)
 def start_search(
-    request: Request, user_id: Annotated[int, Depends(get_current_user_id)]
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> SearchStarted:
     """Start a search in the background, or return the one already in flight for this user.
 
@@ -21,7 +24,7 @@ def start_search(
     scheduler = getattr(request.app.state, "scheduler", None)
     if scheduler is None:
         raise HTTPException(status_code=503, detail="no scheduler to run the search on")
-    return SearchStarted(run_id=scheduler.start_search(user_id))
+    return SearchStarted(run_id=scheduler.start_search(default_search_id(session, user_id)))
 
 
 @router.get("/{run_id}", response_model=RunRead)
