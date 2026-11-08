@@ -17,7 +17,6 @@ from jobscout.pipeline.searches import (
     conversation_of,
     create_search,
     delete_search,
-    get_or_create_default_search,
     get_search,
     latest_search,
     list_searches,
@@ -100,16 +99,6 @@ def test_delete_search_removes_its_preferences_and_matches_but_not_jobs(session)
     assert [m.search_id for m in session.exec(select(Match)).all()] == [other.id]
     assert [r.search_id for r in session.exec(select(SearchJob)).all()] == [other.id]
     assert session.exec(select(Job)).one().id == job.id
-
-
-def test_get_or_create_default_search_reuses_the_latest(session):
-    user = get_or_create_default_user(session)
-
-    first = get_or_create_default_search(session, user.id)
-    second = get_or_create_default_search(session, user.id)
-
-    assert first.id == second.id
-    assert len(session.exec(select(Search)).all()) == 1
 
 
 def test_default_user_has_no_preferences_until_a_search_exists(session):

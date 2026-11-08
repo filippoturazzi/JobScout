@@ -13,7 +13,7 @@ from jobscout.matching.prompts import job_text, profile_text
 from jobscout.matching.schemas import EvaluationResult
 from jobscout.matching.vectors import cosine
 from jobscout.models import Job
-from jobscout.pipeline.searches import default_search_id
+from jobscout.pipeline.searches import add_search
 from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 
 pytestmark = pytest.mark.integration
@@ -39,7 +39,7 @@ def test_live_evaluation_and_similarity_distribution(live_session, capsys):
         pytest.skip("no jobs in the database; run `jobscout fetch` first")
 
     user = get_or_create_default_user(live_session)
-    search_id = default_search_id(live_session, user.id)
+    search_id = add_search(live_session, user.id, "Live test").id
     prefs, _ = update_preferences(live_session, search_id, {"profile_summary": PROFILE})
 
     embedder = embeddings(settings)

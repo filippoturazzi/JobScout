@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed, and the profile search that drives them (`pipeline.search.run_search`), reached through `jobscout search` and `POST /search`. Scheduled ingest has no search terms, so it never reaches the scraped sources. Next is the stage 5 web page (static HTML served by FastAPI); Jooble is deferred. `SOURCES` defaults to `himalayas,remotive,linkedin,indeed`; Arbeitnow stays registered but off by default (a catalogue with no search). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed, and the profile search that drives them (`pipeline.search.run_search`). Saved searches and the conversation backend are done too: a search is a profile with its own preferences, matches and conversation (`pipeline/searches.py`, `pipeline/conversation.py`), reached through `jobscout search` and `POST /searches/{id}/run`. Scheduled ingest has no search terms, so it never reaches the scraped sources. Next is the stage 5 web page (static HTML served by FastAPI), the conversational interface in `docs/superpowers/specs/2026-11-07-chat-interface-design.md`; Jooble is deferred. `SOURCES` defaults to `himalayas,remotive,linkedin,indeed`; Arbeitnow stays registered but off by default (a catalogue with no search). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -43,8 +43,9 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv run pytest -m integration` — opt-in tests against real APIs (off by default via `addopts`).
 - `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
 - `uv run mypy src` — strict type check of `src/`; must be clean before committing (CI enforces it).
-- `uv run jobscout fetch|jobs|repair-descriptions|serve` — CLI. `serve` runs uvicorn on `jobscout.api.app:app`.
-- `GET /runs` — run history (ingest, match, digest, search). The scheduler runs inside `serve` and is off by default (`SCHEDULER_ENABLED=true` turns it on); `POST /search` runs regardless.
+- `uv run jobscout fetch|jobs|searches|repair-descriptions|upgrade-db|serve` — CLI. `search`, `match`, `matches` and `jobs` take `--search ID` (default: the latest search); `upgrade-db` converts a pre-saved-searches database after backing it up. `serve` runs uvicorn on `jobscout.api.app:app`.
+- API: `GET/POST /searches`, `GET/DELETE /searches/{id}`, `POST /searches/{id}/answers|refinements|reread|run|rank`, `GET /searches/{id}/runs/{run_id}`, `GET /searches/{id}/matches`, `PATCH /matches/{id}`, `GET /my-jobs`, `GET /jobs`, `GET /status`, `PUT /me/locale` (these replaced `/preferences`, `/search` and `GET /matches`).
+- `GET /runs` — run history (ingest, match, digest, search). The scheduler runs inside `serve` and is off by default (`SCHEDULER_ENABLED=true` turns it on); `POST /searches/{id}/run` runs regardless.
 - `uv run jobscout match|matches` — run the matching graph / list scored matches (needs a provider key).
 - `uv run jobscout search` — one search in the foreground: profile terms → every source → scoring, then the ranking (needs a provider key).
 - CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy and pytest.

@@ -15,7 +15,12 @@ from jobscout.pipeline.matching import MissingProviderError, run_match
 from jobscout.pipeline.repair import repair_descriptions as repair
 from jobscout.pipeline.run import list_jobs, list_matches, run_ingest
 from jobscout.pipeline.search import SearchProgress, run_search
-from jobscout.pipeline.searches import default_search_id
+from jobscout.pipeline.searches import (
+    SearchNotFoundError,
+    get_search,
+    latest_search,
+    list_searches,
+)
 from jobscout.pipeline.upgrade import backup_sqlite, upgrade_database
 from jobscout.pipeline.users import get_or_create_default_user
 from jobscout.sources.registry import source_statuses
@@ -42,11 +47,50 @@ def _session() -> Session:
     return Session(engine)
 
 
-def _default_search_id(session: Session) -> int:
-    """The search the commands act on until they learn to take one (a later task)."""
+NO_SEARCHES = "No searches yet. Start one in the page: jobscout serve"
+
+SearchOption = Annotated[
+    int | None,
+    typer.Option("--search", help="Search id (see `jobscout searches`); default: the latest."),
+]
+
+
+def _resolve_search(session: Session, search_id: int | None) -> int | None:
+    """The search a command acts on: the one asked for, else the latest, else None."""
     user = get_or_create_default_user(session)
     assert user.id is not None, "a persisted user always has an id"
-    return default_search_id(session, user.id)
+    if search_id is None:
+        found = latest_search(session, user.id)
+    else:
+        try:
+            found = get_search(session, user.id, search_id)
+        except SearchNotFoundError as exc:
+            typer.echo(f"No search {search_id}.")
+            raise typer.Exit(code=2) from exc
+    return found.id if found is not None else None
+
+
+def _require_search(session: Session, search_id: int | None) -> int:
+    resolved = _resolve_search(session, search_id)
+    if resolved is None:
+        typer.echo(NO_SEARCHES)
+        raise typer.Exit(code=2)
+    return resolved
+
+
+@app.command()
+def searches() -> None:
+    """List your saved searches, most recently used first."""
+    with _session() as session:
+        user = get_or_create_default_user(session)
+        assert user.id is not None, "a persisted user always has an id"
+        rows = list_searches(session, user.id)
+        if not rows:
+            typer.echo(NO_SEARCHES)
+            return
+        for row in rows:
+            used = row.last_used_at.strftime("%Y-%m-%d %H:%M")
+            typer.echo(f"{row.id}  {row.title}  (last used {used})")
 
 
 @app.command()
@@ -79,11 +123,13 @@ def jobs(
     all_jobs: Annotated[
         bool, typer.Option("--all", help="Ignore preferences; show every active job.")
     ] = False,
+    search_id: SearchOption = None,
 ) -> None:
-    """List active jobs that pass your preferences (newest first)."""
+    """List active jobs that pass a search's preferences (newest first)."""
     with _session() as session:
-        search_id = _default_search_id(session)
-        rows = list_jobs(session, search_id, limit=limit, apply_filters=not all_jobs)
+        # With no search at all there are no preferences, so every active job is listed.
+        resolved = _resolve_search(session, search_id)
+        rows = list_jobs(session, resolved, limit=limit, apply_filters=not all_jobs)
         if not rows:
             typer.echo("No jobs found. Run `jobscout fetch` first or relax your preferences.")
             return
@@ -98,13 +144,14 @@ def match(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Show what would be evaluated; call no LLM.")
     ] = False,
+    search_id: SearchOption = None,
 ) -> None:
-    """Score the best unmatched jobs against your profile."""
+    """Score the best unmatched jobs against a search's profile."""
     settings = get_settings()
     with _session() as session:
-        search_id = _default_search_id(session)
+        resolved = _require_search(session, search_id)
         try:
-            result = run_match(session, settings, search_id, limit=limit, dry_run=dry_run)
+            result = run_match(session, settings, resolved, limit=limit, dry_run=dry_run)
         except MissingProviderError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=2) from exc
@@ -143,11 +190,15 @@ def match(
 def matches(
     min_score: Annotated[int, typer.Option(help="Only show matches at or above this score.")] = 0,
     limit: Annotated[int, typer.Option(help="Max rows to show.")] = 20,
+    search_id: SearchOption = None,
 ) -> None:
-    """List scored matches, best first."""
+    """List a search's scored matches, best first."""
     with _session() as session:
-        search_id = _default_search_id(session)
-        rows = list_matches(session, search_id, min_score=min_score, limit=limit)
+        resolved = _resolve_search(session, search_id)
+        if resolved is None:
+            typer.echo(NO_SEARCHES)
+            return
+        rows = list_matches(session, resolved, min_score=min_score, limit=limit)
         if not rows:
             if min_score > 0:
                 # Having matched and found nothing good is not the same as never matching.
@@ -182,11 +233,13 @@ def _progress_line(progress: SearchProgress, settings: Settings) -> str:
 @app.command()
 def search(
     limit: Annotated[int, typer.Option(help="Max matches to show afterwards.")] = 20,
+    search_id: SearchOption = None,
 ) -> None:
     """Search every source with the terms from your profile, score, and show the ranking.
 
-    The same run `POST /search` starts, here in the foreground, printing each step as it
-    happens. It needs an LLM key for scoring and a confirmed search (its terms are stored).
+    The same run `POST /searches/{id}/run` starts, here in the foreground, printing each
+    step as it happens. It needs an LLM key for scoring and a confirmed search (its terms
+    are stored).
     """
     settings = get_settings()
     try:
@@ -198,13 +251,13 @@ def search(
         if not status.active:
             typer.echo(f"{status.name}: dormant ({status.reason})")
     with _session() as session:
-        search_id = _default_search_id(session)
+        resolved = _require_search(session, search_id)
         # Printed as it happens: a search takes minutes (a scraped source makes one request
         # per posting), and a command silent for that long reads as hung.
         result = run_search(
             session,
             settings,
-            search_id,
+            resolved,
             on_progress=lambda progress: typer.echo(_progress_line(progress, settings)),
         )
         typer.echo(" ".join(f"{name}={value}" for name, value in result.counters.items()))
@@ -212,7 +265,7 @@ def search(
             typer.echo(f"  ERROR {message}")
         if result.remaining:
             typer.echo(f"{result.remaining} candidates left for the next run (the per-run caps).")
-        rows = list_matches(session, search_id, limit=limit)
+        rows = list_matches(session, resolved, limit=limit)
         for match_row, job in rows:
             typer.echo(f"[{match_row.score}] {job.title} — {job.company}")
             typer.echo(f"    {job.url}")

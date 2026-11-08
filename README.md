@@ -5,7 +5,8 @@ LinkedIn and Indeed, scrapes them; see Job sources) and matches
 postings against **your** profile — with an LLM explaining every score.
 
 > Status: in development. Collection, LLM matching, the scheduler and e-mail digests (stages 0–4) work. Stage 5's
-> sources and its profile search work from the CLI and the API (`jobscout search`, `POST /search`); its web page is next.
+> sources, saved searches and the conversation that builds them work from the CLI and the API (`jobscout search`,
+> `POST /searches`); the web page on top of them is next.
 > See `docs/superpowers/specs/2026-09-19-jobscout-design.md` for the full design and roadmap.
 
 ## Quick start
@@ -14,25 +15,26 @@ postings against **your** profile — with an LLM explaining every score.
 uv sync --all-groups
 cp .env.example .env               # optional; defaults work out of the box
 uv run jobscout fetch              # pull jobs from enabled sources into ./jobscout.db
-uv run jobscout jobs               # jobs that pass your preferences (newest first)
+uv run jobscout jobs               # jobs that pass the latest search's preferences (newest first)
 uv run jobscout jobs --all         # every active job, ignoring preferences
+uv run jobscout searches           # your saved searches, most recently used first
 uv run jobscout serve              # API + Swagger UI at http://127.0.0.1:8000/docs
 ```
 
-The search is the main way in: write a paragraph about yourself, and `jobscout search` turns it
-into search terms (one LLM call, repeated only when the paragraph changes), searches every
-source with them, scores what came back and prints the ranking. It needs an LLM key in `.env`.
+The search is the main way in. A search is a saved profile: you write a paragraph about
+yourself, the model reads it once into search terms, and a short conversation (answered through
+the API, soon the page) settles what it left open, such as regions and work modes. Running it
+searches every source with those terms, scores what came back and keeps the ranking. It needs
+an LLM key in `.env`.
 
 ```bash
-curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json" -d '{"profile_summary": "<a paragraph about you>", "regions": ["Brazil"]}'
-uv run jobscout search
+curl -X POST http://127.0.0.1:8000/searches -H "Content-Type: application/json" -d '{"paragraph": "<a paragraph about you>"}'
+curl -X POST http://127.0.0.1:8000/searches/1/run      # after answering its questions
+uv run jobscout search             # the same run in the foreground, on the latest search
 ```
 
-Set your preferences through the API (`PUT /preferences`), e.g.
-
-```json
-{ "titles": ["AI Engineer", "Machine Learning Engineer"], "work_modes": ["remote"], "regions": ["Germany", "Portugal"] }
-```
+`search`, `match`, `matches` and `jobs` act on the latest search; `--search ID` picks another
+(ids are in `jobscout searches`). With no search yet they say how to start one.
 
 ## Matching (AI)
 
@@ -59,23 +61,22 @@ serve` runs it inside the API process, with these jobs: ingest (cheap HTTP) ever
 `INGEST_INTERVAL_MINUTES` (default 60) and matching (spends LLM and embedding quota) every
 `MATCH_INTERVAL_MINUTES` (default 15), plus the digest below. The CLI always stays manual.
 Scheduled ingest has no search terms, so it never reaches the scraped sources; only a search
-does, and a search is always started by you (`POST /search` runs even with the scheduler off). A failing
+does, and a search is always started by you (`POST /searches/{id}/run` runs even with the scheduler off). A failing
 matching job backs off exponentially, capped by `MAX_BACKOFF_TICKS`; ingest does not back
 off, since it is cheap keyless HTTP with no quota to protect. `GET /runs` lists what each run
 did and whether it succeeded.
 
-A preference save (`PUT /preferences`) no longer scores anything inline. It marks the
-affected matches stale and wakes the matcher, which re-scores them out of band; the
-scheduler drains whatever is left on its interval. With `SCHEDULER_ENABLED=false`, or when
-using the CLI, a preference save wakes nothing and matches stay `stale` until you run
-`jobscout match`.
+A change to a search's preferences scores nothing inline. It marks the affected matches stale
+and wakes the matcher, which re-scores them out of band; the scheduler drains whatever is left
+on its interval, search by search. With `SCHEDULER_ENABLED=false`, or when using the CLI,
+nothing wakes and matches stay `stale` until you run `jobscout match`.
 
 ## Notifications
 
 JobScout can e-mail you a daily digest of good matches. Set the `SMTP_*` settings and
 `DIGEST_HOUR` in the environment (they are documented, commented out, in `.env.example`),
-then set your address with `PUT /preferences` (`{"notify_email": "you@example.com"}`); the
-address is a per-user preference, not operator config.
+then set your address as the `notify_email` preference of a search; it is a user preference,
+not operator config. The page will set it; until then it has no API route.
 
 The digest is a scheduler job. It sends at most one message a day per user, at or after
 `DIGEST_HOUR` in the server's local time, with at most 20 matches per message. That local
@@ -172,18 +173,27 @@ uses it).
 
 ## API
 
-| Method | Path            | Description                                   |
-|--------|-----------------|-----------------------------------------------|
-| GET    | `/health`       | Liveness                                      |
-| GET    | `/jobs`         | Active jobs passing your preferences (`?all=true` to ignore them, `?limit=`) |
-| GET    | `/preferences`  | Current preferences                           |
-| PUT    | `/preferences`  | Partial update; only sent fields change       |
-| GET    | `/matches`      | Scored matches, best first (`?min_score=`, `?status=`, `?limit=`); dismissed and applied ones only with `?status=` |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/health` | Liveness |
+| GET    | `/status` | LLM key found (never the key), provider, models, sources, the running search, your locale |
+| PUT    | `/me/locale` | `{"locale": "en" \| "pt-BR"}` |
+| GET    | `/searches` | Your searches, most recently used first |
+| POST   | `/searches` | `{"paragraph": ...}`: a new search, read once; the answer carries the first question |
+| GET    | `/searches/{id}` | The search and its conversation |
+| DELETE | `/searches/{id}` | Remove it with its matches; the jobs stay |
+| POST   | `/searches/{id}/answers` | Answer one of its questions |
+| POST   | `/searches/{id}/refinements` | `{"text": ...}`: add to the paragraph and read it again; never runs the search |
+| POST   | `/searches/{id}/reread` | Try the reading again after it failed |
+| POST   | `/searches/{id}/run` | Confirm the conversation, then fetch and score in the background; returns `{"run_id": ...}`; refused while another search runs |
+| POST   | `/searches/{id}/rank` | Score what the search already holds, calling no source |
+| GET    | `/searches/{id}/runs/{run_id}` | That run's progress: its counters are written while it runs |
+| GET    | `/searches/{id}/matches` | Scored matches, best first (`?min_score=`, `?status=`, `?limit=`); dismissed and applied ones only with `?status=` |
 | PATCH  | `/matches/{id}` | `{"status": "saved" \| "dismissed" \| "applied"}`; dismissed and applied are never re-scored |
-| POST   | `/search`       | Start a search in the background; returns `{"run_id": ...}`, or the run already in flight |
-| GET    | `/search/{id}`  | That search's progress: its counters are written while it runs |
-| GET    | `/sources`      | Every enabled source, and for a dormant one what would wake it |
-| GET    | `/runs`         | Run history (ingest, match, digest, search), newest first |
+| GET    | `/my-jobs` | Jobs you saved or applied for, across searches |
+| GET    | `/jobs` | Active jobs passing a search's preferences (`?search_id=`, default the latest; `?all=true` ignores them; `?limit=`) |
+| GET    | `/sources` | Every enabled source, and for a dormant one what would wake it |
+| GET    | `/runs` | Run history (ingest, match, digest, search), newest first |
 
 ## Development
 
@@ -231,12 +241,9 @@ the run is still ok if any source answered, and the failure is named in the run'
 
 Indeed is split by country (`br.indeed.com`, `www.indeed.com`), there is no worldwide Indeed, and
 JobSpy would otherwise default to the US. So `indeed` **returns nothing, without searching, until
-`regions` in your preferences names a country it recognises**, and says so in the run's `error`.
-Set it through the API, not the environment:
-
-```bash
-curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json" -d '{"regions": ["Brazil"]}'
-```
+`regions` in the search's preferences names a country it recognises**, and says so in the run's
+`error`. Answer the regions question of the search's conversation (`POST /searches/{id}/answers`),
+not the environment.
 
 Recognised: Brazil, Portugal, Spain, USA, UK, Germany, Canada, in English or the local spelling
 (`Brasil`, `Alemanha`, `Reino Unido`, ...), plus the two-letter codes except `CA`, which is
@@ -260,9 +267,9 @@ returns nothing from `linkedin` and `indeed` and only collects the other sources
 
 ```bash
 uv run jobscout serve              # leave it running; set an LLM key in .env first
-# in another shell:
-curl -X PUT http://127.0.0.1:8000/preferences -H "Content-Type: application/json" -d '{"profile_summary": "<a paragraph about you>", "regions": ["Brazil"]}'
-uv run jobscout search             # or: curl -X POST http://127.0.0.1:8000/search
+# in another shell: create a search, answer its questions (regions: Brazil), then
+curl -X POST http://127.0.0.1:8000/searches -H "Content-Type: application/json" -d '{"paragraph": "<a paragraph about you>"}'
+uv run jobscout search             # or: curl -X POST http://127.0.0.1:8000/searches/1/run
 curl "http://127.0.0.1:8000/runs?job=search"
 ```
 
@@ -270,7 +277,7 @@ The search needs an LLM key, because the terms are extracted from the paragraph 
 
 A healthy run: `sources_ok` equals the number of enabled sources, `sources_failed` is 0,
 `fetched` is in the tens (roughly 30 postings per scraped source at the defaults), `errors`
-is 0, and the `GET /runs?job=search` row has `"ok": true` and `"error": null`. `GET /matches`
+is 0, and the `GET /runs?job=search` row has `"ok": true` and `"error": null`. `GET /searches/{id}/matches`
 then lists ranked jobs whose `job.source` includes `linkedin` and `indeed`.
 
 A blocked site looks like this in `GET /runs?job=search`: `ok` stays `true` if any other

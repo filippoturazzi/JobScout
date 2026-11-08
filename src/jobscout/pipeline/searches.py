@@ -12,8 +12,6 @@ from jobscout.pipeline import conversation as conv
 from jobscout.pipeline.conversation import Answer, Conversation, QuestionId
 from jobscout.pipeline.run import save_preferences
 
-DEFAULT_SEARCH_TITLE = "My search"
-
 
 class SearchNotFoundError(LookupError):
     """The search does not exist, or belongs to another user."""
@@ -52,20 +50,6 @@ def latest_search(session: Session, user_id: int) -> Search | None:
         .where(col(Search.user_id) == user_id)
         .order_by(desc(col(Search.last_used_at)), desc(col(Search.id)))
     ).first()
-
-
-def get_or_create_default_search(session: Session, user_id: int) -> Search:
-    search = latest_search(session, user_id)
-    if search is None:
-        search = add_search(session, user_id, title=DEFAULT_SEARCH_TITLE)
-    return search
-
-
-def default_search_id(session: Session, user_id: int) -> int:
-    """The default search's id, for shells that do not take a search yet (temporary)."""
-    search_id = get_or_create_default_search(session, user_id).id
-    assert search_id is not None, "a persisted search always has an id"
-    return search_id
 
 
 def record_fetched(session: Session, search_id: int, job_ids: list[int]) -> int:

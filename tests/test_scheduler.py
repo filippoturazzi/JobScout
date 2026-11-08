@@ -11,7 +11,7 @@ from jobscout.models import Job, Match, Run, User
 from jobscout.models.base import utcnow
 from jobscout.pipeline.matching import MatchRun
 from jobscout.pipeline.run import save_preferences
-from jobscout.pipeline.searches import add_search, default_search_id
+from jobscout.pipeline.searches import add_search
 from jobscout.pipeline.users import update_preferences
 from jobscout.scheduler import (
     JobScoutScheduler,
@@ -23,7 +23,7 @@ from jobscout.scheduler import (
     should_skip_for_backoff,
     start_run,
 )
-from tests.helpers import fetched, make_search
+from tests.helpers import fetched, make_search, search_id_of
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 
@@ -802,7 +802,7 @@ def _digest_settings(**kw) -> Settings:
 
 
 def _add_match(session, user_id: int, external_id: str, score: int = 80) -> Match:
-    search_id = default_search_id(session, user_id)
+    search_id = search_id_of(session, user_id)
     job = Job(
         source="t",
         external_id=external_id,
