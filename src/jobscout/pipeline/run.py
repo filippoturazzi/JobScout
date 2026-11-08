@@ -2,16 +2,25 @@
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 from sqlmodel import Session, col, desc, select, update
 from sqlmodel.sql.expression import Select, SelectOfScalar
 
 from jobscout.config import Settings
-from jobscout.models import CLOSED_STATUSES, USER_STATUSES, Job, Match, Run, UserPreferences
+from jobscout.models import (
+    CLOSED_STATUSES,
+    USER_STATUSES,
+    Job,
+    Match,
+    Run,
+    Search,
+    UserPreferences,
+)
 from jobscout.pipeline.filters import filter_jobs, job_matches_preferences
 from jobscout.pipeline.ingest import IngestResult, ingest
-from jobscout.pipeline.matching import MatchRun
+from jobscout.pipeline.matching import MatchRun, select_candidates
 from jobscout.pipeline.users import MATCHING_RELEVANT_FIELDS, get_preferences, update_preferences
 from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.registry import build_sources
@@ -101,10 +110,95 @@ def list_matches(
     return [(match, job) for match, job in rows if job_matches_preferences(job, prefs)][:limit]
 
 
+def count_waiting(session: Session, search_id: int) -> int:
+    """Jobs this search fetched that are still waiting to be scored."""
+    return len(select_candidates(session, get_preferences(session, search_id), search_id))
+
+
+MyJobTab = Literal["all", "saved", "applied"]
+
+
+@dataclass
+class MyJob:
+    match: Match
+    job: Job
+    searches: list[tuple[int, str]]
+    """Every search of the user that scored this job, most recently used first."""
+
+
+@dataclass
+class MyJobs:
+    items: list[MyJob]
+    counts: dict[MyJobTab, int]
+
+
+def _best_per_job(
+    session: Session, user_id: int, tab: MyJobTab, search_id: int | None
+) -> list[tuple[Match, Job]]:
+    """The user's best-scored match for each active job in the tab, best first."""
+    statement = (
+        select(Match, Job)
+        .join(Job, col(Match.job_id) == col(Job.id))
+        .where(col(Match.user_id) == user_id, col(Job.is_active).is_(True))
+        .order_by(
+            col(Match.score).desc().nulls_last(),
+            col(Match.updated_at).desc(),
+            col(Match.id).desc(),
+        )
+    )
+    if search_id is not None:
+        statement = statement.where(col(Match.search_id) == search_id)
+    if tab == "all":
+        statement = statement.where(col(Match.score).is_not(None), col(Match.status) != "dismissed")
+    else:
+        statement = statement.where(col(Match.status) == tab)
+    best: dict[int, tuple[Match, Job]] = {}
+    for match, job in session.exec(statement).all():
+        best.setdefault(match.job_id, (match, job))
+    return list(best.values())
+
+
+def list_my_jobs(
+    session: Session,
+    user_id: int,
+    tab: MyJobTab = "all",
+    search_id: int | None = None,
+    limit: int = 200,
+) -> MyJobs:
+    """Every job the user's searches found, once each, at its best score."""
+    tabs: tuple[MyJobTab, ...] = ("all", "saved", "applied")
+    rows = {t: _best_per_job(session, user_id, t, search_id) for t in tabs}
+    counts: dict[MyJobTab, int] = {t: len(rows[t]) for t in tabs}
+    shown = rows[tab][:limit]
+
+    job_ids = [job.id for _, job in shown if job.id is not None]
+    found_by: dict[int, list[tuple[int, str]]] = {}
+    if job_ids:
+        named = session.exec(
+            select(Match.job_id, Search.id, Search.title)
+            .join(Search, col(Match.search_id) == col(Search.id))
+            .where(
+                col(Match.user_id) == user_id,
+                col(Match.job_id).in_(job_ids),
+                col(Match.score).is_not(None),
+            )
+            .order_by(col(Search.last_used_at).desc(), col(Search.id).desc())
+        ).all()
+        for job_id, found_id, title in named:
+            if found_id is not None:
+                found_by.setdefault(job_id, []).append((found_id, title))
+    items = [MyJob(match, job, found_by.get(match.job_id, [])) for match, job in shown]
+    return MyJobs(items=items, counts=counts)
+
+
 def set_match_status(
     session: Session, user_id: int, match_id: int, status: str
 ) -> tuple[Match, Job] | None:
-    """Record the user's verdict on one of their matches; ``None`` if it is not theirs."""
+    """Record the user's verdict on a job; ``None`` if the match is not theirs.
+
+    A verdict is about the job, so it lands on every match the user has for it, whichever
+    search scored it. Returns the requested row.
+    """
     if status not in USER_STATUSES:
         raise ValueError(
             f"status {status!r} cannot be set; expected one of {sorted(USER_STATUSES)}"
@@ -117,8 +211,11 @@ def set_match_status(
     if row is None:
         return None
     match, job = row
-    match.status = status
-    session.add(match)
+    session.exec(
+        update(Match)
+        .where(col(Match.user_id) == user_id, col(Match.job_id) == match.job_id)
+        .values(status=status)
+    )
     session.commit()
     session.refresh(match)
     return match, job

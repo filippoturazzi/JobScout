@@ -11,6 +11,8 @@ from sqlmodel import Session, col, desc, func, select
 from jobscout.config import Settings
 from jobscout.models import CLOSED_STATUSES, Job, Match
 from jobscout.models.base import utcnow
+from jobscout.pipeline.searches import list_searches
+from jobscout.pipeline.users import get_preferences
 
 DIGEST_CAP = 20
 """Most rows in one message. The first digest after a preference change can qualify
@@ -20,33 +22,66 @@ hundreds; an unreadable e-mail is worse than a second one tomorrow."""
 def select_unnotified(
     session: Session, user_id: int, min_score: int, limit: int = DIGEST_CAP
 ) -> tuple[list[tuple[Match, Job]], int]:
-    """The rows to announce, best first, and how many qualifying rows did not fit."""
+    """The rows to announce, best first, and how many qualifying jobs did not fit.
+
+    A job several searches found is one row, at its best score (ties: the newest match).
+    A job any search already announced, or the user closed, is not news again.
+    """
+    announced = select(Match.job_id).where(
+        col(Match.user_id) == user_id, col(Match.notified_at).is_not(None)
+    )
+    closed = select(Match.job_id).where(
+        col(Match.user_id) == user_id, col(Match.status).in_(CLOSED_STATUSES)
+    )
     statement = (
         select(Match, Job)
         .join(Job, col(Match.job_id) == col(Job.id))
         .where(
             col(Match.user_id) == user_id,
             col(Match.notified_at).is_(None),
-            col(Match.status).not_in(CLOSED_STATUSES),
             col(Match.score).is_not(None),
             col(Match.score) >= min_score,
             col(Job.is_active).is_(True),
+            col(Match.job_id).not_in(announced),
+            col(Match.job_id).not_in(closed),
         )
-        .order_by(desc(col(Match.score)), desc(col(Match.id)))
+        .order_by(desc(col(Match.score)), desc(col(Match.updated_at)), desc(col(Match.id)))
     )
-    qualifying = list(session.exec(statement).all())
+    best: dict[int, tuple[Match, Job]] = {}
+    for match, job in session.exec(statement).all():
+        best.setdefault(match.job_id, (match, job))
+    qualifying = list(best.values())
     return qualifying[:limit], max(0, len(qualifying) - limit)
 
 
-def mark_notified(session: Session, match_ids: list[int], now: datetime | None = None) -> None:
-    """Record the announcement. Called only after the channel accepted the message."""
-    if not match_ids:
+def mark_notified(
+    session: Session, user_id: int, job_ids: list[int], now: datetime | None = None
+) -> None:
+    """Record the announcement of these jobs, for every search that scored them.
+
+    Called only after the channel accepted the message.
+    """
+    if not job_ids:
         return
     stamp = now or utcnow()
-    for match in session.exec(select(Match).where(col(Match.id).in_(match_ids))).all():
+    matches = session.exec(
+        select(Match).where(col(Match.user_id) == user_id, col(Match.job_id).in_(job_ids))
+    ).all()
+    for match in matches:
         match.notified_at = stamp
         session.add(match)
     session.commit()
+
+
+def digest_target(session: Session, user_id: int) -> tuple[str, int] | None:
+    """Where the digest goes and its floor: the most recently used search with an address."""
+    for search in list_searches(session, user_id):
+        if search.id is None:
+            continue
+        prefs = get_preferences(session, search.id)
+        if prefs.notify_email:
+            return prefs.notify_email, prefs.min_score_to_notify
+    return None
 
 
 def already_sent_today(session: Session, user_id: int, now_local: datetime) -> bool:

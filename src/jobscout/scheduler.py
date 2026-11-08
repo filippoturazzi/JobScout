@@ -20,6 +20,7 @@ from jobscout.notifiers import build_notifier
 from jobscout.notifiers.email import render_digest
 from jobscout.pipeline.digest import (
     already_sent_today,
+    digest_target,
     is_send_window,
     mark_notified,
     select_unnotified,
@@ -28,8 +29,6 @@ from jobscout.pipeline.liveness import deactivate_stale_jobs
 from jobscout.pipeline.matching import run_match
 from jobscout.pipeline.run import run_ingest
 from jobscout.pipeline.search import open_search_run, run_search
-from jobscout.pipeline.searches import latest_search
-from jobscout.pipeline.users import get_preferences
 
 log = logging.getLogger(__name__)
 
@@ -251,27 +250,24 @@ def digest_job(engine: Engine, settings: Settings, tick: int | None = None) -> N
 def _collect_pending(
     session: Session, settings: Settings, now_local: datetime
 ) -> list[tuple[int, str, list[int], int, str, str]]:
-    """Everything that would be sent this firing: (user, address, match ids, held back,
+    """Everything that would be sent this firing: (user, address, job ids, held back,
     subject, body). Reads only — nothing here is a commitment to send."""
     pending: list[tuple[int, str, list[int], int, str, str]] = []
     for user in session.exec(select(User)).all():
         if user.id is None:
             continue
-        # Until digests are per search (a later task), the latest search speaks for the user.
-        search = latest_search(session, user.id)
-        if search is None or search.id is None:
+        target = digest_target(session, user.id)
+        if target is None:
             continue
-        prefs = get_preferences(session, search.id)
-        if not prefs.notify_email:
-            continue
+        address, min_score = target
         if already_sent_today(session, user.id, now_local):
             continue
-        rows, held_back = select_unnotified(session, user.id, prefs.min_score_to_notify)
+        rows, held_back = select_unnotified(session, user.id, min_score)
         if not rows:
             continue
         subject, body = render_digest(rows, held_back)
-        ids = [m.id for m, _ in rows if m.id is not None]
-        pending.append((user.id, prefs.notify_email, ids, held_back, subject, body))
+        ids = [job.id for _, job in rows if job.id is not None]
+        pending.append((user.id, address, ids, held_back, subject, body))
     return pending
 
 
@@ -315,7 +311,7 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
                     errors.append(f"user {user_id}: {type(exc).__name__}: {exc}")
                     continue
                 delivered_unmarked.append(address)
-                mark_notified(session, ids)
+                mark_notified(session, user_id, ids)
                 delivered_unmarked.remove(address)
                 counters["users"] += 1
                 counters["sent"] += len(ids)

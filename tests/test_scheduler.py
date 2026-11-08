@@ -1308,3 +1308,25 @@ def test_match_job_scores_every_search(session: Session, monkeypatch):
     session.expire_all()
     pairs = {(m.search_id, m.job_id) for m in session.exec(select(Match)).all()}
     assert pairs == {(first.id, job_a.id), (second.id, job_b.id)}
+
+
+def test_digest_job_sends_a_job_found_by_two_searches_once(session, monkeypatch, clock):
+    import jobscout.scheduler as scheduler_module
+
+    user = _digest_fixture(session)
+    first = session.exec(select(Match)).one()
+    other = make_search(session, title="Other")
+    session.add(
+        Match(job_id=first.job_id, user_id=user.id, search_id=other.id, similarity=0.9, score=90)
+    )
+    session.commit()
+    notifier = _RecordingNotifier()
+    monkeypatch.setattr(scheduler_module, "build_notifier", lambda *_a: notifier)
+
+    digest_job(session.get_bind(), _digest_settings(digest_hour=0), tick=1)
+
+    assert len(notifier.sent) == 1
+    run = session.exec(select(Run).where(col(Run.job) == "digest")).one()
+    assert run.counters["sent"] == 1
+    session.expire_all()
+    assert all(m.notified_at is not None for m in session.exec(select(Match)).all())

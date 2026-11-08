@@ -4,17 +4,21 @@ from sqlmodel import select
 
 from jobscout.config import Settings
 from jobscout.models import Job, Match, User
+from jobscout.models.base import utcnow
 from jobscout.pipeline.ingest import upsert_jobs
 from jobscout.pipeline.run import (
+    count_waiting,
     list_jobs,
     list_matches,
+    list_my_jobs,
     match_listing_statement,
     run_ingest,
     run_listing_statement,
+    set_match_status,
 )
 from jobscout.pipeline.users import update_preferences
 from jobscout.sources.base import RawJob, SearchQuery
-from tests.helpers import make_search
+from tests.helpers import fetched, make_search
 
 T0 = datetime(2026, 9, 20, 12, 0, 0)
 
@@ -264,3 +268,134 @@ def test_list_runs_orders_by_started_at_then_id_descending():
         started_at = order_by.find("started_at DESC")
         run_id = order_by.find(".id DESC")
         assert 0 <= started_at < run_id
+
+
+def _job(session, external_id: str) -> Job:
+    upsert_jobs(session, [raw(external_id, "AI Engineer")], now=T0)
+    return session.exec(select(Job).where(Job.external_id == external_id)).one()
+
+
+def _scored(session, search, job: Job, score: int | None, status: str = "new") -> Match:
+    match = Match(
+        job_id=job.id,
+        user_id=search.user_id,
+        search_id=search.id,
+        similarity=0.8,
+        score=score,
+        status=status,
+    )
+    session.add(match)
+    session.commit()
+    session.refresh(match)
+    return match
+
+
+def test_count_waiting_counts_only_this_searchs_pending_jobs(session):
+    mine = make_search(session)
+    other = make_search(session, title="Other")
+    pending, scored, elsewhere = _job(session, "p"), _job(session, "s"), _job(session, "e")
+    fetched(session, mine, pending, scored)
+    fetched(session, other, elsewhere)
+    _scored(session, mine, scored, 70)
+
+    assert count_waiting(session, mine.id) == 1
+    assert count_waiting(session, other.id) == 1
+
+
+def test_my_jobs_shows_a_job_found_twice_once_at_its_best_score(session):
+    a = make_search(session, title="A")
+    b = make_search(session, title="B")
+    job = _job(session, "x")
+    _scored(session, a, job, 60)
+    _scored(session, b, job, 85)
+
+    result = list_my_jobs(session, a.user_id)
+
+    assert len(result.items) == 1
+    item = result.items[0]
+    assert item.match.score == 85
+    assert item.job.id == job.id
+    assert sorted(item.searches) == [(a.id, "A"), (b.id, "B")]
+
+
+def test_my_jobs_names_searches_by_most_recently_used_first(session):
+    a = make_search(session, title="A")
+    b = make_search(session, title="B")
+    a.last_used_at = utcnow() + timedelta(hours=1)
+    session.add(a)
+    session.commit()
+    job = _job(session, "x")
+    _scored(session, a, job, 60)
+    _scored(session, b, job, 85)
+
+    assert list_my_jobs(session, a.user_id).items[0].searches == [(a.id, "A"), (b.id, "B")]
+
+
+def test_my_jobs_best_score_tie_goes_to_the_newest_match(session):
+    a = make_search(session, title="A")
+    b = make_search(session, title="B")
+    job = _job(session, "x")
+    _scored(session, a, job, 80)
+    newer = _scored(session, b, job, 80)
+
+    assert list_my_jobs(session, a.user_id).items[0].match.id == newer.id
+
+
+def test_my_jobs_hides_inactive_and_unscored_jobs(session):
+    search = make_search(session)
+    gone, low, ok = _job(session, "g"), _job(session, "l"), _job(session, "o")
+    gone.is_active = False
+    session.add(gone)
+    session.commit()
+    _scored(session, search, gone, 90)
+    _scored(session, search, low, None, "low")
+    _scored(session, search, ok, 70)
+
+    assert [i.job.id for i in list_my_jobs(session, search.user_id).items] == [ok.id]
+
+
+def test_my_jobs_tabs_and_counts(session):
+    search = make_search(session)
+    saved, applied, dismissed, plain = (_job(session, n) for n in ("sv", "ap", "di", "pl"))
+    _scored(session, search, saved, 80, "saved")
+    _scored(session, search, applied, 70, "applied")
+    _scored(session, search, dismissed, 90, "dismissed")
+    _scored(session, search, plain, 60)
+
+    everything = list_my_jobs(session, search.user_id)
+    assert everything.counts == {"all": 3, "saved": 1, "applied": 1}
+    assert [i.job.id for i in everything.items] == [saved.id, applied.id, plain.id]
+    assert [i.job.id for i in list_my_jobs(session, search.user_id, "saved").items] == [saved.id]
+    assert [i.job.id for i in list_my_jobs(session, search.user_id, "applied").items] == [
+        applied.id
+    ]
+
+
+def test_my_jobs_filters_by_search(session):
+    a = make_search(session, title="A")
+    b = make_search(session, title="B")
+    only_a, both = _job(session, "oa"), _job(session, "bo")
+    _scored(session, a, only_a, 70)
+    _scored(session, a, both, 60)
+    _scored(session, b, both, 90, "saved")
+
+    result = list_my_jobs(session, a.user_id, search_id=a.id)
+
+    assert [i.job.id for i in result.items] == [only_a.id, both.id]
+    assert result.counts == {"all": 2, "saved": 0, "applied": 0}
+    assert sorted(result.items[1].searches) == [(a.id, "A"), (b.id, "B")]
+
+
+def test_a_verdict_applies_to_every_search_that_found_the_job(session):
+    a = make_search(session, title="A")
+    b = make_search(session, title="B")
+    job = _job(session, "x")
+    first = _scored(session, a, job, 60)
+    second = _scored(session, b, job, 85)
+
+    row = set_match_status(session, a.user_id, first.id, "dismissed")
+
+    assert row is not None and row[0].id == first.id
+    session.refresh(second)
+    assert second.status == "dismissed"
+    assert list_my_jobs(session, a.user_id).items == []
