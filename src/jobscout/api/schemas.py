@@ -52,6 +52,15 @@ class SearchStarted(BaseModel):
     run_id: int
 
 
+class RunSource(BaseModel):
+    name: str
+    state: Literal["waiting", "searching", "done", "failed", "skipped"]
+    fetched: int
+    queries_done: int
+    queries_total: int
+    detail: str | None
+
+
 class RunRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,6 +72,7 @@ class RunRead(BaseModel):
     ok: bool
     error: str | None
     counters: dict[str, int]
+    sources: list[RunSource]
 
 
 class ReadingRead(BaseModel):

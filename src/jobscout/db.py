@@ -22,10 +22,10 @@ def create_engine_from_url(url: str) -> Engine:
 
 
 class DatabaseNeedsUpgradeError(RuntimeError):
-    """The database has the shape from before saved searches; `jobscout upgrade-db` fixes it."""
+    """The database predates saved searches or run sources; `jobscout upgrade-db` fixes it."""
 
 
-def needs_upgrade(engine: Engine) -> bool:
+def needs_searches_conversion(engine: Engine) -> bool:
     """True when `user_preferences` exists without `search_id`, the pre-searches shape."""
     inspector = inspect(engine)
     if not inspector.has_table("user_preferences"):
@@ -34,12 +34,22 @@ def needs_upgrade(engine: Engine) -> bool:
     return "search_id" not in columns
 
 
+def needs_upgrade(engine: Engine) -> bool:
+    """True for the pre-searches shape, or when table `run` lacks its `sources` column."""
+    if needs_searches_conversion(engine):
+        return True
+    inspector = inspect(engine)
+    if not inspector.has_table("run"):
+        return False
+    return "sources" not in {column["name"] for column in inspector.get_columns("run")}
+
+
 def init_db(engine: Engine) -> None:
     # Checked first: create_all would add the new tables beside the old ones, and every
     # query would then fail with a SQL error instead of this sentence.
     if needs_upgrade(engine):
         raise DatabaseNeedsUpgradeError(
-            "This database predates saved searches. Back it up and run `jobscout upgrade-db`."
+            "This database is out of date. Back it up and run `jobscout upgrade-db`."
         )
     SQLModel.metadata.create_all(engine)
 

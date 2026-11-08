@@ -174,6 +174,7 @@ anything fails, nothing changes. It never overwrites an earlier backup. Postgres
 by the upgrade, which refuses it (no released install uses it).
 Stored `titles` become the first search terms, and the next "Search jobs" saves them as terms only
 (`titles` empty), since the conversation owns the preferences now.
+The same command also adds the `run.sources` column (per-source progress of a search run) to a database that already has saved searches.
 
 ## API
 

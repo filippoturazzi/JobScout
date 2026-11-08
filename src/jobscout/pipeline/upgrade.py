@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import Connection, Engine, MetaData, Table, insert, inspect, make_url, update
 from sqlmodel import SQLModel
 
-from jobscout.db import needs_upgrade
+from jobscout.db import needs_searches_conversion, needs_upgrade
 from jobscout.models import Match, Search, SearchJob, UserPreferences
 from jobscout.pipeline.conversation import from_preferences, title
 
@@ -101,6 +101,13 @@ def _add_run_search_id(connection: Connection) -> None:
             index.create(connection)
 
 
+def _add_run_sources(connection: Connection) -> None:
+    columns = {column["name"] for column in inspect(connection).get_columns("run")}
+    if "sources" in columns:
+        return
+    connection.exec_driver_sql("ALTER TABLE run ADD COLUMN sources JSON NOT NULL DEFAULT '[]'")
+
+
 def upgrade_database(engine: Engine) -> UpgradeReport:
     """Rebuild a pre-searches database in place, in one transaction; a no-op when current.
 
@@ -116,13 +123,18 @@ def upgrade_database(engine: Engine) -> UpgradeReport:
         )
     tables = SQLModel.metadata.tables
     searches = matches = runs = 0
+    convert = needs_searches_conversion(engine)
     with _transaction(engine) as connection:
+        if not convert:
+            _add_run_sources(connection)
+            return UpgradeReport(searches=0, matches=0, runs=0)
         old_prefs_table, old_prefs = _rows(connection, "user_preferences")
         old_match_table, old_matches = _rows(connection, "match")
         old_match_table.drop(connection)
         old_prefs_table.drop(connection)
         SQLModel.metadata.create_all(connection)
         _add_run_search_id(connection)
+        _add_run_sources(connection)
 
         prefs_by_user = {row["user_id"]: row for row in old_prefs}
         # A user with matches but no preferences still gets a search, so no match is lost.

@@ -310,3 +310,21 @@ def test_jobs_default_to_the_latest_search_and_fall_back_to_all(client, session)
     assert [j["external_id"] for j in listed] == ["a"]
     assert len(client.get("/jobs", params={"all": "true"}).json()) == 2
     assert client.get("/jobs", params={"search_id": 9999}).status_code == 404
+
+
+def test_run_read_includes_sources(client, session, chat):
+    created = _create(client).json()
+    entry = {
+        "name": "himalayas",
+        "state": "searching",
+        "fetched": 4,
+        "queries_done": 1,
+        "queries_total": 3,
+        "detail": None,
+    }
+    run = Run(job="search", search_id=created["id"], sources=[entry])
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    body = client.get(f"/searches/{created['id']}/runs/{run.id}").json()
+    assert body["sources"] == [entry]

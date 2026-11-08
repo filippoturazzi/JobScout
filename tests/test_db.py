@@ -72,3 +72,20 @@ def test_needs_upgrade_detects_the_old_shape(old_db, engine):
 def test_init_db_refuses_an_old_database(old_db):
     with pytest.raises(DatabaseNeedsUpgradeError, match="upgrade-db"):
         init_db(create_engine_from_url(old_db))
+
+
+def _without_sources_column(engine) -> None:
+    from sqlalchemy import text
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE run DROP COLUMN sources"))
+
+
+def test_needs_upgrade_when_run_has_no_sources_column(tmp_path):
+    engine = create_engine_from_url(f"sqlite:///{tmp_path / 'a.db'}")
+    init_db(engine)
+    assert needs_upgrade(engine) is False
+    _without_sources_column(engine)
+    assert needs_upgrade(engine) is True
+    with pytest.raises(DatabaseNeedsUpgradeError, match="upgrade-db"):
+        init_db(engine)

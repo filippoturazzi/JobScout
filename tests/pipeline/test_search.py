@@ -771,3 +771,112 @@ def test_queries_carry_the_city():
     prefs = UserPreferences(regions=["Brazil"], city="Recife")
     queries = _queries_for(_FakeSource(), ["python", "java"], prefs)
     assert queries and all(q.city == "Recife" for q in queries)
+
+
+# --------------------------------------------------------------------------- run.sources
+
+
+def _fake_fetching(fake: Any, monkeypatch: Any) -> None:
+    monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
+
+
+@respx.mock
+def test_a_search_run_records_each_sources_progress(session, himalayas_sample):
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    respx.get(REMOTIVE_URL).mock(return_value=httpx.Response(429))
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python", "llm"]))
+
+    run_search(session, _settings(sources="himalayas,remotive"), search.id, deps=_deps(chat))
+
+    sources = _the_run(session).sources
+    assert sources[0] == {
+        "name": "himalayas",
+        "state": "done",
+        "fetched": VALID_PER_FIXTURE,
+        "queries_done": 2,
+        "queries_total": 2,
+        "detail": None,
+    }
+    assert sources[1]["name"] == "remotive"
+    assert (sources[1]["state"], sources[1]["fetched"], sources[1]["queries_done"]) == (
+        "failed",
+        0,
+        0,
+    )
+    assert sources[1]["queries_total"] == 2
+    assert isinstance(sources[1]["detail"], str) and sources[1]["detail"]
+    assert len(sources) == 2
+
+
+def test_sources_are_published_while_the_run_is_going(tmp_path, monkeypatch):
+    engine = create_engine_from_url(f"sqlite:///{tmp_path.as_posix()}/search.db")
+    init_db(engine)
+    seen: list[list[dict[str, object]]] = []
+
+    class Probing(_FakeSource):
+        def fetch(self, query: SearchQuery) -> list[RawJob]:
+            with Session(engine) as other:
+                seen.append(list(other.exec(select(Run)).one().sources))
+            return super().fetch(query)
+
+    fake = Probing(name="probe")
+    other_fake = _FakeSource(name="later")
+    _fake_fetching(fake, monkeypatch)
+    _fake_fetching(other_fake, monkeypatch)
+    with Session(engine) as session:
+        search = _search(session)
+        chat = SearchChatModel(_extraction(["python", "sql"]))
+        run_search(session, _settings(sources="probe,later"), search.id, deps=_deps(chat))
+
+    first, second = seen
+    assert [(s["name"], s["state"]) for s in first] == [
+        ("probe", "searching"),
+        ("later", "waiting"),
+    ]
+    assert first[0]["queries_total"] == 2 and first[0]["queries_done"] == 0
+    assert second[0]["queries_done"] == 1 and second[0]["fetched"] == 1
+
+
+def test_a_remote_only_board_is_recorded_as_skipped(session, monkeypatch):
+    fake = _FakeSource(all_remote=True)
+    _search_with(session, monkeypatch, fake, ["python"], work_modes=["onsite", "hybrid"])
+    [entry] = _the_run(session).sources
+    assert entry["state"] == "skipped"
+    assert entry["detail"] == "not searched, it only lists remote jobs"
+    assert entry["queries_done"] == 0
+
+
+def test_scoring_progress_is_published_after_each_job(tmp_path, himalayas_sample):
+    with respx.mock:
+        respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+        engine = create_engine_from_url(f"sqlite:///{tmp_path.as_posix()}/search.db")
+        init_db(engine)
+        seen: list[tuple[int, dict[str, int]]] = []
+
+        def hook(progress: SearchProgress) -> None:
+            if progress.stage != "evaluated":
+                return
+            with Session(engine) as other:
+                seen.append((progress.done, dict(other.exec(select(Run)).one().counters)))
+
+        with Session(engine) as session:
+            search = _search(session)
+            chat = SearchChatModel(_extraction(["python"]))
+            run_search(
+                session,
+                _settings(sources="himalayas"),
+                search.id,
+                deps=_deps(chat),
+                on_progress=hook,
+            )
+
+    assert [done for done, _ in seen] == [1, 2, 3]
+    for done, counters in seen:
+        assert counters["scored"] == done and counters["to_score"] == VALID_PER_FIXTURE
+
+
+def test_ranking_runs_have_no_sources(session):
+    search = _search(session, PARAGRAPH, search_terms=["python"])
+    run_search(session, _settings(sources="himalayas"), search.id, fetch=False)
+    assert _the_run(session).sources == []
