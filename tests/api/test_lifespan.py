@@ -25,10 +25,10 @@ def test_lifespan_initializes_db_and_default_user(tmp_path, monkeypatch):
     assert not app.dependency_overrides, "this test must exercise the real dependency path"
 
     with TestClient(app) as client:
-        response = client.get("/preferences")
+        response = client.get("/searches")
 
     assert response.status_code == 200
-    assert response.json()["titles"] == []
+    assert response.json() == []
 
 
 def test_lifespan_starts_and_stops_the_scheduler(tmp_path, monkeypatch):

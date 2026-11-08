@@ -43,17 +43,17 @@ def run_ingest(
 
 def list_jobs(
     session: Session,
-    search_id: int,
+    search_id: int | None,
     limit: int = 50,
     apply_filters: bool = True,
     active_only: bool = True,
 ) -> list[Job]:
-    prefs = get_preferences(session, search_id)
     statement = select(Job).order_by(col(Job.first_seen_at).desc(), col(Job.id).desc())
     if active_only:
         statement = statement.where(col(Job.is_active).is_(True))
     jobs = list(session.exec(statement).all())
-    if apply_filters:
+    if apply_filters and search_id is not None:  # no search, no preferences to filter by
+        prefs = get_preferences(session, search_id)
         jobs = filter_jobs(jobs, prefs)
     return jobs[:limit]
 

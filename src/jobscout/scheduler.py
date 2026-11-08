@@ -537,13 +537,3 @@ class JobScoutScheduler:
             replace_existing=True,
             misfire_grace_time=None,
         )
-
-
-def wake_matching(scheduler: "JobScoutScheduler | None") -> None:
-    """Ask the scheduler to match now, if there is one. A no-op otherwise.
-
-    The CLI has no scheduler, and the API runs without one when SCHEDULER_ENABLED is false.
-    Saving preferences must not fail because of that.
-    """
-    if scheduler is not None:
-        scheduler.wake_matching()

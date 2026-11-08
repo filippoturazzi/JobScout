@@ -22,7 +22,6 @@ from jobscout.scheduler import (
     match_job,
     should_skip_for_backoff,
     start_run,
-    wake_matching,
 )
 from tests.helpers import fetched, make_search
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
@@ -533,11 +532,6 @@ def test_wake_is_scheduled_for_now_not_shifted_by_the_utc_offset(session: Sessio
         scheduler.shutdown()
 
 
-def test_wake_without_a_scheduler_is_a_no_op():
-    """The CLI and a scheduler-less API both call this; it must never raise."""
-    wake_matching(None)
-
-
 def test_shutdown_is_safe_before_start(session: Session):
     JobScoutScheduler(session.get_bind(), _settings()).shutdown()
 
@@ -596,7 +590,7 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
     """The stage's headline: save preferences -> stale -> re-score, through the real path.
 
     A match scored under the old preferences exists. save_preferences must stale it and call
-    the `on_changed` hook (here a recorder; the real wake_matching and the scheduler wiring
+    the `on_changed` hook (here a recorder; the real wake and the scheduler wiring
     are covered by other tests). match_job then re-scores the row and records a Run, with
     fake models standing in only for the provider.
     """

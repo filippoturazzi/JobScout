@@ -1,9 +1,7 @@
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
-from jobscout.api.schemas import PreferencesUpdate
 from jobscout.matching.terms import (
     MAX_SUGGESTED_SKILLS,
     SYSTEM_PROMPT,
@@ -204,10 +202,3 @@ def test_an_onsite_job_still_passes_after_a_remote_preference_is_saved(session):
     prefs = _saved_prefs(session, work_modes=["remote"])
     assert prefs.work_modes == []
     assert job_matches_preferences(_job(remote=False), prefs)
-
-
-def test_search_terms_cannot_be_sent_through_the_preferences_api_model():
-    with pytest.raises(ValidationError):
-        PreferencesUpdate(search_terms=None)
-    with pytest.raises(ValidationError):
-        PreferencesUpdate(search_terms=["python"])

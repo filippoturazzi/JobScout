@@ -65,3 +65,20 @@ def update_preferences(
     session.commit()
     session.refresh(prefs)
     return prefs, changed
+
+
+LOCALES: tuple[str, ...] = ("en", "pt-BR")
+
+
+def set_locale(session: Session, user_id: int, locale: str) -> User:
+    """The language the user's match reasoning is written in."""
+    if locale not in LOCALES:
+        raise ValueError(f"Unknown locale {locale!r}; expected one of {', '.join(LOCALES)}")
+    user = session.get(User, user_id)
+    if user is None:
+        raise LookupError(f"No user {user_id}")
+    user.locale = locale
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
