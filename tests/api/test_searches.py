@@ -5,7 +5,7 @@ import pytest
 from jobscout.api.app import app
 from jobscout.models import Job, Match, Run, Search, User
 from jobscout.pipeline.ingest import upsert_jobs
-from jobscout.pipeline.users import get_or_create_default_user
+from jobscout.pipeline.users import get_or_create_default_user, get_preferences
 from jobscout.sources.base import RawJob
 from tests.api.conftest import reading
 from tests.helpers import fetched, make_search
@@ -174,6 +174,34 @@ def test_starting_a_second_search_is_409_and_changes_nothing(client, chat, fake_
         }
     assert fake_scheduler.started == []
     assert client.get(f"/searches/{second}").json()["confirmed"] is False
+
+
+@pytest.mark.parametrize("path", ["run", "rank"])
+def test_starting_the_running_search_again_returns_its_run_and_changes_nothing(
+    client, session, chat, fake_scheduler, path
+):
+    created = _create(client).json()
+    search_id = created["id"]
+    in_flight = client.post(f"/searches/{search_id}/run").json()["run_id"]
+    job = _job(session)
+    match = Match(
+        job_id=job.id, user_id=1, search_id=search_id, similarity=0.7, score=80, status="new"
+    )
+    session.add(match)
+    session.commit()
+    chat.results = [reading(terms=["ml engineer"])]
+    client.post(f"/searches/{search_id}/refinements", json={"text": "or ML"})
+    fake_scheduler.running = (search_id, in_flight)
+
+    response = client.post(f"/searches/{search_id}/{path}")
+
+    assert response.status_code == 202
+    assert response.json() == {"run_id": in_flight}
+    assert fake_scheduler.started == [(search_id, True)], "nothing new was started"
+    session.expire_all()
+    assert get_preferences(session, search_id).search_terms == ["ai engineer"]
+    assert session.get(Match, match.id).status == "new", "the run in flight keeps its matches"
+    assert client.get(f"/searches/{search_id}").json()["confirmed"] is False
 
 
 def test_run_without_a_scheduler_is_503(client, chat, monkeypatch):

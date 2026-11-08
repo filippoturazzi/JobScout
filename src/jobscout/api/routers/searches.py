@@ -43,10 +43,18 @@ def _running(request: Request) -> tuple[int, int] | None:
     return scheduler.running_search() if scheduler is not None else None
 
 
-def _refuse_if_another_runs(scheduler: JobScoutScheduler, search_id: int) -> None:
+def _run_in_flight(scheduler: JobScoutScheduler, search_id: int) -> int | None:
+    """The run id when this search is the one running; refuses when another one is.
+
+    Checked before anything is written: confirming while this search runs would stale its
+    matches and rewrite its preferences under the run in flight, which keeps the old ones.
+    """
     running = scheduler.running_search()
-    if running is not None and running[0] != search_id:
+    if running is None:
+        return None
+    if running[0] != search_id:
         raise SearchBusyError(running[0])
+    return running[1]
 
 
 def _read(session: Session, search: Search) -> SearchRead:
@@ -187,7 +195,9 @@ def run_search(
     background. Poll ``GET /searches/{id}/runs/{run_id}`` for progress."""
     scheduler = _scheduler(request)
     svc.get_search(session, user_id, search_id)
-    _refuse_if_another_runs(scheduler, search_id)  # a refused start changes nothing
+    in_flight = _run_in_flight(scheduler, search_id)  # a refused start changes nothing
+    if in_flight is not None:
+        return SearchStarted(run_id=in_flight)
     svc.confirm(session, get_settings(), user_id, search_id)
     return SearchStarted(run_id=scheduler.start_search(search_id))
 
@@ -202,7 +212,9 @@ def rank_search(
     """Score what the search already holds, calling no source."""
     scheduler = _scheduler(request)
     svc.get_search(session, user_id, search_id)
-    _refuse_if_another_runs(scheduler, search_id)
+    in_flight = _run_in_flight(scheduler, search_id)
+    if in_flight is not None:
+        return SearchStarted(run_id=in_flight)
     return SearchStarted(run_id=scheduler.start_search(search_id, fetch=False))
 
 
