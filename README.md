@@ -66,10 +66,12 @@ matching job backs off exponentially, capped by `MAX_BACKOFF_TICKS`; ingest does
 off, since it is cheap keyless HTTP with no quota to protect. `GET /runs` lists what each run
 did and whether it succeeded.
 
-A change to a search's preferences scores nothing inline. It marks the affected matches stale
-and wakes the matcher, which re-scores them out of band; the scheduler drains whatever is left
-on its interval, search by search. With `SCHEDULER_ENABLED=false`, or when using the CLI,
-nothing wakes and matches stay `stale` until you run `jobscout match`.
+A change to a search's preferences scores nothing by itself: it marks the affected matches
+stale. They are re-scored by the next run of that search, or by the scheduler's matching job on
+its interval, search by search. With `SCHEDULER_ENABLED=false` they stay `stale` until you run
+the search again or `jobscout match`. Scheduled ingest has no search terms, so what it collects
+does not feed any search's scoring: a search scores only what it fetched itself, and a search is
+run from the page (today `POST /searches/{id}/run`) or with `jobscout search`.
 
 ## Notifications
 

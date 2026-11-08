@@ -496,37 +496,23 @@ def test_disabled_scheduler_registers_nothing(session: Session):
         scheduler.shutdown()
 
 
-def test_wake_adds_one_immediate_run_and_repeats_collapse(session: Session, monkeypatch):
-    # Stubbed: the woken run fires within milliseconds and must not touch the real pipeline.
-    monkeypatch.setattr("jobscout.scheduler.match_job", lambda engine, settings, tick=0: None)
-    scheduler = JobScoutScheduler(session.get_bind(), _settings())
-    scheduler.start()
-    try:
-        scheduler.wake_matching()
-        scheduler.wake_matching()
-
-        wakes = [job for job in scheduler.get_jobs() if job.id == "match-wake"]
-        assert len(wakes) == 1, "a second save must replace the pending run, not queue another"
-    finally:
-        scheduler.shutdown()
-
-
-def test_wake_is_scheduled_for_now_not_shifted_by_the_utc_offset(session: Session, monkeypatch):
-    """A naive UTC run_date is read as local time by APScheduler, delaying the wake by hours
+def test_a_search_is_scheduled_for_now_not_shifted_by_the_utc_offset(session: Session, monkeypatch):
+    """A naive UTC run_date is read as local time by APScheduler, delaying the search by hours
     on UTC-negative machines. The scheduler zone is pinned to a non-UTC one so this fails on a
     UTC host (CI) too. Pause the scheduler so nothing fires, then check the time."""
     monkeypatch.setattr(
         "jobscout.scheduler.BackgroundScheduler",
         lambda: BackgroundScheduler(timezone=ZoneInfo("America/New_York")),
     )
+    search = make_search(session)
     scheduler = JobScoutScheduler(session.get_bind(), _settings())
     scheduler.start()
     try:
         scheduler._scheduler.pause()
-        scheduler.wake_matching()
+        scheduler.start_search(search.id)
 
-        wake = next(job for job in scheduler.get_jobs() if job.id == "match-wake")
-        drift = abs((wake.trigger.run_date - datetime.now(UTC)).total_seconds())
+        started = next(job for job in scheduler.get_jobs() if job.id == "search")
+        drift = abs((started.trigger.run_date - datetime.now(UTC)).total_seconds())
         assert drift < 5
     finally:
         scheduler.shutdown()
@@ -567,14 +553,14 @@ def test_each_digest_firing_gets_the_next_tick(session: Session, monkeypatch):
 
 
 def test_an_overlapping_match_firing_is_dropped_but_still_counted(session: Session, monkeypatch):
-    """A wake must not run beside a scheduled match: the in-flight run's ok=False row would
-    read as a failure and deepen the backoff against itself."""
+    """A second firing must not run beside a scheduled match: the in-flight run's ok=False row
+    would read as a failure and deepen the backoff against itself."""
     seen: list[int] = []
     scheduler = JobScoutScheduler(session.get_bind(), _settings())
 
     def in_flight(engine, settings, tick=None, force=False):
         seen.append(tick)
-        scheduler._run_match_tick()  # a wake arriving while this run is executing
+        scheduler._run_match_tick()  # a firing arriving while this run is executing
 
     monkeypatch.setattr("jobscout.scheduler.match_job", in_flight)
 
@@ -590,9 +576,8 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
     """The stage's headline: save preferences -> stale -> re-score, through the real path.
 
     A match scored under the old preferences exists. save_preferences must stale it and call
-    the `on_changed` hook (here a recorder; the real wake and the scheduler wiring
-    are covered by other tests). match_job then re-scores the row and records a Run, with
-    fake models standing in only for the provider.
+    the `on_changed` hook (here a recorder). match_job then re-scores the row and records a
+    Run, with fake models standing in only for the provider.
     """
     import jobscout.pipeline.matching as matching_module
 
@@ -636,7 +621,7 @@ def test_a_preference_save_leads_to_scored_matches(session: Session, monkeypatch
     assert (run.ok, run.counters["evaluated"]) == (True, 1)
 
 
-# --- C1: the wake must not be swallowed by the backoff on a fresh install ---
+# --- C1: a fresh install must not build a failure streak for the backoff ---
 
 
 def test_a_fresh_install_does_not_accumulate_failed_match_runs(session: Session):
@@ -681,31 +666,6 @@ def test_a_forced_match_runs_even_when_deep_in_backoff(session: Session, monkeyp
     session.expire_all()
     rows = session.exec(select(Run).where(col(Run.job) == "match")).all()
     assert len(rows) == 6, "the forced run bypassed the backoff"
-
-
-def test_the_wake_job_forces_and_the_interval_job_does_not(session: Session, monkeypatch):
-    seen: list[bool] = []
-    monkeypatch.setattr(
-        "jobscout.scheduler.match_job",
-        lambda engine, settings, tick=None, force=False: seen.append(force),
-    )
-    scheduler = JobScoutScheduler(session.get_bind(), _settings())
-
-    scheduler._run_match_tick()
-    scheduler._run_match_tick(force=True)
-
-    assert seen == [False, True]
-
-
-def test_wake_registers_a_forced_run(session: Session):
-    scheduler = JobScoutScheduler(session.get_bind(), _settings())
-    scheduler.start()
-    try:
-        scheduler.wake_matching()
-        wake = next(job for job in scheduler.get_jobs() if job.id == "match-wake")
-        assert wake.kwargs == {"force": True}
-    finally:
-        scheduler.shutdown()
 
 
 def test_a_genuine_all_errors_run_still_fails_and_still_backs_off(session: Session, monkeypatch):
@@ -1155,22 +1115,6 @@ def test_a_user_without_an_address_does_not_stop_another_users_digest(session, m
     assert notified[wanted.id] is not None and notified[silent.id] is None
     run = _digest_run(session)
     assert (run.ok, run.counters["users"]) == (True, 1)
-
-
-def test_a_search_on_a_disabled_scheduler_does_not_turn_the_wake_on(session: Session, monkeypatch):
-    # The executor starts for the user's search; SCHEDULER_ENABLED=false still means no
-    # background matching, so a preference save afterwards must not schedule one.
-    monkeypatch.setattr("jobscout.scheduler.search_job", lambda *args, **kw: None)
-    search = make_search(session)
-    scheduler = JobScoutScheduler(session.get_bind(), _settings(scheduler_enabled=False))
-    scheduler.start()
-    try:
-        scheduler._scheduler.start(paused=True)
-        scheduler.start_search(search.id)
-        scheduler.wake_matching()
-        assert [job.id for job in scheduler.get_jobs()] == ["search"]
-    finally:
-        scheduler.shutdown()
 
 
 def test_a_search_waits_for_a_match_run_in_flight(session: Session, monkeypatch):

@@ -385,7 +385,7 @@ class JobScoutScheduler:
         self._match_tick = 0
         self._digest_tick = 0
         self._tick_lock = threading.Lock()
-        # `match` and `match-wake` are different APScheduler ids, so max_instances=1 cannot stop
+        # `match` and `search` are different APScheduler ids, so max_instances=1 cannot stop
         # them overlapping. This guard does: start_run writes an ok=False row before the work
         # begins, so an overlapping run would read as a failure to the backoff check.
         self._match_running = threading.Lock()
@@ -403,7 +403,7 @@ class JobScoutScheduler:
             self._match_tick += 1
             return self._match_tick
 
-    def _run_match_tick(self, force: bool = False) -> None:
+    def _run_match_tick(self) -> None:
         # Count every firing, including ones the backoff or the overlap guard skips: otherwise
         # `tick % period` would stay at the same non-zero remainder and never run again.
         tick = self._next_match_tick()
@@ -411,7 +411,7 @@ class JobScoutScheduler:
             log.warning("match tick %s skipped: another match run is in flight", tick)
             return
         try:
-            match_job(self._engine, self._settings, tick=tick, force=force)
+            match_job(self._engine, self._settings, tick=tick)
         finally:
             self._match_running.release()
 
@@ -449,7 +449,10 @@ class JobScoutScheduler:
             self._scheduler.add_job(
                 self._run_search,
                 "date",
-                run_date=datetime.now(UTC),  # aware, for the reason given in wake_matching
+                # The one place the project's "timestamps are naive UTC" rule must NOT apply:
+                # APScheduler localizes a naive datetime into its own timezone, which would
+                # shift the start by the machine's UTC offset. Pass an aware value.
+                run_date=datetime.now(UTC),
                 args=[search_id, run_id, fetch],
                 id="search",
                 replace_existing=True,
@@ -515,25 +518,3 @@ class JobScoutScheduler:
 
     def get_jobs(self) -> list[APSJob]:
         return list(self._scheduler.get_jobs())
-
-    def wake_matching(self) -> None:
-        """Run matching now, out of band. Repeated calls collapse into one pending run."""
-        # The flag, not only `running`: a search starts the executor even when the periodic
-        # jobs are off, and that must not switch background matching back on.
-        if not self._settings.scheduler_enabled or not self._scheduler.running:
-            return
-        self._scheduler.add_job(
-            self._run_match_tick,
-            "date",
-            # The one place the project's "timestamps are naive UTC" rule must NOT apply: this
-            # value crosses into APScheduler, which localizes a naive datetime into its own
-            # timezone. Naive UTC would shift the wake by the machine's UTC offset (hours late in
-            # the Americas). Pass an aware value.
-            run_date=datetime.now(UTC),
-            # A wake is a user action: new information about whether the failure that drove
-            # the backoff still holds. It must not be swallowed by that backoff.
-            kwargs={"force": True},
-            id="match-wake",
-            replace_existing=True,
-            misfire_grace_time=None,
-        )
