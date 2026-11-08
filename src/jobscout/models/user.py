@@ -22,7 +22,8 @@ class UserPreferences(SQLModel, table=True):
     __tablename__ = "user_preferences"
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", unique=True, index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    search_id: int = Field(foreign_key="search.id", unique=True, index=True)
     titles: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     seniority: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     work_modes: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
@@ -32,6 +33,8 @@ class UserPreferences(SQLModel, table=True):
     excluded_regions: list[str] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False)
     )
+    # A city inside the country in `regions`; meaningless without one.
+    city: str | None = None
     min_salary: int | None = None
     salary_currency: str | None = None
     required_skills: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
@@ -54,7 +57,7 @@ class UserPreferences(SQLModel, table=True):
 
 
 PROTECTED_PREFERENCE_FIELDS: frozenset[str] = frozenset(
-    {"id", "user_id", "created_at", "updated_at", "profile_embedding"}
+    {"id", "user_id", "search_id", "created_at", "updated_at", "profile_embedding"}
 )
 
 

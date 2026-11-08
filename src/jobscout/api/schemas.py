@@ -1,11 +1,10 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-from jobscout.models.user import non_nullable_preference_fields
-
-WorkMode = Literal["remote", "hybrid", "onsite"]
+from jobscout.pipeline.conversation import Answer, Question, QuestionId, Summary
+from jobscout.sources.base import SourceStatus
 
 
 class JobRead(BaseModel):
@@ -28,54 +27,6 @@ class JobRead(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
     is_active: bool
-
-
-class PreferencesRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    titles: list[str]
-    seniority: list[str]
-    work_modes: list[str]
-    regions: list[str]
-    excluded_regions: list[str]
-    min_salary: int | None
-    salary_currency: str | None
-    required_skills: list[str]
-    nice_to_have_skills: list[str]
-    excluded_keywords: list[str]
-    profile_summary: str
-    min_score_to_notify: int
-    notify_email: str | None
-    updated_at: datetime
-
-
-class PreferencesUpdate(BaseModel):
-    """All fields optional; only the ones sent are changed."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    titles: list[str] | None = None
-    seniority: list[str] | None = None
-    work_modes: list[WorkMode] | None = None
-    regions: list[str] | None = None
-    excluded_regions: list[str] | None = None
-    min_salary: int | None = Field(default=None, ge=0)
-    salary_currency: str | None = Field(default=None, min_length=3, max_length=3)
-    required_skills: list[str] | None = None
-    nice_to_have_skills: list[str] | None = None
-    excluded_keywords: list[str] | None = None
-    profile_summary: str | None = None
-    min_score_to_notify: int | None = Field(default=None, ge=0, le=100)
-    notify_email: str | None = None
-
-    # `search_terms` is derived from the profile paragraph by the search run, never sent by a
-    # client, so this model deliberately does not declare it.
-    @field_validator(*sorted(non_nullable_preference_fields() - {"search_terms"}), mode="before")
-    @classmethod
-    def _reject_explicit_null(cls, value: object) -> object:
-        if value is None:
-            raise ValueError("field cannot be null")
-        return value
 
 
 class MatchRead(BaseModel):
@@ -106,8 +57,100 @@ class RunRead(BaseModel):
 
     id: int
     job: str
+    search_id: int | None
     started_at: datetime
     finished_at: datetime | None
     ok: bool
     error: str | None
     counters: dict[str, int]
+
+
+class ReadingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    terms: list[str]
+    seniority: list[str]
+    required_skills: list[str]
+    stated_work_modes: list[str]
+    stated_regions: list[str]
+    suggested_skills: list[str]
+
+
+class WideningRead(BaseModel):
+    id: str
+    question: QuestionId
+    answer: Answer
+
+
+class SearchListItem(BaseModel):
+    id: int
+    title: str
+    last_used_at: datetime
+    running: bool
+
+
+class SearchCreate(BaseModel):
+    paragraph: str = Field(min_length=1)
+
+
+class AnswerCreate(BaseModel):
+    question: QuestionId
+    choice: str
+    values: list[str] = []
+
+
+class RefinementCreate(BaseModel):
+    text: str = Field(min_length=1)
+
+
+class SearchRead(BaseModel):
+    id: int
+    title: str
+    created_at: datetime
+    last_used_at: datetime
+    paragraph: str
+    refinements: list[str]
+    reading: ReadingRead | None
+    reading_error: str | None
+    asked: list[QuestionId]
+    answers: dict[QuestionId, Answer]
+    question: Question | None
+    summary: Summary
+    confirmed: bool
+    widenings: list[WideningRead]
+    latest_run: RunRead | None
+
+
+class MatchList(BaseModel):
+    matches: list[MatchRead]
+    found: int
+    waiting: int
+
+
+class SearchTitle(BaseModel):
+    id: int
+    title: str
+
+
+class MyJobRead(BaseModel):
+    match: MatchRead
+    searches: list[SearchTitle]
+
+
+class MyJobsRead(BaseModel):
+    items: list[MyJobRead]
+    counts: dict[str, int]
+
+
+class StatusRead(BaseModel):
+    llm_key_found: bool
+    llm_provider: str
+    llm_model: str
+    embedding_model: str
+    sources: list[SourceStatus]
+    running_search_id: int | None
+    locale: str
+
+
+class LocaleBody(BaseModel):
+    locale: Literal["en", "pt-BR"]

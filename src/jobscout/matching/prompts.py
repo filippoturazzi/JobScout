@@ -39,6 +39,8 @@ def profile_text(prefs: UserPreferences) -> str:
     ):
         if values:
             parts.append(f"{label}: {', '.join(values)}.")
+    if prefs.city:
+        parts.append(f"City: {prefs.city}.")
     if prefs.min_salary:
         currency = prefs.salary_currency or ""
         parts.append(f"Minimum salary: {prefs.min_salary} {currency}".strip() + ".")

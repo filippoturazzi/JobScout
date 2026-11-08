@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from jobscout.models import Job, Match, User
+from jobscout.models import Job, Match, Search, User
 
 
 def _job(session, external_id="j1") -> Job:
@@ -29,9 +29,18 @@ def _user(session) -> User:
     return user
 
 
+def _search(session, user, title="s") -> Search:
+    search = Search(user_id=user.id, title=title)
+    session.add(search)
+    session.commit()
+    session.refresh(search)
+    return search
+
+
 def test_match_roundtrip_defaults(session):
     job, user = _job(session), _user(session)
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.42))
+    search = _search(session, user)
+    session.add(Match(job_id=job.id, user_id=user.id, search_id=search.id, similarity=0.42))
     session.commit()
     match = session.exec(select(Match)).one()
     assert match.score is None and match.reasoning is None
@@ -41,13 +50,24 @@ def test_match_roundtrip_defaults(session):
     assert match.created_at.tzinfo is None
 
 
-def test_match_is_unique_per_job_and_user(session):
+def test_one_search_cannot_score_a_job_twice(session):
     job, user = _job(session), _user(session)
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.1))
+    search = _search(session, user)
+    session.add(Match(job_id=job.id, user_id=user.id, search_id=search.id, similarity=0.1))
     session.commit()
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.2))
+    session.add(Match(job_id=job.id, user_id=user.id, search_id=search.id, similarity=0.2))
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_the_same_job_can_be_scored_by_two_searches(session):
+    job, user = _job(session), _user(session)
+    first, second = _search(session, user, "a"), _search(session, user, "b")
+    session.add(Match(job_id=job.id, user_id=user.id, search_id=first.id, similarity=0.1))
+    session.add(Match(job_id=job.id, user_id=user.id, search_id=second.id, similarity=0.2))
+    session.commit()
+
+    assert len(session.exec(select(Match)).all()) == 2
 
 
 def test_status_sets_are_consistent():
@@ -68,10 +88,10 @@ def test_status_sets_are_consistent():
 
 
 def test_match_has_a_composite_index_for_the_hot_queries():
-    """select_candidates and list_matches both filter on (user_id, status)."""
+    """select_candidates and list_matches both filter on (search_id, status)."""
     names = {index.name for index in Match.__table__.indexes}
 
-    assert "ix_match_user_status" in names
+    assert {"ix_match_user_status", "ix_match_search_status"} <= names
 
 
 def test_match_starts_unnotified():
@@ -80,7 +100,7 @@ def test_match_starts_unnotified():
     They are separate columns because staling rewrites `status` to "new", and an
     already-announced job must not return to the next digest because of that.
     """
-    match = Match(job_id=1, user_id=1, similarity=0.5)
+    match = Match(job_id=1, user_id=1, search_id=1, similarity=0.5)
 
     assert match.notified_at is None
 

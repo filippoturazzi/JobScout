@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from jobscout.models import Job, User, UserPreferences
+from jobscout.models import Job, Search, User, UserPreferences
 from jobscout.models.base import utcnow
 
 
@@ -51,16 +51,19 @@ def test_job_source_external_id_is_unique(session):
         session.commit()
 
 
-def test_user_preferences_one_to_one(session):
+def test_user_preferences_one_to_one_with_a_search(session):
     user = User(email="me@localhost")
     session.add(user)
     session.commit()
-    session.add(UserPreferences(user_id=user.id, titles=["AI Engineer"]))
+    search = Search(user_id=user.id, title="t")
+    session.add(search)
+    session.commit()
+    session.add(UserPreferences(user_id=user.id, search_id=search.id, titles=["AI Engineer"]))
     session.commit()
     prefs = session.exec(select(UserPreferences)).one()
     assert prefs.titles == ["AI Engineer"]
     assert prefs.min_score_to_notify == 70
     assert prefs.work_modes == []
-    session.add(UserPreferences(user_id=user.id))
+    session.add(UserPreferences(user_id=user.id, search_id=search.id))
     with pytest.raises(IntegrityError):
         session.commit()

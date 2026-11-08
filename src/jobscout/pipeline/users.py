@@ -29,22 +29,20 @@ def get_or_create_default_user(session: Session) -> User:
         session.add(user)
         session.commit()
         session.refresh(user)
-    prefs = session.exec(select(UserPreferences).where(UserPreferences.user_id == user.id)).first()
-    if prefs is None:
-        session.add(UserPreferences(user_id=user.id))
-        session.commit()
     return user
 
 
-def get_preferences(session: Session, user_id: int) -> UserPreferences:
-    prefs = session.exec(select(UserPreferences).where(UserPreferences.user_id == user_id)).first()
+def get_preferences(session: Session, search_id: int) -> UserPreferences:
+    prefs = session.exec(
+        select(UserPreferences).where(UserPreferences.search_id == search_id)
+    ).first()
     if prefs is None:
-        raise LookupError(f"No preferences for user_id={user_id}")
+        raise LookupError(f"No preferences for search_id={search_id}")
     return prefs
 
 
 def update_preferences(
-    session: Session, user_id: int, changes: dict[str, Any]
+    session: Session, search_id: int, changes: dict[str, Any]
 ) -> tuple[UserPreferences, frozenset[str]]:
     """Apply a partial update; return the row and the names of fields whose value changed."""
     allowed = set(UserPreferences.model_fields) - PROTECTED_PREFERENCE_FIELDS
@@ -57,7 +55,7 @@ def update_preferences(
     )
     if non_nullable_nulls:
         raise ValueError(f"Preference field(s) cannot be null: {', '.join(non_nullable_nulls)}")
-    prefs = get_preferences(session, user_id)
+    prefs = get_preferences(session, search_id)
     changed = frozenset(field for field, value in changes.items() if getattr(prefs, field) != value)
     for field, value in changes.items():
         setattr(prefs, field, value)
@@ -67,3 +65,20 @@ def update_preferences(
     session.commit()
     session.refresh(prefs)
     return prefs, changed
+
+
+LOCALES: tuple[str, ...] = ("en", "pt-BR")
+
+
+def set_locale(session: Session, user_id: int, locale: str) -> User:
+    """The language the user's match reasoning is written in."""
+    if locale not in LOCALES:
+        raise ValueError(f"Unknown locale {locale!r}; expected one of {', '.join(LOCALES)}")
+    user = session.get(User, user_id)
+    if user is None:
+        raise LookupError(f"No user {user_id}")
+    user.locale = locale
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user

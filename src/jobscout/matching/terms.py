@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 MAX_TERM_WORDS = 3
 MAX_TERMS = 8
+MAX_SUGGESTED_SKILLS = 8
 
 SYSTEM_PROMPT = f"""You read a candidate's description of the job they want and extract search
 terms and structured preferences from it.
@@ -25,10 +26,13 @@ Rules:
   sentence: the job APIs match keywords and a long query returns nothing.
 - seniority: e.g. junior, mid, senior.
 - required_skills: skills the candidate insists on.
+- suggested_skills: up to {MAX_SUGGESTED_SKILLS} skills typical for this role, whether or not the
+  text names them. They are options to choose from, not requirements.
 - excluded_keywords: words that must NOT appear in a job title (e.g. "senior" for a junior).
 - stated_work_modes: the work modes the text says it wants: remote, hybrid or onsite.
 - stated_regions: the countries or cities the text says it wants to work in.
-- Use only what the text states. Leave a field empty rather than guess."""
+- Use only what the text states for every field except suggested_skills. Leave a field empty
+  rather than guess."""
 
 
 class _LLMOutput(BaseModel):
@@ -40,6 +44,12 @@ class _LLMOutput(BaseModel):
     )
     seniority: list[str] = Field(default_factory=list, description="Seniority levels.")
     required_skills: list[str] = Field(default_factory=list, description="Must-have skills.")
+    suggested_skills: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Skills typical for the role the text describes, for the candidate to pick from."
+        ),
+    )
     excluded_keywords: list[str] = Field(
         default_factory=list, description="Words to reject in a job title."
     )
@@ -105,8 +115,12 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
-def extract_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
-    """Extract terms and preferences. Raises ``ValueError`` if there is nothing to search for."""
+def read_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
+    """Read the paragraph once. Raises ``ValueError`` only if the paragraph is blank.
+
+    ``terms`` may come back empty when the LLM found nothing usable; the caller decides
+    whether that is an error.
+    """
     if not paragraph.strip():
         raise ValueError("The profile paragraph is empty; there is nothing to search for.")
     structured = llm.with_structured_output(_LLMOutput)
@@ -118,12 +132,16 @@ def extract_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
     )
     terms = [term for term in _dedupe(raw.terms) if len(term.split()) <= MAX_TERM_WORDS]
     terms = terms[:MAX_TERMS]
-    if not terms:
-        raise ValueError("No usable search terms could be extracted from the profile paragraph.")
+    required_skills = _dedupe(raw.required_skills)
+    required_lower = {skill.lower() for skill in required_skills}
+    suggested_skills = [
+        skill for skill in _dedupe(raw.suggested_skills) if skill.lower() not in required_lower
+    ]
     return ExtractedProfile(
         terms=terms,
         seniority=[value.lower() for value in _dedupe(raw.seniority)],
-        required_skills=_dedupe(raw.required_skills),
+        required_skills=required_skills,
+        suggested_skills=suggested_skills[:MAX_SUGGESTED_SKILLS],
         excluded_keywords=_dedupe(raw.excluded_keywords),
         stated_work_modes=_dedupe(
             [
@@ -134,3 +152,11 @@ def extract_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
         ),
         stated_regions=_dedupe(raw.stated_regions),
     )
+
+
+def extract_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
+    """Extract terms and preferences. Raises ``ValueError`` if there is nothing to search for."""
+    profile = read_profile(paragraph, llm)
+    if not profile.terms:
+        raise ValueError("No usable search terms could be extracted from the profile paragraph.")
+    return profile

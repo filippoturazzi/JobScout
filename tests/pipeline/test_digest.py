@@ -11,11 +11,13 @@ from jobscout.models.base import utcnow
 from jobscout.pipeline.digest import (
     DIGEST_CAP,
     already_sent_today,
+    digest_target,
     is_send_window,
     mark_notified,
     select_unnotified,
 )
 from jobscout.pipeline.users import get_or_create_default_user
+from tests.helpers import make_search, search_id_of
 
 
 def _settings(**kw: int) -> Settings:
@@ -38,7 +40,14 @@ def _match(session: Session, user_id: int, score: int | None, **kw: Any) -> Matc
     session.add(job)
     session.commit()
     session.refresh(job)
-    match = Match(job_id=job.id, user_id=user_id, similarity=0.8, score=score, **kw)
+    match = Match(
+        job_id=job.id,
+        user_id=user_id,
+        search_id=search_id_of(session, user_id),
+        similarity=0.8,
+        score=score,
+        **kw,
+    )
     session.add(match)
     session.commit()
     session.refresh(match)
@@ -53,6 +62,20 @@ def test_selects_only_matches_above_the_threshold(session: Session):
     rows, held = select_unnotified(session, user.id, min_score=70)
 
     assert [m.id for m, _ in rows] == [high.id]
+    assert held == 0
+
+
+def test_never_selects_a_match_whose_search_is_gone(session: Session):
+    user = get_or_create_default_user(session)
+    kept = _match(session, user.id, 80)
+    orphan = _match(session, user.id, 95)
+    orphan.search_id = 9999
+    session.add(orphan)
+    session.commit()
+
+    rows, held = select_unnotified(session, user.id, min_score=70)
+
+    assert [m.id for m, _ in rows] == [kept.id]
     assert held == 0
 
 
@@ -121,7 +144,7 @@ def test_mark_notified_touches_only_the_ids_given(session: Session):
     sent = _match(session, user.id, 80)
     untouched = _match(session, user.id, 80)
 
-    mark_notified(session, [sent.id])
+    mark_notified(session, user.id, [sent.job_id])
 
     session.refresh(sent)
     session.refresh(untouched)
@@ -249,3 +272,78 @@ def test_equal_scores_come_back_newest_first(session: Session):
     rows, _ = select_unnotified(session, user.id, min_score=70)
 
     assert [m.id for m, _ in rows] == [third.id, second.id, first.id]
+
+
+def _found_twice(session: Session, user_id: int) -> tuple[Match, Match]:
+    """One job scored 60 by one search and 85 by another."""
+    first = _match(session, user_id, 60)
+    other = make_search(session, title="Other")
+    second = Match(
+        job_id=first.job_id, user_id=user_id, search_id=other.id, similarity=0.9, score=85
+    )
+    session.add(second)
+    session.commit()
+    session.refresh(second)
+    return first, second
+
+
+def test_digest_sends_a_job_found_twice_once(session: Session):
+    user = get_or_create_default_user(session)
+    _, best = _found_twice(session, user.id)
+
+    rows, held = select_unnotified(session, user.id, min_score=50)
+
+    assert [(m.id, m.score) for m, _ in rows] == [(best.id, 85)]
+    assert held == 0
+
+
+def test_digest_counts_held_back_jobs_not_matches(session: Session):
+    user = get_or_create_default_user(session)
+    for _ in range(DIGEST_CAP + 1):
+        _found_twice(session, user.id)
+
+    rows, held = select_unnotified(session, user.id, min_score=50)
+
+    assert (len(rows), held) == (DIGEST_CAP, 1)
+
+
+def test_digest_skips_a_job_already_announced_through_another_search(session: Session):
+    user = get_or_create_default_user(session)
+    first, _ = _found_twice(session, user.id)
+    first.notified_at = utcnow()
+    session.add(first)
+    session.commit()
+
+    rows, _ = select_unnotified(session, user.id, min_score=50)
+
+    assert rows == []
+
+
+def test_marking_notified_covers_every_search(session: Session):
+    user = get_or_create_default_user(session)
+    first, second = _found_twice(session, user.id)
+    untouched = _match(session, user.id, 80)
+
+    mark_notified(session, user.id, [first.job_id])
+
+    for match in (first, second, untouched):
+        session.refresh(match)
+    assert first.notified_at is not None and second.notified_at is not None
+    assert untouched.notified_at is None
+
+
+def test_digest_target_uses_the_latest_search_with_an_address(session: Session):
+    user = get_or_create_default_user(session)
+    assert digest_target(session, user.id) is None
+    older = make_search(session, title="Older", notify_email="old@example.com")
+    older.last_used_at = utcnow() - timedelta(days=1)
+    session.add(older)
+    make_search(session, title="Newest, no address")
+    wanted = make_search(
+        session, title="Wanted", notify_email="new@example.com", min_score_to_notify=77
+    )
+    wanted.last_used_at = utcnow() - timedelta(hours=1)
+    session.add(wanted)
+    session.commit()
+
+    assert digest_target(session, user.id) == ("new@example.com", 77)

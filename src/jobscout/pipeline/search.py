@@ -16,14 +16,13 @@ from sqlmodel import Session
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
-from jobscout.matching.llm import chat_model
-from jobscout.matching.terms import extract_profile, profile_hash
-from jobscout.models import Run, UserPreferences
+from jobscout.models import Run, Search, UserPreferences
 from jobscout.models.base import utcnow
 from jobscout.pipeline.ingest import ingest
 from jobscout.pipeline.matching import run_match, select_candidates
-from jobscout.pipeline.users import get_preferences, update_preferences
-from jobscout.sources.base import JobSource, RawJob, SearchQuery
+from jobscout.pipeline.searches import record_fetched
+from jobscout.pipeline.users import get_preferences
+from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.regions import country_of
 from jobscout.sources.registry import build_sources, source_statuses
 
@@ -44,12 +43,6 @@ MAX_TERMS_PER_SOURCE = 5
 Spec 5.1 says 3-5. The terms are ordered most important first, so taking the head is the
 ranking; more terms means more requests against free APIs for steadily worse keywords.
 """
-
-# Extraction fills these from the paragraph. They are written only when the extraction
-# found something: an empty answer must never erase what the user set by hand. `titles`,
-# `regions` and `work_modes` are deliberately absent — see `matching.terms`, automatic
-# extraction may add exclusions, never restrictions.
-_EXTRACTED_PREFERENCES = ("seniority", "required_skills", "excluded_keywords")
 
 
 class NoUsableSourcesError(RuntimeError):
@@ -106,30 +99,7 @@ class SearchProgress:
     total: int = 0
 
 
-class _CountedSource:
-    """A source that records the distinct postings it hands back over a whole run.
-
-    One posting answers several terms, and ``fetched`` must count it once or the progress
-    bar reports work that does not exist. ``ingest`` returns counts, not keys, so the keys
-    are collected here, where the raw postings still exist.
-    """
-
-    def __init__(self, source: JobSource, seen: set[tuple[str, str]]) -> None:
-        self._source = source
-        self._seen = seen
-        self.name = source.name
-        self.supports_search = source.supports_search
-        self.term_budget = source.term_budget
-        self.all_remote = source.all_remote
-        self.searches_by_location = source.searches_by_location
-
-    def fetch(self, query: SearchQuery) -> list[RawJob]:
-        jobs = self._source.fetch(query)
-        self._seen.update((job.source, job.external_id) for job in jobs)
-        return jobs
-
-
-def open_search_run(session: Session, user_id: int) -> Run:
+def open_search_run(session: Session, search_id: int) -> Run:
     """Open the row before any work starts, so a killed process leaves a failure behind.
 
     Public so a caller that runs the search in the background can hand out the run's id
@@ -138,7 +108,10 @@ def open_search_run(session: Session, user_id: int) -> Run:
     Not ``scheduler.start_run``: ``pipeline`` sits below ``scheduler`` and must not import
     it, and a search has no business pruning the operator's run history on the way past.
     """
-    run = Run(job="search", user_id=user_id)
+    search = session.get(Search, search_id)
+    if search is None:
+        raise LookupError(f"No search {search_id}")
+    run = Run(job="search", user_id=search.user_id, search_id=search_id)
     session.add(run)
     session.commit()
     session.refresh(run)
@@ -160,33 +133,6 @@ def _finish(session: Session, run: Run, result: SearchResult, ok: bool) -> None:
     run.finished_at = utcnow()
     session.add(run)
     session.commit()
-
-
-def _resolve_terms(
-    session: Session, settings: Settings, user_id: int, deps: GraphDeps | None
-) -> list[str]:
-    """The stored terms when the paragraph has not changed, a fresh extraction otherwise.
-
-    Raises ``ValueError`` when the paragraph is empty or yields no usable term, so a search
-    for the empty string never reaches the sources.
-    """
-    prefs = get_preferences(session, user_id)
-    paragraph = prefs.profile_summary
-    digest = profile_hash(paragraph)
-    # The stored terms are only worth reusing when there are some: a matching hash with an
-    # empty list would otherwise search for nothing and report a clean, empty run.
-    if prefs.profile_hash == digest and prefs.search_terms:
-        return list(prefs.search_terms)
-
-    chat = deps.chat if deps is not None else chat_model(settings)
-    extracted = extract_profile(paragraph, chat)
-    changes: dict[str, object] = {"search_terms": extracted.terms, "profile_hash": digest}
-    for name in _EXTRACTED_PREFERENCES:
-        found = getattr(extracted, name)
-        if found:
-            changes[name] = found
-    update_preferences(session, user_id, changes)
-    return list(extracted.terms)
 
 
 def _usable_sources(settings: Settings) -> list[JobSource]:
@@ -241,17 +187,25 @@ def _queries_for(source: JobSource, terms: list[str], prefs: UserPreferences) ->
         # best term goes to every country before the next term goes to any.
         pairs = [(term, place) for term in terms for place in places]
         return [
-            SearchQuery(keywords=[term], locations=[place], remote_only=remote_only)
+            SearchQuery(
+                keywords=[term], locations=[place], remote_only=remote_only, city=prefs.city
+            )
             for term, place in pairs[:budget]
         ]
     return [
-        SearchQuery(keywords=[term], locations=list(prefs.regions), remote_only=remote_only)
+        SearchQuery(
+            keywords=[term],
+            locations=list(prefs.regions),
+            remote_only=remote_only,
+            city=prefs.city,
+        )
         for term in terms[:budget]
     ]
 
 
 def _fetch(
     session: Session,
+    search_id: int,
     sources: list[JobSource],
     terms: list[str],
     prefs: UserPreferences,
@@ -260,14 +214,13 @@ def _fetch(
     report: Callable[[SearchProgress], None],
 ) -> None:
     """Search every source, one term per call, isolating each failure from the rest."""
-    seen: set[tuple[str, str]] = set()
+    seen: set[int] = set()
     modes = {mode.lower() for mode in prefs.work_modes}
     for source in sources:
         if source.all_remote and modes and "remote" not in modes:
             result.errors.append(f"{source.name}: not searched, it only lists remote jobs")
             continue
-        counted = _CountedSource(source, seen)
-        batch: list[JobSource] = [counted]
+        batch: list[JobSource] = [source]
         answered = False
         queries = _queries_for(source, terms, prefs)
         if source.searches_by_location:
@@ -296,6 +249,8 @@ def _fetch(
                 # source that just answered 429 will not answer the next four either.
                 break
             answered = True
+            record_fetched(session, search_id, outcome.seen_ids)
+            seen.update(outcome.seen_ids)
             result.fetched = len(seen)
             publish()
         # A source counts as ok once it has answered at all, even if a later term failed:
@@ -320,12 +275,17 @@ def _fetch(
 def run_search(
     session: Session,
     settings: Settings,
-    user_id: int,
+    search_id: int,
     deps: GraphDeps | None = None,
     run_id: int | None = None,
     on_progress: Callable[[SearchProgress], None] | None = None,
+    fetch: bool = True,
 ) -> SearchResult:
-    """Fetch for one user from every registered source, then score what is pending.
+    """Fetch for one search from every registered source, then score what is pending.
+
+    Runs on the confirmed preferences only: the terms are ``prefs.search_terms`` and nothing
+    is read from the paragraph here. ``fetch=False`` skips the sources and scores what is
+    pending ("Rank the rest"); it is ok when it did not error with nothing evaluated.
 
     ``run_id`` names a row ``open_search_run`` already wrote; without one, a row is opened
     here. Never raises: it is run in the background and the only way an operator or the
@@ -333,7 +293,7 @@ def run_search(
     """
     result = SearchResult()
     existing = session.get(Run, run_id) if run_id is not None else None
-    run = existing if existing is not None else open_search_run(session, user_id)
+    run = existing if existing is not None else open_search_run(session, search_id)
     result.run_id = run.id
 
     def publish() -> None:
@@ -344,27 +304,30 @@ def run_search(
             on_progress(progress)
 
     try:
-        result.terms = _resolve_terms(session, settings, user_id, deps)
-        # Read once, after term resolution has stored what it found, and shared by the
-        # sources' queries and the candidate selection below.
-        prefs = get_preferences(session, user_id)
-        sources = _usable_sources(settings)
+        prefs = get_preferences(session, search_id)
+        result.terms = list(prefs.search_terms)
+        if not result.terms:
+            raise ValueError(
+                "the search has no confirmed terms: answer its questions and press Search jobs"
+            )
+        sources = _usable_sources(settings) if fetch else []
     except Exception as exc:
         # Nothing was fetched: the run was over before it started and must say why.
         session.rollback()
-        log.warning("search for user %s could not start: %s", user_id, exc)
+        log.warning("search %s could not start: %s", search_id, exc)
         result.errors.append(f"{type(exc).__name__}: {exc}")
         _finish(session, run, result, ok=False)
         return result
 
     publish()
     report(SearchProgress(stage="terms", terms=list(result.terms)))
-    _fetch(session, sources, result.terms, prefs, result, publish, report)
+    if fetch:
+        _fetch(session, search_id, sources, result.terms, prefs, result, publish, report)
 
     try:
         # Published before scoring starts so the page has a denominator to show while it
         # runs; `run_match` selects the same set again for itself.
-        pending = select_candidates(session, prefs, user_id)
+        pending = select_candidates(session, prefs, search_id)
         result.candidates = len(pending)
         result.remaining = len(pending)
         publish()
@@ -373,15 +336,14 @@ def run_search(
         scored = run_match(
             session,
             settings,
-            user_id,
+            search_id,
             deps=deps,
             on_evaluated=lambda done, total: report(
                 SearchProgress(stage="evaluated", done=done, total=total)
             ),
         )
-        # `run_match`'s only `error` is the empty-profile case, and `_resolve_terms` has
-        # already refused that: the paragraph it extracts from IS the profile summary.
-        assert scored.error is None, scored.error
+        if scored.error is not None:
+            raise ValueError(scored.error)
         result.candidates = scored.candidates
         result.evaluated = scored.evaluated
         result.embedded = scored.embedded
@@ -392,7 +354,7 @@ def run_search(
         result.errors.extend(scored.errors)
     except Exception as exc:
         session.rollback()
-        log.exception("scoring failed during the search for user %s", user_id)
+        log.exception("scoring failed during the search %s", search_id)
         result.errors.append(f"{type(exc).__name__}: {exc}")
         _finish(session, run, result, ok=False)
         return result
@@ -401,5 +363,6 @@ def run_search(
     # failure. The run is ok when at least one source answered and fails when none did,
     # and scoring fails it only when it errored and evaluated nothing at all.
     scored_nothing = len(scored.errors) > 0 and scored.evaluated == 0
-    _finish(session, run, result, ok=result.sources_ok > 0 and not scored_nothing)
+    answered = result.sources_ok > 0 if fetch else True
+    _finish(session, run, result, ok=answered and not scored_nothing)
     return result

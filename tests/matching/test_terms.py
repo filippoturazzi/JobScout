@@ -1,10 +1,16 @@
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
-from jobscout.api.schemas import PreferencesUpdate
-from jobscout.matching.terms import ExtractedProfile, _LLMOutput, extract_profile, profile_hash
+from jobscout.matching.terms import (
+    MAX_SUGGESTED_SKILLS,
+    SYSTEM_PROMPT,
+    ExtractedProfile,
+    _LLMOutput,
+    extract_profile,
+    profile_hash,
+    read_profile,
+)
 from jobscout.models import UserPreferences
 from jobscout.pipeline.filters import job_matches_preferences
 from tests.matching.fakes import CountingChatModel
@@ -39,6 +45,7 @@ def test_extraction_returns_ranked_terms_and_structured_fields():
         "terms",
         "seniority",
         "required_skills",
+        "suggested_skills",
         "excluded_keywords",
         "stated_work_modes",
         "stated_regions",
@@ -47,8 +54,36 @@ def test_extraction_returns_ranked_terms_and_structured_fields():
 
 def test_every_structured_field_exists_on_user_preferences():
     for name in ExtractedProfile.model_fields:
-        if name not in {"terms", "stated_work_modes", "stated_regions"}:
+        if name not in {"terms", "stated_work_modes", "stated_regions", "suggested_skills"}:
             assert name in UserPreferences.model_fields
+
+
+def test_read_profile_returns_empty_terms_instead_of_raising():
+    llm = fake(terms=["a very long sentence here"])
+    assert read_profile(PARAGRAPH, llm).terms == []
+
+
+def test_suggested_skills_are_deduped_capped_and_exclude_required():
+    llm = fake(
+        terms=["python"],
+        required_skills=["Python"],
+        suggested_skills=["python", "RAG", "rag"] + [f"skill{i}" for i in range(9)],
+    )
+    suggested = read_profile(PARAGRAPH, llm).suggested_skills
+    assert "python" not in [skill.lower() for skill in suggested]
+    assert [skill.lower() for skill in suggested].count("rag") == 1
+    assert len(suggested) <= MAX_SUGGESTED_SKILLS
+    assert len(suggested) == MAX_SUGGESTED_SKILLS
+
+
+def test_extract_profile_still_raises_without_terms():
+    with pytest.raises(ValueError, match="No usable search terms"):
+        extract_profile(PARAGRAPH, fake(terms=[], suggested_skills=["RAG"]))
+
+
+def test_the_prompt_asks_for_suggested_skills():
+    assert "suggested_skills" in SYSTEM_PROMPT
+    assert "suggested_skills" in _LLMOutput.model_fields
 
 
 def test_what_the_paragraph_states_is_reported_without_becoming_a_filter():
@@ -117,15 +152,18 @@ def test_terms_are_capped_keeping_the_most_important():
 
 
 def _saved_prefs(session, **llm_fields):
-    from jobscout.pipeline.users import get_or_create_default_user, update_preferences
+    from jobscout.pipeline.users import update_preferences
+    from tests.helpers import make_search
 
     extracted = extract_profile(PARAGRAPH, fake(terms=["ai engineer"], **llm_fields))
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     prefs, _ = update_preferences(
         session,
-        user.id,
+        search.id,
         {
-            **extracted.model_dump(exclude={"terms", "stated_work_modes", "stated_regions"}),
+            **extracted.model_dump(
+                exclude={"terms", "stated_work_modes", "stated_regions", "suggested_skills"}
+            ),
             "search_terms": extracted.terms,
         },
     )
@@ -164,10 +202,3 @@ def test_an_onsite_job_still_passes_after_a_remote_preference_is_saved(session):
     prefs = _saved_prefs(session, work_modes=["remote"])
     assert prefs.work_modes == []
     assert job_matches_preferences(_job(remote=False), prefs)
-
-
-def test_search_terms_cannot_be_sent_through_the_preferences_api_model():
-    with pytest.raises(ValidationError):
-        PreferencesUpdate(search_terms=None)
-    with pytest.raises(ValidationError):
-        PreferencesUpdate(search_terms=["python"])

@@ -1,7 +1,7 @@
 import pytest
 from sqlmodel import select
 
-from jobscout.models import User, UserPreferences
+from jobscout.models import User
 from jobscout.models.user import PROTECTED_PREFERENCE_FIELDS, non_nullable_preference_fields
 from jobscout.pipeline.users import (
     DEFAULT_USER_EMAIL,
@@ -9,22 +9,23 @@ from jobscout.pipeline.users import (
     get_preferences,
     update_preferences,
 )
+from tests.helpers import make_search
 
 
-def test_creates_user_and_empty_preferences_once(session):
+def test_creates_the_default_user_once(session):
     user = get_or_create_default_user(session)
     again = get_or_create_default_user(session)
     assert user.id == again.id
     assert user.email == DEFAULT_USER_EMAIL
     assert len(session.exec(select(User)).all()) == 1
-    prefs = session.exec(select(UserPreferences)).one()
-    assert prefs.user_id == user.id
-    assert prefs.titles == []
 
 
 def test_get_preferences(session):
-    user = get_or_create_default_user(session)
-    assert get_preferences(session, user.id).user_id == user.id
+    search = make_search(session)
+    prefs = get_preferences(session, search.id)
+    assert prefs.search_id == search.id
+    assert prefs.user_id == search.user_id
+    assert prefs.titles == []
 
 
 def test_get_preferences_missing_user_raises(session):
@@ -33,42 +34,42 @@ def test_get_preferences_missing_user_raises(session):
 
 
 def test_update_preferences_partial(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     prefs, _ = update_preferences(
-        session, user.id, {"titles": ["AI Engineer"], "work_modes": ["remote"]}
+        session, search.id, {"titles": ["AI Engineer"], "work_modes": ["remote"]}
     )
     assert prefs.titles == ["AI Engineer"]
     assert prefs.work_modes == ["remote"]
-    prefs, _ = update_preferences(session, user.id, {"min_salary": 60000})
+    prefs, _ = update_preferences(session, search.id, {"min_salary": 60000})
     assert prefs.titles == ["AI Engineer"], "untouched fields are kept"
     assert prefs.min_salary == 60000
 
 
 def test_update_preferences_rejects_unknown_field(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     with pytest.raises(ValueError, match="nope"):
-        update_preferences(session, user.id, {"nope": 1})
+        update_preferences(session, search.id, {"nope": 1})
 
 
 @pytest.mark.parametrize(
-    "field", ["id", "user_id", "created_at", "updated_at", "profile_embedding"]
+    "field", ["id", "user_id", "search_id", "created_at", "updated_at", "profile_embedding"]
 )
 def test_update_preferences_rejects_protected_fields(session, field):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     with pytest.raises(ValueError, match=field):
-        update_preferences(session, user.id, {field: "x"})
-    assert get_preferences(session, user.id).user_id == user.id
+        update_preferences(session, search.id, {field: "x"})
+    assert get_preferences(session, search.id).search_id == search.id
 
 
 def test_update_preferences_rejects_null_on_non_nullable_field(session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     with pytest.raises(ValueError, match="null"):
-        update_preferences(session, user.id, {"titles": None})
+        update_preferences(session, search.id, {"titles": None})
 
 
 def test_update_preferences_allows_null_on_nullable_field(session):
-    user = get_or_create_default_user(session)
-    prefs, _ = update_preferences(session, user.id, {"min_salary": None})
+    search = make_search(session)
+    prefs, _ = update_preferences(session, search.id, {"min_salary": None})
     assert prefs.min_salary is None
 
 
@@ -89,41 +90,41 @@ def test_non_nullable_fields_are_derived_from_the_table():
         }
     )
     assert (
-        frozenset({"id", "user_id", "created_at", "updated_at", "profile_embedding"})
+        frozenset({"id", "user_id", "search_id", "created_at", "updated_at", "profile_embedding"})
         == PROTECTED_PREFERENCE_FIELDS
     )
 
 
 def test_update_preferences_reports_changed_fields(session):
-    user = get_or_create_default_user(session)
-    _, changed = update_preferences(session, user.id, {"titles": ["AI Engineer"]})
+    search = make_search(session)
+    _, changed = update_preferences(session, search.id, {"titles": ["AI Engineer"]})
     assert changed == frozenset({"titles"})
 
-    _, changed = update_preferences(session, user.id, {"titles": ["AI Engineer"]})
+    _, changed = update_preferences(session, search.id, {"titles": ["AI Engineer"]})
     assert changed == frozenset(), "same value is not a change"
 
 
 def test_profile_summary_change_clears_the_profile_embedding(session):
-    user = get_or_create_default_user(session)
-    prefs, _ = update_preferences(session, user.id, {"profile_summary": "first"})
+    search = make_search(session)
+    prefs, _ = update_preferences(session, search.id, {"profile_summary": "first"})
     prefs.profile_embedding = b"\x00\x01\x02\x03"
     session.add(prefs)
     session.commit()
 
-    prefs, changed = update_preferences(session, user.id, {"profile_summary": "second"})
+    prefs, changed = update_preferences(session, search.id, {"profile_summary": "second"})
 
     assert "profile_summary" in changed
     assert prefs.profile_embedding is None
 
 
 def test_unrelated_change_keeps_the_profile_embedding(session):
-    user = get_or_create_default_user(session)
-    prefs, _ = update_preferences(session, user.id, {"profile_summary": "first"})
+    search = make_search(session)
+    prefs, _ = update_preferences(session, search.id, {"profile_summary": "first"})
     prefs.profile_embedding = b"\x00\x01\x02\x03"
     session.add(prefs)
     session.commit()
 
-    prefs, _ = update_preferences(session, user.id, {"min_score_to_notify": 80})
+    prefs, _ = update_preferences(session, search.id, {"min_score_to_notify": 80})
 
     assert prefs.profile_embedding == b"\x00\x01\x02\x03"
 

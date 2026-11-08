@@ -12,7 +12,9 @@ from jobscout.matching.schemas import EvaluationResult
 from jobscout.matching.vectors import cosine, dim, pack
 from jobscout.models import Job, Match, UserPreferences
 from jobscout.pipeline.matching import run_match, select_candidates
-from jobscout.pipeline.users import get_or_create_default_user, get_preferences, update_preferences
+from jobscout.pipeline.run import list_matches, set_match_status
+from jobscout.pipeline.users import get_preferences, update_preferences
+from tests.helpers import fetched, make_search
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 DIM = 8
@@ -40,6 +42,7 @@ def _deps(
 
 def _add_job(
     session,
+    search,
     external_id: str,
     title: str = "AI Engineer",
     posted_at: datetime | None = None,
@@ -62,45 +65,42 @@ def _add_job(
     session.add(job)
     session.commit()
     session.refresh(job)
+    fetched(session, search, job)
     return job
 
 
-def _user_with_profile(session):
-    user = get_or_create_default_user(session)
-    update_preferences(
-        session,
-        user.id,
-        {"titles": ["AI Engineer"], "profile_summary": "Python LLM engineer."},
-    )
-    return user
+def _search_with_profile(session):
+    return make_search(session, "Python LLM engineer.", titles=["AI Engineer"])
 
 
 def test_no_profile_summary_evaluates_nothing(session):
-    user = get_or_create_default_user(session)
-    _add_job(session, "a")
-    result = run_match(session, _settings(), user.id, deps=_deps(CountingChatModel()))
+    search = make_search(session)
+    _add_job(session, search, "a")
+    result = run_match(session, _settings(), search.id, deps=_deps(CountingChatModel()))
     assert result.evaluated == 0
     assert result.error is not None and "profile" in result.error.lower()
 
 
 def test_evaluates_candidates_and_persists_matches(session):
-    user = _user_with_profile(session)
-    job = _add_job(session, "a")
+    search = _search_with_profile(session)
+    job = _add_job(session, search, "a")
     chat = CountingChatModel(
         results=[EvaluationResult(score=88, reasoning="Fits.", matched_skills=["Python"])]
     )
 
-    result = run_match(session, _settings(), user.id, deps=_deps(chat))
+    result = run_match(session, _settings(), search.id, deps=_deps(chat))
 
     assert (result.evaluated, chat.calls) == (1, 1)
     match = session.exec(select(Match)).one()
-    assert match.job_id == job.id and match.user_id == user.id
+    assert (
+        match.job_id == job.id and match.search_id == search.id and match.user_id == search.user_id
+    )
     assert match.score == 88 and match.status == "new"
     assert match.matched_skills == ["Python"] and match.llm_model == "fake-model"
     fake = DeterministicFakeEmbedding(size=DIM)
     expected = cosine(
         fake.embed_query(job_embedding_text(job)),
-        fake.embed_query(profile_text(get_preferences(session, user.id))),
+        fake.embed_query(profile_text(get_preferences(session, search.id))),
     )
     assert match.similarity == pytest.approx(expected)
     session.refresh(job)
@@ -108,11 +108,11 @@ def test_evaluates_candidates_and_persists_matches(session):
 
 
 def test_below_threshold_writes_low_without_calling_the_llm(session):
-    user = _user_with_profile(session)
-    _add_job(session, "a")
+    search = _search_with_profile(session)
+    _add_job(session, search, "a")
     chat = CountingChatModel()
 
-    result = run_match(session, _settings(), user.id, deps=_deps(chat, threshold=1.1))
+    result = run_match(session, _settings(), search.id, deps=_deps(chat, threshold=1.1))
 
     assert chat.calls == 0
     assert (result.evaluated, result.skipped_low) == (0, 1)
@@ -121,19 +121,19 @@ def test_below_threshold_writes_low_without_calling_the_llm(session):
 
 
 def test_second_run_is_idempotent(session):
-    user = _user_with_profile(session)
-    _add_job(session, "a")
+    search = _search_with_profile(session)
+    _add_job(session, search, "a")
     chat = CountingChatModel()
-    run_match(session, _settings(), user.id, deps=_deps(chat))
+    run_match(session, _settings(), search.id, deps=_deps(chat))
 
-    second = run_match(session, _settings(), user.id, deps=_deps(chat))
+    second = run_match(session, _settings(), search.id, deps=_deps(chat))
 
     assert second.evaluated == 0 and chat.calls == 1
     assert len(session.exec(select(Match)).all()) == 1
 
 
 def test_cap_limits_evaluations_and_takes_the_highest_similarities(session):
-    user = _user_with_profile(session)
+    search = _search_with_profile(session)
     # Deliberately different texts, so the five jobs get five different cosines and
     # "the cap kept the best two" is distinguishable from "the cap kept any two".
     titles = [
@@ -143,9 +143,9 @@ def test_cap_limits_evaluations_and_takes_the_highest_similarities(session):
         "Staff AI Engineer",
         "Lead AI Engineer",
     ]
-    jobs = [_add_job(session, f"j{i}", title=title) for i, title in enumerate(titles)]
+    jobs = [_add_job(session, search, f"j{i}", title=title) for i, title in enumerate(titles)]
     fake = DeterministicFakeEmbedding(size=DIM)
-    profile_vector = fake.embed_query(profile_text(get_preferences(session, user.id)))
+    profile_vector = fake.embed_query(profile_text(get_preferences(session, search.id)))
     similarities = {
         job.id: cosine(fake.embed_query(job_embedding_text(job)), profile_vector) for job in jobs
     }
@@ -155,7 +155,9 @@ def test_cap_limits_evaluations_and_takes_the_highest_similarities(session):
     }
     chat = CountingChatModel()
 
-    result = run_match(session, _settings(max_llm_evaluations_per_run=2), user.id, deps=_deps(chat))
+    result = run_match(
+        session, _settings(max_llm_evaluations_per_run=2), search.id, deps=_deps(chat)
+    )
 
     assert (result.evaluated, chat.calls) == (2, 2)
     evaluated = session.exec(select(Match)).all()
@@ -165,15 +167,31 @@ def test_cap_limits_evaluations_and_takes_the_highest_similarities(session):
 
 
 def test_stale_is_reevaluated_and_dismissed_is_not(session):
-    user = _user_with_profile(session)
-    stale_job = _add_job(session, "stale-one")
-    dismissed_job = _add_job(session, "dismissed-one")
-    session.add(Match(job_id=stale_job.id, user_id=user.id, similarity=0.9, status="stale"))
-    session.add(Match(job_id=dismissed_job.id, user_id=user.id, similarity=0.9, status="dismissed"))
+    search = _search_with_profile(session)
+    stale_job = _add_job(session, search, "stale-one")
+    dismissed_job = _add_job(session, search, "dismissed-one")
+    session.add(
+        Match(
+            job_id=stale_job.id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.9,
+            status="stale",
+        )
+    )
+    session.add(
+        Match(
+            job_id=dismissed_job.id,
+            user_id=search.user_id,
+            search_id=search.id,
+            similarity=0.9,
+            status="dismissed",
+        )
+    )
     session.commit()
     chat = CountingChatModel()
 
-    result = run_match(session, _settings(), user.id, deps=_deps(chat))
+    result = run_match(session, _settings(), search.id, deps=_deps(chat))
 
     assert result.evaluated == 1
     refreshed = {m.job_id: m for m in session.exec(select(Match)).all()}
@@ -182,11 +200,11 @@ def test_stale_is_reevaluated_and_dismissed_is_not(session):
 
 
 def test_dry_run_previews_without_calling_the_llm(session):
-    user = _user_with_profile(session)
-    _add_job(session, "a")
+    search = _search_with_profile(session)
+    _add_job(session, search, "a")
     chat = CountingChatModel()
 
-    result = run_match(session, _settings(), user.id, dry_run=True, deps=_deps(chat))
+    result = run_match(session, _settings(), search.id, dry_run=True, deps=_deps(chat))
 
     assert chat.calls == 0 and result.evaluated == 0
     assert len(result.previewed) == 1
@@ -194,12 +212,12 @@ def test_dry_run_previews_without_calling_the_llm(session):
 
 
 def test_llm_failure_is_isolated(session):
-    user = _user_with_profile(session)
-    _add_job(session, "a")
-    _add_job(session, "b")
+    search = _search_with_profile(session)
+    _add_job(session, search, "a")
+    _add_job(session, search, "b")
     chat = CountingChatModel(error=RuntimeError("rate limited"))
 
-    result = run_match(session, _settings(), user.id, deps=_deps(chat))
+    result = run_match(session, _settings(), search.id, deps=_deps(chat))
 
     assert result.evaluated == 0
     assert len(result.errors) == 2 and "rate limited" in result.errors[0]
@@ -209,12 +227,12 @@ def test_llm_failure_is_isolated(session):
 def test_a_rate_limit_stops_scoring_and_leaves_the_rest_for_the_next_run(session):
     # A provider quota (Gemini's free tier: 20 requests a day) does not lift for the next
     # job; calling again for each one only repeats the same error.
-    user = _user_with_profile(session)
+    search = _search_with_profile(session)
     for external_id in ("a", "b", "c"):
-        _add_job(session, external_id)
+        _add_job(session, search, external_id)
     limited = CountingChatModel(error=ModelRateLimitError("429 RESOURCE_EXHAUSTED: daily quota"))
 
-    result = run_match(session, _settings(), user.id, deps=_deps(limited))
+    result = run_match(session, _settings(), search.id, deps=_deps(limited))
 
     assert limited.calls == 1
     assert result.evaluated == 0
@@ -223,7 +241,7 @@ def test_a_rate_limit_stops_scoring_and_leaves_the_rest_for_the_next_run(session
     assert "daily quota" in result.errors[0]
     assert session.exec(select(Match)).all() == []
 
-    later = run_match(session, _settings(), user.id, deps=_deps(CountingChatModel()))
+    later = run_match(session, _settings(), search.id, deps=_deps(CountingChatModel()))
     assert later.evaluated == 3
 
 
@@ -234,8 +252,8 @@ def test_the_default_evaluation_cap_fits_a_free_tier_day():
 
 
 def test_commit_failure_is_counted_as_an_error_not_a_success(session, monkeypatch):
-    user = _user_with_profile(session)
-    _add_job(session, "a")
+    search = _search_with_profile(session)
+    _add_job(session, search, "a")
     chat = CountingChatModel()
     original_commit = session.commit
     calls = {"n": 0}
@@ -251,39 +269,41 @@ def test_commit_failure_is_counted_as_an_error_not_a_success(session, monkeypatc
 
     monkeypatch.setattr(session, "commit", flaky_commit)
 
-    result = run_match(session, _settings(), user.id, deps=_deps(chat))
+    result = run_match(session, _settings(), search.id, deps=_deps(chat))
 
     assert result.evaluated == 0 and result.skipped_low == 0
     assert len(result.errors) == 1 and "disk full" in result.errors[0]
 
 
 def test_select_candidates_applies_the_deterministic_filter(session):
-    user = _user_with_profile(session)
-    _add_job(session, "good", title="AI Engineer")
-    _add_job(session, "bad", title="Data Analyst")
+    search = _search_with_profile(session)
+    _add_job(session, search, "good", title="AI Engineer")
+    _add_job(session, search, "bad", title="Data Analyst")
 
-    candidates = select_candidates(session, get_preferences(session, user.id), user.id)
+    candidates = select_candidates(session, get_preferences(session, search.id), search.id)
 
     assert [job.external_id for job in candidates] == ["good"]
 
 
 def test_candidates_come_back_newest_first_with_undated_jobs_last(session):
-    user = get_or_create_default_user(session)
-    _add_job(session, "yesterday", title="yesterday", posted_at=datetime(2026, 10, 23, 9, 0))
-    _add_job(session, "undated", title="undated", posted_at=None)
-    _add_job(session, "today", title="today", posted_at=datetime(2026, 10, 24, 9, 0))
+    search = make_search(session)
+    _add_job(
+        session, search, "yesterday", title="yesterday", posted_at=datetime(2026, 10, 23, 9, 0)
+    )
+    _add_job(session, search, "undated", title="undated", posted_at=None)
+    _add_job(session, search, "today", title="today", posted_at=datetime(2026, 10, 24, 9, 0))
 
-    candidates = select_candidates(session, UserPreferences(), user_id=user.id)
+    candidates = select_candidates(session, UserPreferences(), search_id=search.id)
 
     assert [j.title for j in candidates] == ["today", "yesterday", "undated"]
 
 
 def test_undated_candidates_sort_by_when_jobscout_first_saw_them(session):
-    user = get_or_create_default_user(session)
-    _add_job(session, "seen-early", first_seen_at=datetime(2026, 10, 1, 8, 0))
-    _add_job(session, "seen-late", first_seen_at=datetime(2026, 10, 20, 8, 0))
+    search = make_search(session)
+    _add_job(session, search, "seen-early", first_seen_at=datetime(2026, 10, 1, 8, 0))
+    _add_job(session, search, "seen-late", first_seen_at=datetime(2026, 10, 20, 8, 0))
 
-    candidates = select_candidates(session, UserPreferences(), user_id=user.id)
+    candidates = select_candidates(session, UserPreferences(), search_id=search.id)
 
     assert [j.external_id for j in candidates] == ["seen-late", "seen-early"]
 
@@ -291,8 +311,8 @@ def test_undated_candidates_sort_by_when_jobscout_first_saw_them(session):
 def test_dry_run_never_builds_the_chat_client(session, monkeypatch):
     import jobscout.pipeline.matching as matching_module
 
-    user = _user_with_profile(session)
-    _add_job(session, "a")
+    search = _search_with_profile(session)
+    _add_job(session, search, "a")
 
     def _explode(_settings):
         raise AssertionError("dry run must not construct a chat model")
@@ -302,27 +322,27 @@ def test_dry_run_never_builds_the_chat_client(session, monkeypatch):
         matching_module, "embeddings", lambda _settings: DeterministicFakeEmbedding(size=DIM)
     )
 
-    result = run_match(session, _settings(), user.id, dry_run=True)
+    result = run_match(session, _settings(), search.id, dry_run=True)
 
     assert len(result.previewed) == 1
 
 
 def test_missing_provider_surfaces_as_error(session, monkeypatch):
-    user = _user_with_profile(session)
-    _add_job(session, "a")
+    search = _search_with_profile(session)
+    _add_job(session, search, "a")
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
     with pytest.raises(Exception, match="GOOGLE_API_KEY"):
-        run_match(session, _settings(), user.id)  # no deps -> real factory
+        run_match(session, _settings(), search.id)  # no deps -> real factory
 
 
 def test_embedding_work_is_bounded_per_run(session):
-    user = _user_with_profile(session)
+    search = _search_with_profile(session)
     for i in range(5):
-        _add_job(session, f"j{i}")
+        _add_job(session, search, f"j{i}")
 
     result = run_match(
-        session, _settings(max_embeddings_per_run=2), user.id, deps=_deps(CountingChatModel())
+        session, _settings(max_embeddings_per_run=2), search.id, deps=_deps(CountingChatModel())
     )
 
     assert result.embedded == 2
@@ -345,9 +365,9 @@ def test_a_failing_chunk_keeps_the_embeddings_already_paid_for(session, monkeypa
                 raise RuntimeError("429 RESOURCE_EXHAUSTED")
             return super().embed_documents(texts)
 
-    user = _user_with_profile(session)
+    search = _search_with_profile(session)
     for i in range(4):
-        _add_job(session, f"j{i}")
+        _add_job(session, search, f"j{i}")
     monkeypatch.setattr(matching_module, "_EMBED_CHUNK", 2)
     embed = FailsOnTheSecondBatch(size=DIM)
     deps = GraphDeps(
@@ -358,7 +378,7 @@ def test_a_failing_chunk_keeps_the_embeddings_already_paid_for(session, monkeypa
     )
 
     with pytest.raises(RuntimeError, match="429"):
-        run_match(session, _settings(), user.id, deps=deps)
+        run_match(session, _settings(), search.id, deps=deps)
 
     session.rollback()
     cached = [job for job in session.exec(select(Job)).all() if job.embedding is not None]
@@ -367,9 +387,9 @@ def test_a_failing_chunk_keeps_the_embeddings_already_paid_for(session, monkeypa
 
 def test_vectors_of_the_wrong_dimension_are_re_embedded(session):
     """The upgrade path of every existing install: EMBEDDING_DIM changed under stored blobs."""
-    user = _user_with_profile(session)
-    job = _add_job(session, "a")
-    prefs = get_preferences(session, user.id)
+    search = _search_with_profile(session)
+    job = _add_job(session, search, "a")
+    prefs = get_preferences(session, search.id)
     stale_blob = pack([0.0] * 16)
     job.embedding = stale_blob
     prefs.profile_embedding = stale_blob
@@ -378,7 +398,7 @@ def test_vectors_of_the_wrong_dimension_are_re_embedded(session):
     session.commit()
 
     result = run_match(
-        session, _settings(embedding_dim=DIM), user.id, deps=_deps(CountingChatModel())
+        session, _settings(embedding_dim=DIM), search.id, deps=_deps(CountingChatModel())
     )
 
     assert result.embedded == 1
@@ -390,11 +410,11 @@ def test_vectors_of_the_wrong_dimension_are_re_embedded(session):
 
 def test_a_provider_dimension_mismatch_warns_once_per_run(session, caplog):
     """Providers that ignore output_dimensionality re-embed the profile on every run."""
-    user = _user_with_profile(session)
-    _add_job(session, "a")
+    search = _search_with_profile(session)
+    _add_job(session, search, "a")
 
     with caplog.at_level(logging.WARNING, logger="jobscout.pipeline.matching"):
-        run_match(session, _settings(embedding_dim=768), user.id, deps=_deps(CountingChatModel()))
+        run_match(session, _settings(embedding_dim=768), search.id, deps=_deps(CountingChatModel()))
 
     warnings = [record for record in caplog.records if record.levelname == "WARNING"]
     assert len(warnings) == 1
@@ -403,29 +423,29 @@ def test_a_provider_dimension_mismatch_warns_once_per_run(session, caplog):
 
 
 def test_later_runs_pick_up_the_remaining_embeddings(session):
-    user = _user_with_profile(session)
+    search = _search_with_profile(session)
     for i in range(3):
-        _add_job(session, f"j{i}")
+        _add_job(session, search, f"j{i}")
     settings = _settings(max_embeddings_per_run=1)
 
-    run_match(session, settings, user.id, deps=_deps(CountingChatModel()))
-    second = run_match(session, settings, user.id, deps=_deps(CountingChatModel()))
+    run_match(session, settings, search.id, deps=_deps(CountingChatModel()))
+    second = run_match(session, settings, search.id, deps=_deps(CountingChatModel()))
 
     assert second.embedded == 1, "the next run embeds the next batch"
 
 
 def test_a_cached_profile_embedding_is_not_recomputed_on_the_next_run(session):
     """The profile vector is paid for once; only the jobs are embedded again."""
-    user = _user_with_profile(session)
+    search = _search_with_profile(session)
     for i in range(2):
-        _add_job(session, f"j{i}")
+        _add_job(session, search, f"j{i}")
     embed = DeterministicFakeEmbedding(size=DIM)
     settings = _settings(max_embeddings_per_run=1)
 
-    run_match(session, settings, user.id, deps=_deps(CountingChatModel(), embed=embed))
+    run_match(session, settings, search.id, deps=_deps(CountingChatModel(), embed=embed))
     assert embed.query_calls == 1, "the first run has to embed the profile"
 
-    run_match(session, settings, user.id, deps=_deps(CountingChatModel(), embed=embed))
+    run_match(session, settings, search.id, deps=_deps(CountingChatModel(), embed=embed))
 
     assert embed.query_calls == 1, "the second run must reuse the stored profile vector"
     assert embed.document_calls == 2, "but it still embeds the job left over from run one"
@@ -433,17 +453,17 @@ def test_a_cached_profile_embedding_is_not_recomputed_on_the_next_run(session):
 
 def test_run_match_logs_the_similarity_distribution(session, caplog):
     """Stage 4 calibrates SIMILARITY_THRESHOLD from this; 0.45 is currently inert."""
-    user = _user_with_profile(session)
+    search = _search_with_profile(session)
     titles = ["AI Engineer", "Data Scientist", "Backend Developer"]
-    update_preferences(session, user.id, {"titles": titles})
-    jobs = [_add_job(session, f"j{i}", title=title) for i, title in enumerate(titles)]
+    update_preferences(session, search.id, {"titles": titles})
+    jobs = [_add_job(session, search, f"j{i}", title=title) for i, title in enumerate(titles)]
     fake = DeterministicFakeEmbedding(size=DIM)
-    profile_vector = fake.embed_query(profile_text(get_preferences(session, user.id)))
+    profile_vector = fake.embed_query(profile_text(get_preferences(session, search.id)))
     sims = sorted(cosine(fake.embed_query(job_embedding_text(job)), profile_vector) for job in jobs)
     assert len(set(sims)) == 3, "the fixture must not produce ties"
 
     with caplog.at_level(logging.INFO, logger="jobscout.pipeline.matching"):
-        run_match(session, _settings(), user.id, deps=_deps(CountingChatModel()))
+        run_match(session, _settings(), search.id, deps=_deps(CountingChatModel()))
 
     lines = [r.getMessage() for r in caplog.records if "similarity over" in r.getMessage()]
     assert len(lines) == 1
@@ -451,3 +471,40 @@ def test_run_match_logs_the_similarity_distribution(session, caplog):
     assert f"min={sims[0]:.3f}" in lines[0]
     assert f"p50={sims[1]:.3f}" in lines[0]
     assert f"max={sims[2]:.3f}" in lines[0]
+
+
+def test_run_match_writes_matches_for_the_search(session):
+    search = _search_with_profile(session)
+    other = make_search(session, "Something else.", title="Other")
+    _add_job(session, search, "a")
+
+    run_match(session, _settings(), search.id, deps=_deps(CountingChatModel()))
+
+    matches = session.exec(select(Match)).all()
+    assert matches
+    assert all(m.search_id == search.id and m.user_id == search.user_id for m in matches)
+    assert list_matches(session, other.id) == []
+
+
+def test_a_search_only_scores_jobs_it_fetched(session):
+    a = make_search(session, "Python LLM engineer.", titles=["AI Engineer"], title="A")
+    b = make_search(session, "Python LLM engineer.", titles=["AI Engineer"], title="B")
+    job = _add_job(session, a, "only-a")
+
+    prefs_a, prefs_b = get_preferences(session, a.id), get_preferences(session, b.id)
+    assert select_candidates(session, prefs_b, b.id) == []
+    assert select_candidates(session, prefs_a, a.id) == [job]
+
+
+def test_a_new_match_inherits_the_users_verdict_on_the_job(session):
+    a = make_search(session, "Python LLM engineer.", titles=["AI Engineer"], title="A")
+    b = make_search(session, "Python LLM engineer.", titles=["AI Engineer"], title="B")
+    job = _add_job(session, a, "x")
+    fetched(session, b, job)
+    run_match(session, _settings(), a.id, deps=_deps(CountingChatModel()))
+    set_match_status(session, a.user_id, session.exec(select(Match)).one().id, "dismissed")
+
+    run_match(session, _settings(), b.id, deps=_deps(CountingChatModel()))
+
+    mine = session.exec(select(Match).where(Match.search_id == b.id)).one()
+    assert mine.status == "dismissed" and mine.score is not None

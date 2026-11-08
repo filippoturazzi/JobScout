@@ -173,7 +173,8 @@ class JobSpySource:
         country = country_of(region) if region is not None else None
         if country is not None:
             # In English: LinkedIn answered "Brasil" with US postings, and "Brazil" correctly.
-            kwargs["location"] = english_name(country)
+            name = english_name(country)
+            kwargs["location"] = f"{query.city}, {name}" if query.city else name
         else:
             typed = next((r.strip() for r in query.locations if r.strip()), None)
             if typed is not None:

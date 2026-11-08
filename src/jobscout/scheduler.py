@@ -14,12 +14,13 @@ from sqlalchemy import Engine
 from sqlmodel import Session, col, delete, desc, select
 
 from jobscout.config import Settings
-from jobscout.models import Run, User
+from jobscout.models import Run, Search, User
 from jobscout.models.base import utcnow
 from jobscout.notifiers import build_notifier
 from jobscout.notifiers.email import render_digest
 from jobscout.pipeline.digest import (
     already_sent_today,
+    digest_target,
     is_send_window,
     mark_notified,
     select_unnotified,
@@ -28,7 +29,6 @@ from jobscout.pipeline.liveness import deactivate_stale_jobs
 from jobscout.pipeline.matching import run_match
 from jobscout.pipeline.run import run_ingest
 from jobscout.pipeline.search import open_search_run, run_search
-from jobscout.pipeline.users import get_preferences
 
 log = logging.getLogger(__name__)
 
@@ -200,11 +200,13 @@ def _match(engine: Engine, settings: Settings, tick: int | None, force: bool) ->
         notes: list[str] = []
         job_errors: list[str] = []
         try:
-            user_ids = [uid for uid in session.exec(select(col(User.id))).all() if uid is not None]
-            if not user_ids:
-                notes.append("no users to match")
-            for user_id in user_ids:
-                result = run_match(session, settings, user_id)
+            search_ids = [
+                sid for sid in session.exec(select(col(Search.id))).all() if sid is not None
+            ]
+            if not search_ids:
+                notes.append("no searches to match")
+            for search_id in search_ids:
+                result = run_match(session, settings, search_id)
                 counters["candidates"] += result.candidates
                 counters["evaluated"] += result.evaluated
                 counters["skipped_low"] += result.skipped_low
@@ -213,7 +215,7 @@ def _match(engine: Engine, settings: Settings, tick: int | None, force: bool) ->
                 counters["errors"] += len(result.errors)
                 job_errors.extend(result.errors)
                 if result.error is not None:
-                    notes.append(f"user {user_id}: {result.error}")
+                    notes.append(f"search {search_id}: {result.error}")
         except Exception as exc:
             session.rollback()
             log.exception("match job failed")
@@ -248,23 +250,24 @@ def digest_job(engine: Engine, settings: Settings, tick: int | None = None) -> N
 def _collect_pending(
     session: Session, settings: Settings, now_local: datetime
 ) -> list[tuple[int, str, list[int], int, str, str]]:
-    """Everything that would be sent this firing: (user, address, match ids, held back,
+    """Everything that would be sent this firing: (user, address, job ids, held back,
     subject, body). Reads only — nothing here is a commitment to send."""
     pending: list[tuple[int, str, list[int], int, str, str]] = []
     for user in session.exec(select(User)).all():
         if user.id is None:
             continue
-        prefs = get_preferences(session, user.id)
-        if not prefs.notify_email:
+        target = digest_target(session, user.id)
+        if target is None:
             continue
+        address, min_score = target
         if already_sent_today(session, user.id, now_local):
             continue
-        rows, held_back = select_unnotified(session, user.id, prefs.min_score_to_notify)
+        rows, held_back = select_unnotified(session, user.id, min_score)
         if not rows:
             continue
         subject, body = render_digest(rows, held_back)
-        ids = [m.id for m, _ in rows if m.id is not None]
-        pending.append((user.id, prefs.notify_email, ids, held_back, subject, body))
+        ids = [job.id for _, job in rows if job.id is not None]
+        pending.append((user.id, address, ids, held_back, subject, body))
     return pending
 
 
@@ -308,7 +311,7 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
                     errors.append(f"user {user_id}: {type(exc).__name__}: {exc}")
                     continue
                 delivered_unmarked.append(address)
-                mark_notified(session, ids)
+                mark_notified(session, user_id, ids)
                 delivered_unmarked.remove(address)
                 counters["users"] += 1
                 counters["sent"] += len(ids)
@@ -345,15 +348,25 @@ def _digest(engine: Engine, settings: Settings, tick: int | None) -> None:
         )
 
 
-def search_job(engine: Engine, settings: Settings, user_id: int, run_id: int) -> None:
-    """One user's search, filling the Run row the scheduler already opened.
+class SearchBusyError(RuntimeError):
+    """Another search holds the instance's one search slot."""
+
+    def __init__(self, search_id: int) -> None:
+        super().__init__("Another search is running")
+        self.search_id = search_id
+
+
+def search_job(
+    engine: Engine, settings: Settings, search_id: int, run_id: int, fetch: bool = True
+) -> None:
+    """One saved search, filling the Run row the scheduler already opened.
 
     No backoff: a search is the user pressing a button, never a scheduled firing. Never
     raises, for the same reason as `ingest_job`.
     """
     try:
         with Session(engine) as session:
-            run_search(session, settings, user_id, run_id=run_id)
+            run_search(session, settings, search_id, run_id=run_id, fetch=fetch)
     except Exception:
         log.exception("search job crashed outside its own error handling")
 
@@ -372,14 +385,14 @@ class JobScoutScheduler:
         self._match_tick = 0
         self._digest_tick = 0
         self._tick_lock = threading.Lock()
-        # `match` and `match-wake` are different APScheduler ids, so max_instances=1 cannot stop
+        # `match` and `search` are different APScheduler ids, so max_instances=1 cannot stop
         # them overlapping. This guard does: start_run writes an ok=False row before the work
         # begins, so an overlapping run would read as a failure to the backoff check.
         self._match_running = threading.Lock()
-        # user id -> the id of their search run in flight. In memory on purpose: a process
-        # that dies leaves its row unfinished forever, and reading "in flight" from the
-        # database would then refuse every later search for that user.
-        self._searches: dict[int, int] = {}
+        # (search id, run id) of the search in flight. In memory on purpose: a process that
+        # dies leaves its row unfinished forever, and reading "in flight" from the database
+        # would then refuse every later search.
+        self._running: tuple[int, int] | None = None
         self._search_lock = threading.Lock()
 
     def _run_ingest_tick(self) -> None:
@@ -390,7 +403,7 @@ class JobScoutScheduler:
             self._match_tick += 1
             return self._match_tick
 
-    def _run_match_tick(self, force: bool = False) -> None:
+    def _run_match_tick(self) -> None:
         # Count every firing, including ones the backoff or the overlap guard skips: otherwise
         # `tick % period` would stay at the same non-zero remainder and never run again.
         tick = self._next_match_tick()
@@ -398,7 +411,7 @@ class JobScoutScheduler:
             log.warning("match tick %s skipped: another match run is in flight", tick)
             return
         try:
-            match_job(self._engine, self._settings, tick=tick, force=force)
+            match_job(self._engine, self._settings, tick=tick)
         finally:
             self._match_running.release()
 
@@ -406,24 +419,28 @@ class JobScoutScheduler:
         self._digest_tick += 1
         digest_job(self._engine, self._settings, tick=self._digest_tick)
 
-    def search_in_flight(self, user_id: int) -> int | None:
+    def running_search(self) -> tuple[int, int] | None:
+        """(search id, run id) of the search in flight, if any."""
         with self._search_lock:
-            return self._searches.get(user_id)
+            return self._running
 
-    def start_search(self, user_id: int) -> int:
-        """Run one search for this user now, and return its run id at once.
+    def start_search(self, search_id: int, fetch: bool = True) -> int:
+        """Run this search now, and return its run id at once.
 
-        A second call while the first is still going returns the same id instead of
-        starting another.
+        One search at a time per instance. Asking again for the one already running returns
+        its run id, whatever `fetch` says; asking for another raises `SearchBusyError`.
+        `fetch=False` ranks what the search already holds without calling any source.
         """
         with self._search_lock:
-            in_flight = self._searches.get(user_id)
-            if in_flight is not None:
-                return in_flight
+            if self._running is not None:
+                running_id, running_run = self._running
+                if running_id == search_id:
+                    return running_run
+                raise SearchBusyError(running_id)
             with Session(self._engine) as session:
-                run_id = open_search_run(session, user_id).id
+                run_id = open_search_run(session, search_id).id
             assert run_id is not None, "a committed run always has an id"
-            self._searches[user_id] = run_id
+            self._running = (search_id, run_id)
         try:
             if not self._scheduler.running:
                 # SCHEDULER_ENABLED=false turns off the periodic jobs, not the user's own
@@ -432,28 +449,31 @@ class JobScoutScheduler:
             self._scheduler.add_job(
                 self._run_search,
                 "date",
-                run_date=datetime.now(UTC),  # aware, for the reason given in wake_matching
-                args=[user_id, run_id],
-                id=f"search-{user_id}",
+                # The one place the project's "timestamps are naive UTC" rule must NOT apply:
+                # APScheduler localizes a naive datetime into its own timezone, which would
+                # shift the start by the machine's UTC offset. Pass an aware value.
+                run_date=datetime.now(UTC),
+                args=[search_id, run_id, fetch],
+                id="search",
                 replace_existing=True,
                 misfire_grace_time=None,
             )
         except Exception:
             with self._search_lock:
-                self._searches.pop(user_id, None)
+                self._running = None
             raise
         return run_id
 
-    def _run_search(self, user_id: int, run_id: int) -> None:
+    def _run_search(self, search_id: int, run_id: int, fetch: bool) -> None:
         try:
             # Held for the whole search, which scores as it goes: a match tick beside it
-            # would evaluate the same (job, user) pairs and collide on the unique constraint.
+            # would evaluate the same (job, search) pairs and collide on the unique constraint.
             # A tick that arrives meanwhile is skipped and logged, as for any overlap.
             with self._match_running:
-                search_job(self._engine, self._settings, user_id, run_id)
+                search_job(self._engine, self._settings, search_id, run_id, fetch=fetch)
         finally:
             with self._search_lock:
-                self._searches.pop(user_id, None)
+                self._running = None
 
     def start(self) -> None:
         if not self._settings.scheduler_enabled:
@@ -498,35 +518,3 @@ class JobScoutScheduler:
 
     def get_jobs(self) -> list[APSJob]:
         return list(self._scheduler.get_jobs())
-
-    def wake_matching(self) -> None:
-        """Run matching now, out of band. Repeated calls collapse into one pending run."""
-        # The flag, not only `running`: a search starts the executor even when the periodic
-        # jobs are off, and that must not switch background matching back on.
-        if not self._settings.scheduler_enabled or not self._scheduler.running:
-            return
-        self._scheduler.add_job(
-            self._run_match_tick,
-            "date",
-            # The one place the project's "timestamps are naive UTC" rule must NOT apply: this
-            # value crosses into APScheduler, which localizes a naive datetime into its own
-            # timezone. Naive UTC would shift the wake by the machine's UTC offset (hours late in
-            # the Americas). Pass an aware value.
-            run_date=datetime.now(UTC),
-            # A wake is a user action: new information about whether the failure that drove
-            # the backoff still holds. It must not be swallowed by that backoff.
-            kwargs={"force": True},
-            id="match-wake",
-            replace_existing=True,
-            misfire_grace_time=None,
-        )
-
-
-def wake_matching(scheduler: "JobScoutScheduler | None") -> None:
-    """Ask the scheduler to match now, if there is one. A no-op otherwise.
-
-    The CLI has no scheduler, and the API runs without one when SCHEDULER_ENABLED is false.
-    Saving preferences must not fail because of that.
-    """
-    if scheduler is not None:
-        scheduler.wake_matching()

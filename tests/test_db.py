@@ -1,7 +1,16 @@
 import threading
 
+import pytest
+
 from jobscout.config import Settings
-from jobscout.db import get_engine, reset_engines
+from jobscout.db import (
+    DatabaseNeedsUpgradeError,
+    create_engine_from_url,
+    get_engine,
+    init_db,
+    needs_upgrade,
+    reset_engines,
+)
 
 
 def _settings(url: str) -> Settings:
@@ -53,3 +62,13 @@ def test_get_engine_returns_one_engine_under_concurrent_callers():
 
     assert len(engines) == 8  # a thread that died inside get_engine must not pass silently
     assert len({id(engine) for engine in engines}) == 1
+
+
+def test_needs_upgrade_detects_the_old_shape(old_db, engine):
+    assert needs_upgrade(create_engine_from_url(old_db)) is True
+    assert needs_upgrade(engine) is False
+
+
+def test_init_db_refuses_an_old_database(old_db):
+    with pytest.raises(DatabaseNeedsUpgradeError, match="upgrade-db"):
+        init_db(create_engine_from_url(old_db))

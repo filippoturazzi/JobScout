@@ -116,3 +116,9 @@ def test_a_short_description_is_not_truncated():
     job.description = "Python and LLM work."
 
     assert job_embedding_text(job).endswith("Python and LLM work.")
+
+
+def test_profile_text_names_the_city():
+    prefs = _prefs()
+    prefs.city = "Recife"
+    assert "City: Recife." in profile_text(prefs)

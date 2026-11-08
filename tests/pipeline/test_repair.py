@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from jobscout.models import Job, Match
 from jobscout.pipeline.ingest import content_hash
 from jobscout.pipeline.repair import repair_descriptions
-from jobscout.pipeline.users import get_or_create_default_user
+from tests.helpers import make_search
 
 # An escaped body with the board's own unescaped footer appended — the shape that slipped
 # past the old double-encoding guard and was stored as visible markup.
@@ -63,13 +63,12 @@ def test_repair_recomputes_the_content_hash(session: Session):
 
 
 def test_repair_stales_matches_but_never_a_dismissal(session: Session):
-    user = get_or_create_default_user(session)
+    search = make_search(session)
     job = _add_job(session, "a", DIRTY, MIXED)
     other = _add_job(session, "b", DIRTY, MIXED)
-    session.add(Match(job_id=job.id, user_id=user.id, similarity=0.9, score=80, status="seen"))
-    session.add(
-        Match(job_id=other.id, user_id=user.id, similarity=0.4, score=10, status="dismissed")
-    )
+    ids = {"user_id": search.user_id, "search_id": search.id}
+    session.add(Match(job_id=job.id, **ids, similarity=0.9, score=80, status="seen"))
+    session.add(Match(job_id=other.id, **ids, similarity=0.4, score=10, status="dismissed"))
     session.commit()
 
     repair_descriptions(session)

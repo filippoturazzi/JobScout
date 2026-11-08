@@ -2,6 +2,7 @@ from datetime import datetime
 
 from jobscout.pipeline.ingest import upsert_jobs
 from jobscout.sources.base import RawJob
+from tests.helpers import make_search
 
 T0 = datetime(2026, 9, 20, 12, 0, 0)
 
@@ -34,7 +35,7 @@ def test_list_jobs_empty(client):
 
 def test_list_jobs_applies_preferences(client, session):
     upsert_jobs(session, [raw("a", "AI Engineer"), raw("b", "Data Analyst")], now=T0)
-    client.put("/preferences", json={"titles": ["AI Engineer"]})
+    make_search(session, titles=["AI Engineer"])
 
     r = client.get("/jobs")
     assert [j["external_id"] for j in r.json()] == ["a"]

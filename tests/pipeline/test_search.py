@@ -12,23 +12,24 @@ from jobscout.config import Settings
 from jobscout.db import create_engine_from_url, init_db
 from jobscout.matching.graph import GraphDeps
 from jobscout.matching.schemas import EvaluationResult
-from jobscout.matching.terms import ExtractedProfile, profile_hash
-from jobscout.models import Job, Match, Run, UserPreferences
+from jobscout.matching.terms import ExtractedProfile, _LLMOutput, profile_hash
+from jobscout.models import Job, Match, Run, SearchJob, UserPreferences
 from jobscout.pipeline.search import (
     MAX_TERMS_PER_SOURCE,
     SearchProgress,
     _queries_for,
     open_search_run,
-    run_search,
 )
-from jobscout.pipeline.users import get_or_create_default_user, get_preferences, update_preferences
+from jobscout.pipeline.search import run_search as _run_search
+from jobscout.pipeline.users import get_preferences, update_preferences
 from jobscout.sources.arbeitnow import BASE_URL as ARBEITNOW_URL
 from jobscout.sources.base import RawJob, SearchQuery
 from jobscout.sources.himalayas import BASE_URL as HIMALAYAS_URL
 from jobscout.sources.registry import SOURCE_FACTORIES, SOURCE_MISSING_CREDENTIALS
 from jobscout.sources.remotive import BASE_URL as REMOTIVE_URL
 from tests.conftest import load_fixture
-from tests.matching.fakes import DeterministicFakeEmbedding
+from tests.helpers import fetched, make_search
+from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 DIM = 8
 PARAGRAPH = "Junior AI engineer, remote, Python and LangChain."
@@ -125,11 +126,21 @@ def _ok(sample: dict) -> httpx.Response:
     return httpx.Response(200, json=sample)
 
 
-def _user(session: Session, paragraph: str = PARAGRAPH, **prefs: Any) -> Any:
-    user = get_or_create_default_user(session)
-    assert user.id is not None
-    update_preferences(session, user.id, {"profile_summary": paragraph, **prefs})
-    return user
+def run_search(session: Session, settings: Settings, search_id: int, deps: Any = None, **kw: Any):
+    """`_run_search` on confirmed terms: those the scripted chat model carries, if the
+    search has none yet. A run reads nothing itself, so the terms must already be stored."""
+    chat = getattr(deps, "chat", None)
+    extraction = getattr(chat, "extraction", None)
+    if (
+        isinstance(extraction, ExtractedProfile)
+        and not get_preferences(session, search_id).search_terms
+    ):
+        update_preferences(session, search_id, {"search_terms": extraction.terms})
+    return _run_search(session, settings, search_id, deps=deps, **kw)
+
+
+def _search(session: Session, paragraph: str = PARAGRAPH, **prefs: Any) -> Any:
+    return make_search(session, paragraph, **prefs)
 
 
 def _the_run(session: Session) -> Run:
@@ -144,119 +155,68 @@ def _jobs(session: Session) -> list[Job]:
 
 
 @respx.mock
-def test_an_unchanged_paragraph_reuses_terms_and_makes_no_llm_call(session, himalayas_sample):
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(
-        session,
-        PARAGRAPH,
-        search_terms=["python"],
-        profile_hash=profile_hash(PARAGRAPH),
-    )
-    chat = SearchChatModel(_extraction(["never used"]))
+def test_run_search_uses_confirmed_terms_and_reads_nothing(session, himalayas_sample):
+    route = respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    search = _search(session, PARAGRAPH, search_terms=["python"])
+    chat = CountingChatModel(results=[EvaluationResult(score=80, reasoning="Fits.")])
 
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
 
-    assert chat.extraction_calls == 0
     assert result.terms == ["python"]
-    assert get_preferences(session, user.id).search_terms == ["python"]
+    assert _LLMOutput not in chat.schemas
+    assert route.call_count == 1
+    assert route.calls[0].request.url.params["q"] == "python"
 
 
-@respx.mock
-def test_a_changed_paragraph_re_extracts(session, himalayas_sample):
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(
-        session,
-        PARAGRAPH,
-        search_terms=["spark"],
-        profile_hash=profile_hash(OTHER_PARAGRAPH),
-    )
-    chat = SearchChatModel(_extraction(["ai engineer", "python"]))
+def test_run_search_without_confirmed_terms_fails_the_run(session):
+    search = _search(session, PARAGRAPH)
 
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(sources="himalayas"), search.id)
 
-    assert chat.extraction_calls == 1
-    assert result.terms == ["ai engineer", "python"]
-    prefs = get_preferences(session, user.id)
-    assert prefs.search_terms == ["ai engineer", "python"]
-    assert prefs.profile_hash == profile_hash(PARAGRAPH)
-
-
-@respx.mock
-def test_a_stored_hash_with_no_stored_terms_re_extracts(session, himalayas_sample):
-    """A matching hash is only worth reusing when there are terms to reuse."""
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session, PARAGRAPH, search_terms=[], profile_hash=profile_hash(PARAGRAPH))
-    chat = SearchChatModel(_extraction(["python"]))
-
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
-
-    assert chat.extraction_calls == 1
-    assert result.terms == ["python"]
-
-
-@respx.mock
-def test_extraction_stores_the_preferences_it_found(session, himalayas_sample):
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session, PARAGRAPH)
-    chat = SearchChatModel(
-        _extraction(
-            ["python"],
-            seniority=["junior"],
-            required_skills=["Python"],
-            excluded_keywords=["senior"],
-        )
-    )
-
-    run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
-
-    prefs = get_preferences(session, user.id)
-    assert prefs.seniority == ["junior"]
-    assert prefs.required_skills == ["Python"]
-    assert prefs.excluded_keywords == ["senior"]
-
-
-@respx.mock
-def test_an_extraction_that_finds_nothing_does_not_erase_what_the_user_set(
-    session, himalayas_sample
-):
-    """Extraction may add to the profile; it may never silently empty a field."""
-    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session, PARAGRAPH, required_skills=["Rust"], excluded_keywords=["staff"])
-    chat = SearchChatModel(_extraction(["python"]))
-
-    run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
-
-    prefs = get_preferences(session, user.id)
-    assert prefs.required_skills == ["Rust"]
-    assert prefs.excluded_keywords == ["staff"]
-
-
-@respx.mock
-def test_an_empty_paragraph_writes_a_failed_run_and_fetches_nothing(session):
-    route = respx.get(HIMALAYAS_URL).mock(return_value=httpx.Response(200, json={"jobs": []}))
-    user = _user(session, "")
-    chat = SearchChatModel(_extraction(["python"]))
-
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
-
-    assert result.ok is False
-    assert result.fetched == 0
-    assert route.call_count == 0
+    assert result.ok is False and result.fetched == 0
     run = _the_run(session)
-    assert (run.job, run.user_id, run.ok) == ("search", user.id, False)
-    assert run.finished_at is not None
-    assert run.error is not None and "nothing to search for" in run.error
+    assert run.ok is False and run.finished_at is not None
+    assert run.error is not None and "no confirmed terms" in run.error
+
+
+def test_ranking_scores_pending_jobs_without_fetching(session, monkeypatch):
+    fake = _FakeSource()
+    monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
+    search = _search(session, PARAGRAPH, search_terms=["python"])
+    job = Job(
+        source="t",
+        external_id="j",
+        title="AI Engineer",
+        company="Acme",
+        url="https://x/j",
+        description="Python and LLM work",
+        content_hash="h",
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    fetched(session, search, job)
+    chat = CountingChatModel(results=[EvaluationResult(score=80, reasoning="Fits.")])
+
+    result = run_search(
+        session, _settings(sources=fake.name), search.id, deps=_deps(chat), fetch=False
+    )
+
+    assert fake.queries == []
+    assert result.ok is True and result.evaluated == 1
+    assert (result.fetched, result.sources_ok) == (0, 0)
+    assert _the_run(session).counters["evaluated"] == 1
 
 
 @respx.mock
 def test_a_run_opened_beforehand_is_the_one_filled(session):
     # The API hands out the run id before the work starts, so the work must fill that row.
-    user = _user(session, "")
-    opened = open_search_run(session, user.id)
+    search = _search(session, "")
+    opened = open_search_run(session, search.id)
     result = run_search(
         session,
         _settings(sources="himalayas"),
-        user.id,
+        search.id,
         deps=_deps(SearchChatModel(_extraction([]))),
         run_id=opened.id,
     )
@@ -268,14 +228,14 @@ def test_a_run_opened_beforehand_is_the_one_filled(session):
 @respx.mock
 def test_progress_is_reported_as_the_run_goes(session, himalayas_sample):
     respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python", "llm"]))
     events: list[SearchProgress] = []
 
     run_search(
         session,
         _settings(sources="himalayas"),
-        user.id,
+        search.id,
         deps=_deps(chat),
         on_progress=events.append,
     )
@@ -301,12 +261,12 @@ def test_progress_is_reported_as_the_run_goes(session, himalayas_sample):
 @respx.mock
 def test_a_failing_source_is_reported_with_its_error(session):
     respx.get(HIMALAYAS_URL).mock(return_value=httpx.Response(429))
-    user = _user(session)
+    search = _search(session)
     events: list[SearchProgress] = []
     run_search(
         session,
         _settings(sources="himalayas"),
-        user.id,
+        search.id,
         deps=_deps(SearchChatModel(_extraction(["python"]))),
         on_progress=events.append,
     )
@@ -321,10 +281,10 @@ def test_a_failing_source_is_reported_with_its_error(session):
 def test_each_source_is_searched_with_the_top_terms(session, himalayas_sample, remotive_sample):
     himalayas = respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
     remotive = respx.get(REMOTIVE_URL).mock(return_value=_ok(remotive_sample))
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(TERMS))
 
-    result = run_search(session, _settings(), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(), search.id, deps=_deps(chat))
 
     assert len(TERMS) > MAX_TERMS_PER_SOURCE  # the slice has something to cut
     searched = TERMS[:MAX_TERMS_PER_SOURCE]
@@ -340,13 +300,13 @@ def test_a_catalogue_source_is_asked_once_with_no_keywords(session):
     five times over."""
     sample = load_fixture("arbeitnow_sample.json")
     route = respx.get(ARBEITNOW_URL).mock(return_value=_ok(sample))
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(TERMS))
 
     result = run_search(
         session,
         _settings(sources="arbeitnow", arbeitnow_max_pages=1),
-        user.id,
+        search.id,
         deps=_deps(chat),
     )
 
@@ -358,10 +318,10 @@ def test_a_catalogue_source_is_asked_once_with_no_keywords(session):
 @respx.mock
 def test_the_same_job_from_two_terms_is_counted_once(session, himalayas_sample):
     respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python", "langchain"]))
 
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
 
     assert result.fetched == VALID_PER_FIXTURE
     assert len(_jobs(session)) == VALID_PER_FIXTURE
@@ -371,10 +331,10 @@ def test_the_same_job_from_two_terms_is_counted_once(session, himalayas_sample):
 def test_one_source_failing_does_not_fail_the_run(session, remotive_sample):
     himalayas = respx.get(HIMALAYAS_URL).mock(return_value=httpx.Response(500))
     respx.get(REMOTIVE_URL).mock(return_value=_ok(remotive_sample))
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python", "langchain"]))
 
-    result = run_search(session, _settings(), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(), search.id, deps=_deps(chat))
 
     assert result.ok is True
     assert (result.sources_ok, result.sources_failed) == (1, 1)
@@ -389,10 +349,10 @@ def test_one_source_failing_does_not_fail_the_run(session, remotive_sample):
 def test_every_source_failing_fails_the_run(session):
     respx.get(HIMALAYAS_URL).mock(return_value=httpx.Response(500))
     respx.get(REMOTIVE_URL).mock(return_value=httpx.Response(500))
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python"]))
 
-    result = run_search(session, _settings(), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(), search.id, deps=_deps(chat))
 
     assert result.ok is False
     assert (result.sources_ok, result.sources_failed) == (0, 2)
@@ -410,10 +370,10 @@ def test_a_429_partway_keeps_what_was_already_fetched(session, himalayas_sample)
     abandoned = respx.get(HIMALAYAS_URL, params={"q": "llm"}).mock(
         return_value=_ok(himalayas_sample)
     )
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python", "langchain", "llm"]))
 
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
 
     assert result.fetched == VALID_PER_FIXTURE
     assert len(_jobs(session)) == VALID_PER_FIXTURE
@@ -425,10 +385,10 @@ def test_a_429_partway_keeps_what_was_already_fetched(session, himalayas_sample)
 
 def test_a_run_with_no_usable_source_says_which_were_dormant(session, monkeypatch):
     monkeypatch.setitem(SOURCE_MISSING_CREDENTIALS, "himalayas", lambda s: ["HIMALAYAS_KEY"])
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python"]))
 
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
 
     assert result.ok is False
     assert result.fetched == 0
@@ -437,10 +397,10 @@ def test_a_run_with_no_usable_source_says_which_were_dormant(session, monkeypatc
 
 
 def test_a_run_with_no_source_configured_at_all_says_so(session):
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python"]))
 
-    result = run_search(session, _settings(sources=""), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(sources=""), search.id, deps=_deps(chat))
 
     assert result.ok is False
     assert any("no sources" in error.lower() for error in result.errors)
@@ -450,8 +410,9 @@ def test_a_run_with_no_source_configured_at_all_says_so(session):
 
 
 @respx.mock
-def test_scoring_covers_an_active_job_this_run_did_not_fetch(session, himalayas_sample):
-    """The candidate set is every active job with no match or a stale one — not the catch."""
+def test_scoring_covers_a_job_an_earlier_run_of_this_search_fetched(session, himalayas_sample):
+    """The candidate set is every job this search ever fetched that is unscored or stale — not
+    only the catch of the current run."""
     respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
     old = Job(
         source="t",
@@ -465,10 +426,11 @@ def test_scoring_covers_an_active_job_this_run_did_not_fetch(session, himalayas_
     session.add(old)
     session.commit()
     session.refresh(old)
-    user = _user(session)
+    search = _search(session)
+    fetched(session, search, old)
     chat = SearchChatModel(_extraction(["python"]))
 
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
 
     assert result.candidates == VALID_PER_FIXTURE + 1
     assert result.evaluated == VALID_PER_FIXTURE + 1
@@ -479,17 +441,17 @@ def test_scoring_covers_an_active_job_this_run_did_not_fetch(session, himalayas_
 @respx.mock
 def test_a_capped_run_reports_what_remains_and_the_next_run_resumes(session, himalayas_sample):
     respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session)
+    search = _search(session)
     settings = _settings(sources="himalayas", max_llm_evaluations_per_run=1)
     chat = SearchChatModel(_extraction(["python"]))
 
-    first = run_search(session, settings, user.id, deps=_deps(chat))
+    first = run_search(session, settings, search.id, deps=_deps(chat))
 
     assert (first.candidates, first.evaluated, first.remaining) == (VALID_PER_FIXTURE, 1, 2)
     assert first.ok is True
     assert _the_run(session).counters["remaining"] == 2
 
-    second = run_search(session, settings, user.id, deps=_deps(chat))
+    second = run_search(session, settings, search.id, deps=_deps(chat))
 
     assert (second.candidates, second.evaluated, second.remaining) == (2, 1, 1)
 
@@ -499,12 +461,12 @@ def test_jobs_the_prefilter_rejected_are_done_not_remaining(session, himalayas_s
     """`low` is terminal: those jobs are not waiting for the next run, so `remaining` is 0
     even though nothing was evaluated."""
     respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python"]))
 
     # A threshold above 1.0 is unreachable for a cosine, so every job is prefiltered out.
     result = run_search(
-        session, _settings(sources="himalayas"), user.id, deps=_deps(chat, threshold=2.0)
+        session, _settings(sources="himalayas"), search.id, deps=_deps(chat, threshold=2.0)
     )
 
     assert chat.evaluation_calls == 0
@@ -514,7 +476,7 @@ def test_jobs_the_prefilter_rejected_are_done_not_remaining(session, himalayas_s
 
     # And they really do not come back: the next run has nothing left to score.
     again = run_search(
-        session, _settings(sources="himalayas"), user.id, deps=_deps(chat, threshold=2.0)
+        session, _settings(sources="himalayas"), search.id, deps=_deps(chat, threshold=2.0)
     )
     assert (again.candidates, again.remaining) == (0, 0)
 
@@ -524,10 +486,10 @@ def test_a_run_that_evaluated_nothing_because_every_job_errored_is_not_ok(
     session, himalayas_sample
 ):
     respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session)
+    search = _search(session)
     chat = SearchChatModel(_extraction(["python"]), evaluation=RuntimeError("boom"))
 
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
 
     assert result.sources_ok == 1  # fetching was fine; scoring was not
     assert result.evaluated == 0
@@ -542,9 +504,11 @@ def test_a_missing_provider_fails_the_run_instead_of_escaping_it(
     """Spec 5.3: no LLM key means the page says so, not that a background job explodes."""
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
-    user = _user(session, PARAGRAPH, search_terms=["python"], profile_hash=profile_hash(PARAGRAPH))
+    search = _search(
+        session, PARAGRAPH, search_terms=["python"], profile_hash=profile_hash(PARAGRAPH)
+    )
 
-    result = run_search(session, _settings(sources="himalayas"), user.id, deps=None)
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=None)
 
     assert result.ok is False
     assert any("GOOGLE_API_KEY" in error for error in result.errors)
@@ -562,9 +526,9 @@ def _run_against_a_file_db(tmp_path: Path, sample: dict, probe: Any) -> Any:
     engine = create_engine_from_url(f"sqlite:///{tmp_path.as_posix()}/search.db")
     init_db(engine)
     with Session(engine) as session:
-        user = _user(session)
+        search = _search(session)
         chat = SearchChatModel(_extraction(["python"]), on_evaluate=lambda n: probe(engine, n))
-        return run_search(session, _settings(sources="himalayas"), user.id, deps=_deps(chat))
+        return run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
 
 
 @respx.mock
@@ -649,9 +613,9 @@ class _FakeSource:
 
 def _search_with(session, monkeypatch, fake, terms, **prefs):
     monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
-    user = _user(session, **prefs)
+    search = _search(session, **prefs)
     chat = SearchChatModel(_extraction(terms))
-    return run_search(session, _settings(sources=fake.name), user.id, deps=_deps(chat))
+    return run_search(session, _settings(sources=fake.name), search.id, deps=_deps(chat))
 
 
 def test_a_search_query_carries_the_stored_regions_and_work_modes():
@@ -759,19 +723,6 @@ def test_a_remote_board_is_searched_when_remote_is_acceptable(session, monkeypat
     assert len(fake.queries) == 1
 
 
-def test_what_a_paragraph_states_does_not_restrict_the_search(session, monkeypatch):
-    fake = _FakeSource()
-    monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
-    user = _user(session)
-    extraction = _extraction(["python"], stated_work_modes=["remote"], stated_regions=["Brasil"])
-    run_search(
-        session, _settings(sources=fake.name), user.id, deps=_deps(SearchChatModel(extraction))
-    )
-    prefs = get_preferences(session, user.id)
-    assert prefs.work_modes == [] and prefs.regions == []
-    assert [(q.locations, q.remote_only) for q in fake.queries] == [([], False)]
-
-
 def test_the_stored_regions_reach_the_source_during_a_run(session, monkeypatch):
     fake = _FakeSource()
     result = _search_with(
@@ -800,3 +751,23 @@ def test_a_block_on_the_second_term_keeps_the_first_term_jobs(session, monkeypat
     assert any("429" in e for e in result.errors)
     assert [q.keywords for q in fake.queries] == [["python"], ["sql"]]
     assert len(_jobs(session)) == 1, "what was fetched before the block is kept"
+
+
+@respx.mock
+def test_a_search_records_every_job_it_fetched(session, himalayas_sample):
+    # Two terms against a source that answers both with the same fixture: every posting
+    # answers twice, and must still be one SearchJob row and one count.
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python", "llm"]))
+
+    result = run_search(session, _settings(sources="himalayas"), search.id, deps=_deps(chat))
+
+    rows = session.exec(select(SearchJob).where(SearchJob.search_id == search.id)).all()
+    assert len(rows) == result.fetched == VALID_PER_FIXTURE
+
+
+def test_queries_carry_the_city():
+    prefs = UserPreferences(regions=["Brazil"], city="Recife")
+    queries = _queries_for(_FakeSource(), ["python", "java"], prefs)
+    assert queries and all(q.city == "Recife" for q in queries)

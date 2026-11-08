@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from jobscout.config import Settings
-from jobscout.matching.llm import MissingProviderError, chat_model, embeddings
+from jobscout.matching.llm import MissingProviderError, chat_model, embeddings, provider_key_found
 
 
 def _settings(**kw) -> Settings:
@@ -70,3 +70,10 @@ def test_google_embeddings_receive_the_configured_dimensionality(monkeypatch):
 
     assert recorded["output_dimensionality"] == 768
     assert recorded["model"] == "gemini-embedding-2"
+
+
+def test_provider_key_found():
+    assert provider_key_found(_settings(llm_provider="google", google_api_key=None)) is False
+    assert provider_key_found(_settings(llm_provider="google", google_api_key="k")) is True
+    assert provider_key_found(_settings(llm_provider="ollama")) is True
+    assert provider_key_found(_settings(llm_provider="nope")) is False

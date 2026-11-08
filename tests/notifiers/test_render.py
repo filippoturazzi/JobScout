@@ -17,6 +17,7 @@ def _row(score: int, title: str, company: str = "Acme", remote: bool = True) -> 
     match = Match(
         job_id=1,
         user_id=1,
+        search_id=1,
         similarity=0.8,
         score=score,
         reasoning="Strong overlap on Python.",

@@ -26,16 +26,18 @@ and `dismissed` is deliberately absent, so a dismissal is never re-evaluated."""
 
 
 class Match(SQLModel, table=True):
-    """One evaluated (job, user) pair."""
+    """One evaluated (job, search) pair; `user_id` is the search's owner."""
 
     __table_args__ = (
-        UniqueConstraint("job_id", "user_id", name="uq_match_job_user"),
+        UniqueConstraint("job_id", "search_id", name="uq_match_job_search"),
         Index("ix_match_user_status", "user_id", "status"),
+        Index("ix_match_search_status", "search_id", "status"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="job.id", index=True)
     user_id: int = Field(foreign_key="user.id", index=True)
+    search_id: int = Field(foreign_key="search.id", index=True)
     similarity: float
     score: int | None = None
     reasoning: str | None = None

@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 import httpx
 import respx
@@ -7,15 +8,22 @@ from typer.testing import CliRunner
 
 from jobscout import cli
 from jobscout.config import Settings
-from jobscout.db import get_engine, init_db
-from jobscout.models import Job, Match, User
+from jobscout.db import create_engine_from_url, get_engine, init_db, needs_upgrade
+from jobscout.models import Job, Match, Search, User
+from jobscout.models.base import utcnow
 from jobscout.pipeline.search import SearchProgress, SearchResult
-from jobscout.pipeline.users import get_or_create_default_user, update_preferences
 from jobscout.sources import registry
 from jobscout.sources.arbeitnow import BASE_URL
 from tests.conftest import load_fixture
+from tests.helpers import fetched, make_search
 
 runner = CliRunner()
+
+
+def _db(tmp_path) -> Session:
+    engine = get_engine(_settings(tmp_path))
+    init_db(engine)
+    return Session(engine)
 
 
 def _settings(tmp_path) -> Settings:
@@ -121,8 +129,7 @@ def test_match_without_provider_key_exits_2(tmp_path, monkeypatch):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     with Session(get_engine(_settings(tmp_path))) as session:
         init_db(get_engine(_settings(tmp_path)))
-        user = get_or_create_default_user(session)
-        update_preferences(session, user.id, {"profile_summary": "Python engineer."})
+        search = make_search(session, "Python engineer.")
         session.add(
             Job(
                 source="t",
@@ -136,6 +143,7 @@ def test_match_without_provider_key_exits_2(tmp_path, monkeypatch):
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     result = runner.invoke(cli.app, ["match"])
 
@@ -143,8 +151,10 @@ def test_match_without_provider_key_exits_2(tmp_path, monkeypatch):
     assert "GOOGLE_API_KEY" in result.output
 
 
-def test_match_reports_when_there_is_no_profile(tmp_path, monkeypatch):
+def test_match_reports_when_the_search_has_no_profile(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    with _db(tmp_path) as session:
+        make_search(session)
     result = runner.invoke(cli.app, ["match"])
     assert result.exit_code == 0
     assert "profile" in result.output.lower()
@@ -155,7 +165,7 @@ def test_matches_lists_scored_rows(tmp_path, monkeypatch):
     engine = get_engine(_settings(tmp_path))
     init_db(engine)
     with Session(engine) as session:
-        user = get_or_create_default_user(session)
+        search = make_search(session)
         job = Job(
             source="t",
             external_id="a",
@@ -172,7 +182,8 @@ def test_matches_lists_scored_rows(tmp_path, monkeypatch):
         session.add(
             Match(
                 job_id=job.id,
-                user_id=user.id,
+                user_id=search.user_id,
+                search_id=search.id,
                 similarity=0.8,
                 score=91,
                 reasoning="Strong fit.",
@@ -187,8 +198,10 @@ def test_matches_lists_scored_rows(tmp_path, monkeypatch):
     assert "91" in result.output and "AI Engineer" in result.output
 
 
-def test_matches_on_empty_db(tmp_path, monkeypatch):
+def test_matches_on_a_search_with_no_matches(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    with _db(tmp_path) as session:
+        make_search(session)
     result = runner.invoke(cli.app, ["matches"])
     assert result.exit_code == 0
     assert "No matches" in result.output
@@ -202,8 +215,7 @@ def test_match_dry_run_lists_candidates_without_calling_the_llm(tmp_path, monkey
     engine = get_engine(_settings(tmp_path))
     init_db(engine)
     with Session(engine) as session:
-        user = get_or_create_default_user(session)
-        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        search = make_search(session, "Python LLM engineer.")
         session.add(
             Job(
                 source="t",
@@ -217,6 +229,7 @@ def test_match_dry_run_lists_candidates_without_calling_the_llm(tmp_path, monkey
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     def _explode(_settings):
         raise AssertionError("a dry run must not construct a chat model")
@@ -248,8 +261,7 @@ def test_match_scores_and_persists_a_candidate_end_to_end(tmp_path, monkeypatch)
     engine = get_engine(settings)
     init_db(engine)
     with Session(engine) as session:
-        user = get_or_create_default_user(session)
-        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        search = make_search(session, "Python LLM engineer.")
         session.add(
             Job(
                 source="t",
@@ -263,6 +275,7 @@ def test_match_scores_and_persists_a_candidate_end_to_end(tmp_path, monkeypatch)
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     monkeypatch.setattr(matching_module, "chat_model", lambda _settings: CountingChatModel())
     monkeypatch.setattr(
@@ -286,8 +299,7 @@ def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, mo
     engine = get_engine(_settings(tmp_path))
     init_db(engine)
     with Session(engine) as session:
-        user = get_or_create_default_user(session)
-        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        search = make_search(session, "Python LLM engineer.")
         session.add(
             Job(
                 source="t",
@@ -301,6 +313,7 @@ def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, mo
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     def _rate_limited(_settings):
         raise RuntimeError("429 RESOURCE_EXHAUSTED")
@@ -324,6 +337,8 @@ def test_match_exits_1_when_every_candidate_failed(tmp_path, monkeypatch):
         "run_match",
         lambda *a, **kw: MatchRun(candidates=1, errors=["job 1: RuntimeError: boom"]),
     )
+    with _db(tmp_path) as session:
+        make_search(session)
 
     result = runner.invoke(cli.app, ["match"])
 
@@ -343,8 +358,7 @@ def test_match_keeps_the_stack_out_of_the_terminal(tmp_path, monkeypatch, caplog
     engine = get_engine(_settings(tmp_path))
     init_db(engine)
     with Session(engine) as session:
-        user = get_or_create_default_user(session)
-        update_preferences(session, user.id, {"profile_summary": "Python LLM engineer."})
+        search = make_search(session, "Python LLM engineer.")
         session.add(
             Job(
                 source="t",
@@ -358,6 +372,7 @@ def test_match_keeps_the_stack_out_of_the_terminal(tmp_path, monkeypatch, caplog
             )
         )
         session.commit()
+        fetched(session, search, *session.exec(select(Job)).all())
 
     def _rate_limited(_settings):
         raise RuntimeError("429 RESOURCE_EXHAUSTED")
@@ -377,7 +392,7 @@ def test_matches_says_why_the_list_is_empty_when_a_filter_hid_everything(tmp_pat
     engine = get_engine(_settings(tmp_path))
     init_db(engine)
     with Session(engine) as session:
-        user = get_or_create_default_user(session)
+        search = make_search(session)
         job = Job(
             source="t",
             external_id="a",
@@ -391,7 +406,15 @@ def test_matches_says_why_the_list_is_empty_when_a_filter_hid_everything(tmp_pat
         session.add(job)
         session.commit()
         session.refresh(job)
-        session.add(Match(job_id=job.id, user_id=user.id, similarity=0.6, score=10))
+        session.add(
+            Match(
+                job_id=job.id,
+                user_id=search.user_id,
+                search_id=search.id,
+                similarity=0.6,
+                score=10,
+            )
+        )
         session.commit()
 
     result = runner.invoke(cli.app, ["matches", "--min-score", "60"])
@@ -436,7 +459,8 @@ def test_repair_descriptions_reports_what_it_changed(tmp_path, monkeypatch):
 def _fake_search(scores: list[int], ok: bool = True, errors: list[str] | None = None):
     """Stands in for `run_search`: writes scored matches the way a real run would."""
 
-    def search(session, settings, user_id, deps=None, run_id=None, on_progress=None):
+    def search(session, settings, search_id, deps=None, run_id=None, on_progress=None):
+        owner = session.get(Search, search_id)
         for i, score in enumerate(scores):
             job = Job(
                 source="t",
@@ -452,7 +476,14 @@ def _fake_search(scores: list[int], ok: bool = True, errors: list[str] | None = 
             session.commit()
             session.refresh(job)
             session.add(
-                Match(job_id=job.id, user_id=user_id, similarity=0.8, score=score, status="new")
+                Match(
+                    job_id=job.id,
+                    user_id=owner.user_id,
+                    search_id=search_id,
+                    similarity=0.8,
+                    score=score,
+                    status="new",
+                )
             )
         session.commit()
         return SearchResult(
@@ -473,6 +504,8 @@ def _fake_search(scores: list[int], ok: bool = True, errors: list[str] | None = 
 def test_search_command_prints_ranked_matches(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
     monkeypatch.setattr(cli, "run_search", _fake_search([40, 90, 65]))
+    with _db(tmp_path) as session:
+        make_search(session)
     result = runner.invoke(cli.app, ["search"])
     assert result.exit_code == 0, result.output
     assert "fetched=3" in result.output
@@ -489,6 +522,9 @@ def test_search_command_reports_dormant_sources(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
     monkeypatch.setitem(registry.SOURCE_MISSING_CREDENTIALS, "remotive", lambda s: ["FAKE_KEY"])
     monkeypatch.setattr(cli, "run_search", _fake_search([]))
+    init_db(get_engine(settings))
+    with Session(get_engine(settings)) as session:
+        make_search(session)
     result = runner.invoke(cli.app, ["search"])
     assert "remotive: dormant (missing FAKE_KEY)" in result.output
 
@@ -498,6 +534,8 @@ def test_a_failed_search_prints_why_and_exits_1(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cli, "run_search", _fake_search([], ok=False, errors=["ValueError: nothing to search for"])
     )
+    with _db(tmp_path) as session:
+        make_search(session)
     result = runner.invoke(cli.app, ["search"])
     assert result.exit_code == 1
     assert "nothing to search for" in result.output
@@ -507,7 +545,7 @@ def test_search_command_prints_progress_while_it_runs(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
     finish = _fake_search([80])
 
-    def search(session, settings, user_id, deps=None, run_id=None, on_progress=None):
+    def search(session, settings, search_id, deps=None, run_id=None, on_progress=None):
         assert on_progress is not None, "the command must ask for progress"
         on_progress(SearchProgress(stage="terms", terms=["python developer"]))
         on_progress(SearchProgress(stage="source", source="linkedin", term="python", fetched=10))
@@ -518,9 +556,11 @@ def test_search_command_prints_progress_while_it_runs(tmp_path, monkeypatch):
         )
         on_progress(SearchProgress(stage="scoring", total=40))
         on_progress(SearchProgress(stage="evaluated", done=1, total=25))
-        return finish(session, settings, user_id)
+        return finish(session, settings, search_id)
 
     monkeypatch.setattr(cli, "run_search", search)
+    with _db(tmp_path) as session:
+        make_search(session)
     result = runner.invoke(cli.app, ["search"])
     lines = result.output.splitlines()
     expected = [
@@ -533,3 +573,192 @@ def test_search_command_prints_progress_while_it_runs(tmp_path, monkeypatch):
     positions = [lines.index(line) for line in expected]
     assert positions == sorted(positions)
     assert positions[-1] < lines.index("[80] Role 80 — Acme"), "progress comes before the ranking"
+
+
+def test_upgrade_db_command_backs_up_and_upgrades(old_db, tmp_path, monkeypatch):
+    settings = Settings(_env_file=None, database_url=old_db)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    result = runner.invoke(cli.app, ["upgrade-db"])
+
+    assert result.exit_code == 0, result.output
+    (backup,) = tmp_path.glob("old.db.bak-*")
+    assert str(backup) in result.output
+    assert "searches=1 matches=2 runs=1" in result.output
+    with Session(get_engine(settings)) as session:
+        assert len(session.exec(select(Search)).all()) == 1
+
+    again = runner.invoke(cli.app, ["upgrade-db"])
+    assert again.exit_code == 0, again.output
+    assert "Already up to date." in again.output
+    assert len(list(tmp_path.glob("old.db.bak-*"))) == 1, "no backup when nothing changes"
+
+
+def test_upgrade_db_refuses_postgres(old_db, monkeypatch):
+    engine = create_engine_from_url(old_db)
+    monkeypatch.setattr(engine.dialect, "name", "postgresql")
+    settings = Settings(_env_file=None, database_url="postgresql://u:p@localhost/jobscout")
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "get_engine", lambda _settings: engine)
+
+    result = runner.invoke(cli.app, ["upgrade-db"])
+
+    assert result.exit_code == 2
+    assert "SQLite" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_upgrade_db_refuses_to_overwrite_a_backup(old_db, monkeypatch):
+    settings = Settings(_env_file=None, database_url=old_db)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    def taken(url, now):
+        raise FileExistsError("Backup target already exists: old.db.bak-1")
+
+    monkeypatch.setattr(cli, "backup_sqlite", taken)
+
+    result = runner.invoke(cli.app, ["upgrade-db"])
+
+    assert result.exit_code == 2
+    assert "Backup target already exists: old.db.bak-1" in result.output
+    assert needs_upgrade(get_engine(settings)) is True, "no conversion without a backup"
+
+
+def test_commands_on_an_old_database_say_to_upgrade(old_db, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: Settings(_env_file=None, database_url=old_db))
+
+    result = runner.invoke(cli.app, ["jobs"])
+
+    assert result.exit_code == 2
+    assert "jobscout upgrade-db" in result.output
+
+
+def _older(session, search, days: int = 1) -> None:
+    search.last_used_at = utcnow() - timedelta(days=days)
+    session.add(search)
+    session.commit()
+
+
+def test_searches_lists_newest_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    with _db(tmp_path) as session:
+        old = make_search(session, title="Old one")
+        new = make_search(session, title="New one")
+        _older(session, old, 2)
+        old_id, new_id = old.id, new.id
+
+    result = runner.invoke(cli.app, ["searches"])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert len(lines) == 2
+    assert lines[0].startswith(str(new_id)) and "New one" in lines[0]
+    assert lines[1].startswith(str(old_id)) and "Old one" in lines[1]
+
+
+def test_searches_when_there_are_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    result = runner.invoke(cli.app, ["searches"])
+    assert result.exit_code == 0
+    assert "No searches yet. Start one in the page: jobscout serve" in result.output
+
+
+def _recording_search(calls: list[int]):
+    inner = _fake_search([])
+
+    def search(session, settings, search_id, **kw):
+        calls.append(search_id)
+        return inner(session, settings, search_id, **kw)
+
+    return search
+
+
+def test_search_defaults_to_the_latest_search(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    calls: list[int] = []
+    monkeypatch.setattr(cli, "run_search", _recording_search(calls))
+    with _db(tmp_path) as session:
+        old = make_search(session, title="Old")
+        new = make_search(session, title="New")
+        _older(session, old)
+        new_id = new.id
+
+    result = runner.invoke(cli.app, ["search"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [new_id]
+
+
+def test_search_takes_an_explicit_search(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    calls: list[int] = []
+    monkeypatch.setattr(cli, "run_search", _recording_search(calls))
+    with _db(tmp_path) as session:
+        old = make_search(session, title="Old")
+        make_search(session, title="New")
+        _older(session, old)
+        old_id = old.id
+
+    result = runner.invoke(cli.app, ["search", "--search", str(old_id)])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [old_id]
+
+
+def test_search_with_no_searches_says_how_to_start(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    calls: list[int] = []
+    monkeypatch.setattr(cli, "run_search", _recording_search(calls))
+
+    result = runner.invoke(cli.app, ["search"])
+
+    assert result.exit_code == 2
+    assert "jobscout serve" in result.output
+    assert calls == []
+
+
+def test_match_with_no_searches_says_how_to_start(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    result = runner.invoke(cli.app, ["match"])
+    assert result.exit_code == 2
+    assert "jobscout serve" in result.output
+
+
+def test_matches_with_no_searches_exits_cleanly(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    result = runner.invoke(cli.app, ["matches"])
+    assert result.exit_code == 0
+    assert "No searches yet" in result.output
+
+
+def test_an_unknown_search_id_exits_2(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    with _db(tmp_path) as session:
+        make_search(session)
+    for command in ("search", "match", "matches", "jobs"):
+        result = runner.invoke(cli.app, [command, "--search", "999"])
+        assert result.exit_code == 2, command
+        assert "No search 999." in result.output
+
+
+def test_jobs_with_no_searches_lists_every_active_job(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "get_settings", lambda: _settings(tmp_path))
+    with _db(tmp_path) as session:
+        session.add(
+            Job(
+                source="t",
+                external_id="a",
+                title="AI Engineer",
+                company="Acme",
+                remote=True,
+                url="https://x/a",
+                description="d",
+                content_hash="h",
+            )
+        )
+        session.commit()
+
+    result = runner.invoke(cli.app, ["jobs"])
+
+    assert result.exit_code == 0, result.output
+    assert "AI Engineer" in result.output
