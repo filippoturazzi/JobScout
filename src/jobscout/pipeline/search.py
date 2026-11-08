@@ -243,6 +243,12 @@ def _fetch(
         queries = _queries_for(source, terms, prefs)
         source_seen: set[int] = set()
         failure: str | None = None
+        if not queries:
+            reason = "not searched, there was nothing to ask it"
+            result.errors.append(f"{source.name}: {reason}")
+            update_entry(index, state="skipped", detail=reason)
+            publish()
+            continue
         update_entry(index, state="searching", queries_total=len(queries))
         publish()
         if source.searches_by_location:
@@ -253,36 +259,39 @@ def _fetch(
                         f"{source.name}: not searched in {place}, "
                         f"only {len(queries)} searches per run"
                     )
-        # A failure breaks the loop, so the answered queries are always the first `number + 1`.
-        for number, query in enumerate(queries):
-            (outcome,) = ingest(session, batch, query)
-            report(
-                SearchProgress(
-                    stage="source",
-                    source=source.name,
-                    term=query.keywords[0] if query.keywords else None,
-                    fetched=outcome.fetched,
-                    error=outcome.error,
+        try:
+            # A failure breaks the loop, so the answered queries are the first `number + 1`.
+            for number, query in enumerate(queries):
+                (outcome,) = ingest(session, batch, query)
+                report(
+                    SearchProgress(
+                        stage="source",
+                        source=source.name,
+                        term=query.keywords[0] if query.keywords else None,
+                        fetched=outcome.fetched,
+                        error=outcome.error,
+                    )
                 )
-            )
-            if outcome.error is not None:
-                result.errors.append(f"{source.name}: {outcome.error}")
-                failure = outcome.error
-                # One term per ingest call, so whatever this source already returned is
-                # committed. Its remaining terms are abandoned rather than retried: a
-                # source that just answered 429 will not answer the next four either.
-                break
-            answered = True
-            record_fetched(session, search_id, outcome.seen_ids)
-            seen.update(outcome.seen_ids)
-            source_seen.update(outcome.seen_ids)
-            result.fetched = len(seen)
-            update_entry(
-                index,
-                fetched=len(source_seen),
-                queries_done=number + 1,
-            )
+                if outcome.error is not None:
+                    result.errors.append(f"{source.name}: {outcome.error}")
+                    failure = outcome.error
+                    # One term per ingest call, so whatever this source already returned is
+                    # committed. Its remaining terms are abandoned rather than retried: a
+                    # source that just answered 429 will not answer the next four either.
+                    break
+                answered = True
+                record_fetched(session, search_id, outcome.seen_ids)
+                seen.update(outcome.seen_ids)
+                source_seen.update(outcome.seen_ids)
+                result.fetched = len(seen)
+                update_entry(index, fetched=len(source_seen), queries_done=number + 1)
+                publish()
+        except Exception as exc:
+            # Never leave the source "searching": the page names failures from this entry.
+            session.rollback()
+            update_entry(index, state="failed", detail=f"{type(exc).__name__}: {exc}")
             publish()
+            raise
         # A source counts as ok once it has answered at all, even if a later term failed:
         # the postings it did return are ingested and real. A source that failed on its
         # first term contributed nothing. Every failure is named in `errors` either way;
@@ -294,7 +303,8 @@ def _fetch(
         update_entry(
             index,
             state="done" if answered else "failed",
-            detail=None if answered else failure,
+            # A source that answered and then failed keeps "done"; the page still names why.
+            detail=failure,
         )
         publish()
         # A source may note something that is not a failure (a region it could not map,
@@ -377,8 +387,8 @@ def run_search(
         pending = select_candidates(session, prefs, search_id)
         result.candidates = len(pending)
         result.remaining = len(pending)
-        # The cap bounds what is scored; `run_match` corrects this to its exact selection
-        # (jobs without a vector are dropped) on the first evaluated job.
+        # An estimate for the page while jobs are embedded; replaced by the real selection
+        # on the first evaluated job and again once `run_match` returns.
         result.to_score = min(len(pending), settings.max_llm_evaluations_per_run)
         publish()
         report(SearchProgress(stage="scoring", total=len(pending)))
@@ -399,6 +409,8 @@ def run_search(
         if scored.error is not None:
             raise ValueError(scored.error)
         result.candidates = scored.candidates
+        result.to_score = scored.selected
+        result.scored = min(result.scored, result.to_score)
         result.evaluated = scored.evaluated
         result.embedded = scored.embedded
         # What the caps left for the next run. The `skipped_low` jobs are done, not left:
@@ -409,6 +421,8 @@ def run_search(
     except Exception as exc:
         session.rollback()
         log.exception("scoring failed during the search %s", search_id)
+        # The selection is unknown here; never claim more to score than was scored.
+        result.to_score = result.scored
         result.errors.append(f"{type(exc).__name__}: {exc}")
         _finish(session, run, result, ok=False)
         return result

@@ -56,6 +56,7 @@ _EMBED_CHUNK = 50
 @dataclass
 class MatchRun:
     candidates: int = 0
+    selected: int = 0
     evaluated: int = 0
     skipped_low: int = 0
     embedded: int = 0
@@ -260,6 +261,7 @@ def run_match(
         )
     cap = limit if limit is not None else settings.max_llm_evaluations_per_run
     selected = ranked[:cap]
+    result.selected = len(selected)
 
     if dry_run:
         result.previewed = [

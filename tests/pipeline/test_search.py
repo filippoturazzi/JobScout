@@ -880,3 +880,68 @@ def test_ranking_runs_have_no_sources(session):
     search = _search(session, PARAGRAPH, search_terms=["python"])
     run_search(session, _settings(sources="himalayas"), search.id, fetch=False)
     assert _the_run(session).sources == []
+
+
+@respx.mock
+def test_a_finished_run_reports_the_capped_selection(session, himalayas_sample):
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python"]))
+    run_search(
+        session,
+        _settings(sources="himalayas", max_llm_evaluations_per_run=2),
+        search.id,
+        deps=_deps(chat),
+    )
+    counters = _the_run(session).counters
+    assert counters["candidates"] == VALID_PER_FIXTURE
+    assert (counters["to_score"], counters["scored"]) == (2, 2)
+
+
+@respx.mock
+def test_a_run_that_selects_nothing_does_not_keep_a_stale_to_score(session, himalayas_sample):
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python"]))
+    # No job can be embedded, so the estimate (3) is wrong: nothing is selected.
+    run_search(
+        session,
+        _settings(sources="himalayas", max_embeddings_per_run=0),
+        search.id,
+        deps=_deps(chat),
+    )
+    counters = _the_run(session).counters
+    assert counters["candidates"] == VALID_PER_FIXTURE
+    assert (counters["to_score"], counters["scored"]) == (0, 0)
+
+
+def test_a_source_that_failed_after_answering_names_the_error(session, monkeypatch):
+    fake = _FakeSource(block_on="sql")
+    _search_with(session, monkeypatch, fake, ["python", "sql"])
+    [entry] = _the_run(session).sources
+    assert entry["state"] == "done" and entry["queries_done"] == 1
+    assert isinstance(entry["detail"], str) and "429" in entry["detail"]
+
+
+def test_a_source_with_no_queries_is_skipped_with_a_reason(session, monkeypatch):
+    fake = _FakeSource()
+    monkeypatch.setattr("jobscout.pipeline.search._queries_for", lambda *a, **k: [])
+    _search_with(session, monkeypatch, fake, ["python"])
+    [entry] = _the_run(session).sources
+    assert entry["state"] == "skipped" and entry["detail"]
+
+
+def test_an_unexpected_error_in_a_source_marks_it_failed(session, monkeypatch):
+    fake = _FakeSource()
+    _fake_fetching(fake, monkeypatch)
+
+    def boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr("jobscout.pipeline.search.record_fetched", boom)
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python"]))
+    with pytest.raises(RuntimeError, match="disk full"):
+        run_search(session, _settings(sources=fake.name), search.id, deps=_deps(chat))
+    [entry] = _the_run(session).sources
+    assert entry["state"] == "failed" and "disk full" in str(entry["detail"])
