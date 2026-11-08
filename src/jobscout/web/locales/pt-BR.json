@@ -1,0 +1,16 @@
+{
+  "new_search": "Nova busca",
+  "searches": "Buscas",
+  "searches_empty": "Suas buscas aparecem aqui",
+  "my_jobs": "Minhas vagas",
+  "settings": "Configurações",
+  "delete": "Excluir",
+  "delete_confirm": "Excluir esta busca?",
+  "cancel": "Cancelar",
+  "search_running": "Em andamento",
+  "search_busy": "Outra busca está em andamento.",
+  "menu": "Menu",
+  "home_title": "Que vaga você procura?",
+  "search_title": "Busca {id}",
+  "found": "Encontrei {n} vagas que combinam."
+}
