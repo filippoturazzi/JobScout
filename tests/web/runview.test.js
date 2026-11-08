@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { runView } = await import("../../src/jobscout/web/js/runview.js");
+const { runView, shouldKeepPolling, matchChanged } = await import("../../src/jobscout/web/js/runview.js");
 
 const search = { id: 7 };
 const src = (name, state, extra = {}) => ({ name, state, fetched: 0, queries_done: 0, queries_total: 0, detail: null, ...extra });
@@ -74,4 +74,22 @@ test("runView: a finished run that failed names its error, cut short", () => {
   assert.ok(long.endsWith("…"));
   // Still in flight: not a failure yet.
   assert.equal(runView(search, run({ finished_at: null, ok: false, error: null }), list(0, 0), 7).runError, null);
+});
+
+test("polling stops once a restart leaves the run unfinished and /status no longer runs it", () => {
+  const unfinished = run({ finished_at: null });
+  assert.equal(shouldKeepPolling(runView(search, unfinished, list(0, 0), 7)), true);
+  // Same run, still unfinished, but the fresh /status says nothing runs: interrupted.
+  const after = runView(search, unfinished, list(0, 0), null);
+  assert.equal(after.state, "interrupted");
+  assert.equal(shouldKeepPolling(after), false);
+  assert.equal(shouldKeepPolling(runView(search, run(), list(2, 0), 7)), false);
+});
+
+test("matchChanged notices a new score, reasoning or status only", () => {
+  const a = { id: 1, score: 80, reasoning: "ok", status: "new", matched_skills: ["Python"], missing_skills: [], red_flags: [], job: { id: 1 } };
+  assert.equal(matchChanged(a, { ...a, job: { id: 1, title: "x" } }), false);
+  assert.equal(matchChanged(a, { ...a, score: 81 }), true);
+  assert.equal(matchChanged(a, { ...a, status: "saved" }), true);
+  assert.equal(matchChanged(a, { ...a, matched_skills: ["Python", "RAG"] }), true);
 });

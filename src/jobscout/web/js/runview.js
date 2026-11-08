@@ -47,3 +47,15 @@ export function runView(search, run, matchList, runningSearchId) {
     matches: [...(list.matches || [])].sort(byScore),
   };
 }
+
+// Polling runs only while the run is in flight here; an interrupted run stops it.
+export function shouldKeepPolling(view) {
+  return view.state === "running";
+}
+
+// Whether a polled match differs from the one shown in the detail panel.
+export function matchChanged(a, b) {
+  if (!a || !b) return Boolean(a) !== Boolean(b);
+  const keys = ["score", "reasoning", "status", "matched_skills", "missing_skills", "red_flags"];
+  return keys.some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+}

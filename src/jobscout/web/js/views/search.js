@@ -11,7 +11,7 @@ import { composer } from "../composer.js";
 import { buildTranscript } from "../transcript.js";
 import { renderEntries } from "../conversation.js";
 import { createGuard } from "../guard.js";
-import { runView } from "../runview.js";
+import { matchChanged, runView, shouldKeepPolling } from "../runview.js";
 import { runSection } from "../results.js";
 import { openDetail } from "../detail.js";
 
@@ -120,26 +120,45 @@ export async function renderSearch(root, ctx, id) {
 
   function schedule() {
     stopPolling();
-    if (guard.isCurrent(mine) && view().state === "running") pollTimer = setTimeout(poll, POLL_MS);
+    if (guard.isCurrent(mine) && shouldKeepPolling(view())) pollTimer = setTimeout(poll, POLL_MS);
   }
 
+  // The panel follows its match while the run rescores it, without moving the user's focus.
+  function refreshDetail() {
+    if (!detail || !ui.matches) return;
+    const fresh = ui.matches.matches.find((m) => m.id === detail.id);
+    if (fresh && matchChanged(detail.match, fresh)) detail.update(fresh, { focus: false });
+  }
+
+  // Each poll reads the run, the matches and /status together: nothing finishes a run that a
+  // restart orphaned, so only /status can tell it is no longer running (runView: interrupted).
   async function poll() {
     pollTimer = null;
     if (!guard.isCurrent(mine) || !ui.run) return;
     const runId = ui.run.id;
     try {
-      const [run, list] = await Promise.all([api.get(`/searches/${id}/runs/${runId}`), api.get(`/searches/${id}/matches`)]);
+      const [run, list] = await Promise.all([
+        api.get(`/searches/${id}/runs/${runId}`),
+        api.get(`/searches/${id}/matches`),
+        refreshStatus().catch(() => null),
+      ]);
       if (!guard.isCurrent(mine)) return;
       ui.run = run;
       ui.matches = list;
+      ui.runningId = runningId();
       if (run.finished_at) {
-        ui.runningId = null;
+        // The matches above may predate the run's last writes: read them once more.
+        try {
+          const last = await api.get(`/searches/${id}/matches`);
+          if (!guard.isCurrent(mine)) return;
+          ui.matches = last;
+        } catch (e) {
+          // Keep the list we have.
+        }
         refreshSearches().catch(() => {});
-        refreshStatus().catch(() => {});
       }
     } catch (e) {
       if (!guard.isCurrent(mine)) return;
-      // Ask the server whether it still runs this search; a restart leaves the run unfinished.
       try {
         await refreshStatus();
       } catch (err) {
@@ -148,6 +167,7 @@ export async function renderSearch(root, ctx, id) {
       if (!guard.isCurrent(mine)) return;
       ui.runningId = runningId();
     }
+    refreshDetail();
     drawRun();
     schedule();
   }

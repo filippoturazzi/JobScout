@@ -22,9 +22,15 @@ function section(title, items, iconName) {
   );
 }
 
+function isEditable(el) {
+  if (!el || !el.tagName) return false;
+  const tag = el.tagName.toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable === true;
+}
+
 // host: a persistent <aside class="app-detail">. match: MatchRead.
 // opts: { onVerdict(updated) -> notice string | null, onClose() }
-// Returns { update(match), close(restoreFocus = true), id }.
+// Returns { update(match, {focus}), close(restoreFocus = true), id, match }.
 export function openDetail(host, match, opts = {}) {
   const opener = document.activeElement;
   let current = match;
@@ -33,11 +39,14 @@ export function openDetail(host, match, opts = {}) {
   let pending = false;
   let closed = false;
 
+  // Escape closes the panel from inside it, or from anywhere but a field being typed in.
   function onKey(event) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-    }
+    if (event.key !== "Escape") return;
+    const target = event.target;
+    const inside = target && typeof host.contains === "function" && host.contains(target);
+    if (!inside && isEditable(target)) return;
+    event.preventDefault();
+    close();
   }
 
   async function verdict(status, action) {
@@ -138,6 +147,7 @@ export function openDetail(host, match, opts = {}) {
         ),
       ),
     );
+    if (focusAction === "none") return;
     const target = focusAction ? host.querySelector(`[data-action="${focusAction}"]`) : title;
     if (target && !target.disabled) target.focus();
     else if (focusAction) title.focus();
@@ -158,16 +168,26 @@ export function openDetail(host, match, opts = {}) {
   draw(null);
 
   return {
-    update(next) {
+    // focus: false redraws in place (a poll), keeping focus on the same action if it was in here.
+    update(next, { focus = true } = {}) {
       if (closed) return;
+      let keep = "none";
+      if (!focus) {
+        const active = document.activeElement;
+        if (active && host.contains(active)) keep = active.getAttribute("data-action") || null;
+      } else {
+        notice = null;
+        error = null;
+      }
       current = next;
-      notice = null;
-      error = null;
-      draw(null);
+      draw(focus ? null : keep);
     },
     close,
     get id() {
       return current.id;
+    },
+    get match() {
+      return current;
     },
   };
 }

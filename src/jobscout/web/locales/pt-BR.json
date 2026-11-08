@@ -113,7 +113,7 @@
   "widen_intro": "Tente ampliar a busca:",
   "widen_include_remote": "Incluir vagas remotas",
   "widen_include_hybrid": "Incluir vagas híbridas",
-  "widen_whole_country": "Buscar em todo o {country}",
+  "widen_whole_country": "Buscar no país todo: {country}",
   "widen_any_level": "Qualquer nível",
   "source_failed_line": "{source} não respondeu ({detail}). As outras fontes rodaram mesmo assim.",
   "source_skipped_line": "{source}: {detail}",
