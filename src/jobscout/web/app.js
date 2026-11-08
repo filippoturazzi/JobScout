@@ -5,6 +5,8 @@ import { loadLocale, t } from "./js/i18n.js";
 import { currentRoute, onRoute } from "./js/router.js";
 import { refreshSearches, refreshStatus, state, subscribe } from "./js/store.js";
 import { renderSidebar } from "./js/sidebar.js";
+import { renderHome } from "./js/views/home.js";
+import { renderSettings } from "./js/views/settings.js";
 
 function applyTheme() {
   let theme = "dark";
@@ -41,10 +43,20 @@ async function start() {
   });
   mount(root, shell);
 
-  function render() {
+  // The sidebar redraws on every change; the main view only when the route changes or a view asks
+  // for it (a language switch), so typing in the composer is never wiped by a background refresh.
+  let mountedKey = null;
+  function render(force = false) {
     const route = currentRoute();
-    renderSidebar(sidebar, state, route, render);
-    mount(main, h("div", { class: "app-column" }, h("h1", { class: "text-h1 app-title" }, viewTitle(route))));
+    renderSidebar(sidebar, state, route, () => render());
+    const key = route.name === "search" ? `search:${route.id}` : route.name;
+    if (force === true || key !== mountedKey || key === "my-jobs" || route.name === "search") {
+      mountedKey = key;
+      const ctx = { state, rerender: () => render(true) };
+      if (route.name === "home") renderHome(main, ctx);
+      else if (route.name === "settings") renderSettings(main, ctx);
+      else mount(main, h("div", { class: "app-column" }, h("h1", { class: "text-h1 app-title" }, viewTitle(route))));
+    }
     shell.classList.remove("is-menu-open");
     menuButton.setAttribute("aria-expanded", "false");
   }
@@ -58,9 +70,9 @@ async function start() {
     console.error(e);
     await loadLocale("en");
   }
-  subscribe(render);
-  onRoute(render);
-  render();
+  subscribe(() => render());
+  onRoute(() => render());
+  render(true);
 }
 
 start();
