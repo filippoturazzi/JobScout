@@ -2,9 +2,7 @@
 import { h } from "./dom.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
-
-const SOURCE_NAMES = { linkedin: "LinkedIn" };
-const sourceName = (name) => SOURCE_NAMES[name] || name.charAt(0).toUpperCase() + name.slice(1);
+import { sourceName } from "./format.js";
 
 function placePhrase(place) {
   if (!place) return "";
@@ -20,7 +18,7 @@ export function gotitText(what, asking) {
   return t(asking ? "gotit_asking" : "gotit", { what: body });
 }
 
-function appLine(...content) {
+export function appLine(...content) {
   return h("div", { class: "conv-app" }, h("span", { class: "conv-app__icon" }, icon("search", 24)), h("div", { class: "conv-app__body" }, ...content));
 }
 
@@ -154,6 +152,16 @@ export function locationQuestionId(search) {
   return "location";
 }
 
+// "Search jobs" before the first run; a disabled "Searching…" while one runs; after that the
+// run area below carries "Search again", so the summary has no button.
+function searchButton(ui, handlers) {
+  if (ui.runState === "running" || (ui.starting && ui.runState === "none")) {
+    return h("button", { class: "js-btn js-btn--secondary conv-searching", type: "button", disabled: true }, h("span", { class: "spin" }, icon("loader", 16)), t("searching"));
+  }
+  if (ui.runState && ui.runState !== "none") return null;
+  return h("button", { class: "js-btn js-btn--primary", type: "button", onclick: () => handlers.onRun() }, t("search_jobs"));
+}
+
 function summaryCard(search, ui, handlers) {
   const s = search.summary;
   const rows = [
@@ -180,12 +188,13 @@ function summaryCard(search, ui, handlers) {
       "div",
       { class: "conv-card__foot" },
       h("span", { class: "text-meta conv-sources" }, t("sources_line", { n: names.length, names: names.join(", ") })),
-      h("button", { class: "js-btn js-btn--primary", type: "button", disabled: true, title: t("search_jobs_soon") }, t("search_jobs")),
+      searchButton(ui, handlers),
     ),
   );
 }
 
-// ui: { sources: [name], editing: Question | null, error: {qid, text} | null, reading: bool }
+// ui: { sources: [name], editing: Question | null, error: {qid, text} | null, reading: bool,
+//       runState: runView state, starting: bool }
 export function renderEntries(entries, search, ui, handlers) {
   const country = (search.summary || {}).country || null;
   const out = [];

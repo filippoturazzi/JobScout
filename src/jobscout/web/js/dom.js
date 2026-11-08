@@ -11,7 +11,7 @@ function collect(children, out) {
   return out;
 }
 
-// href is passed as given until Task 7 routes posting links through safeUrl.
+// href is set as given: posting links must go through format.js safeUrl first (detail.js does).
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
   for (const [name, value] of Object.entries(attrs || {})) {
