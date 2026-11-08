@@ -1,4 +1,4 @@
-// The page's entry point: status, locale, theme, sidebar and the route's view (stubs until later tasks).
+// The page's entry point: status, locale, theme, sidebar and the route's view (my jobs is a stub until a later task).
 import { h, mount } from "./js/dom.js";
 import { icon } from "./js/icons.js";
 import { loadLocale, t } from "./js/i18n.js";
@@ -7,6 +7,7 @@ import { refreshSearches, refreshStatus, state, subscribe } from "./js/store.js"
 import { renderSidebar } from "./js/sidebar.js";
 import { renderHome } from "./js/views/home.js";
 import { renderSettings } from "./js/views/settings.js";
+import { renderSearch } from "./js/views/search.js";
 
 function applyTheme() {
   let theme = "dark";
@@ -50,11 +51,12 @@ async function start() {
     const route = currentRoute();
     renderSidebar(sidebar, state, route, () => render());
     const key = route.name === "search" ? `search:${route.id}` : route.name;
-    if (force === true || key !== mountedKey || key === "my-jobs" || route.name === "search") {
+    if (force === true || key !== mountedKey || key === "my-jobs") {
       mountedKey = key;
       const ctx = { state, rerender: () => render(true) };
       if (route.name === "home") renderHome(main, ctx);
       else if (route.name === "settings") renderSettings(main, ctx);
+      else if (route.name === "search") renderSearch(main, ctx, route.id);
       else mount(main, h("div", { class: "app-column" }, h("h1", { class: "text-h1 app-title" }, viewTitle(route))));
     }
     shell.classList.remove("is-menu-open");
