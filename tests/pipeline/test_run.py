@@ -3,9 +3,11 @@ from datetime import datetime, timedelta
 from sqlmodel import select
 
 from jobscout.config import Settings
+from jobscout.matching.graph import GraphDeps
 from jobscout.models import Job, Match, User
 from jobscout.models.base import utcnow
 from jobscout.pipeline.ingest import upsert_jobs
+from jobscout.pipeline.matching import run_match
 from jobscout.pipeline.run import (
     count_waiting,
     list_jobs,
@@ -19,6 +21,7 @@ from jobscout.pipeline.run import (
 from jobscout.pipeline.users import update_preferences
 from jobscout.sources.base import RawJob, SearchQuery
 from tests.helpers import fetched, make_search
+from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
 
 T0 = datetime(2026, 9, 20, 12, 0, 0)
 
@@ -270,6 +273,15 @@ def test_list_runs_orders_by_started_at_then_id_descending():
         assert 0 <= started_at < run_id
 
 
+def _fake_deps() -> GraphDeps:
+    return GraphDeps(
+        chat=CountingChatModel(),  # type: ignore[arg-type]
+        embed=DeterministicFakeEmbedding(size=8),  # type: ignore[arg-type]
+        threshold=-1.0,
+        model_name="fake-model",
+    )
+
+
 def _job(session, external_id: str) -> Job:
     upsert_jobs(session, [raw(external_id, "AI Engineer")], now=T0)
     return session.exec(select(Job).where(Job.external_id == external_id)).one()
@@ -399,3 +411,21 @@ def test_a_verdict_applies_to_every_search_that_found_the_job(session):
     session.refresh(second)
     assert second.status == "dismissed"
     assert list_my_jobs(session, a.user_id).items == []
+
+
+def test_my_jobs_does_not_resurface_a_dismissed_job_scored_later(session):
+    a = make_search(session, "Python LLM engineer.", title="A")
+    b = make_search(session, "Python LLM engineer.", title="B")
+    job = _job(session, "x")
+    other = _job(session, "y")
+    first = _scored(session, a, job, 80)
+    _scored(session, a, other, 70)
+    set_match_status(session, a.user_id, first.id, "dismissed")
+    before = list_my_jobs(session, a.user_id).counts
+    fetched(session, b, job)
+
+    run_match(session, Settings(_env_file=None, embedding_dim=8), b.id, deps=_fake_deps())
+
+    result = list_my_jobs(session, a.user_id)
+    assert [i.job.id for i in result.items] == [other.id]
+    assert result.counts == before

@@ -26,6 +26,7 @@ from jobscout.matching.schemas import MatchState
 from jobscout.matching.vectors import cosine, dim, pack, unpack
 from jobscout.models import (
     REEVALUATABLE_STATUSES,
+    USER_STATUSES,
     Job,
     Match,
     Search,
@@ -164,6 +165,19 @@ def _upsert_match(session: Session, job_id: int, search: Search, **values: objec
     if match is None:
         assert search.id is not None
         match = Match(job_id=job_id, user_id=search.user_id, search_id=search.id, similarity=0.0)
+        # A verdict is about the job: another search already saved, dismissed or applied
+        # for it, so this one's fresh row must not bring it back as new.
+        verdict = session.exec(
+            select(Match.status)
+            .where(
+                col(Match.user_id) == search.user_id,
+                col(Match.job_id) == job_id,
+                col(Match.status).in_(USER_STATUSES),
+            )
+            .limit(1)
+        ).first()
+        if verdict is not None:
+            values = {**values, "status": verdict}
     for name, value in values.items():
         setattr(match, name, value)
     session.add(match)

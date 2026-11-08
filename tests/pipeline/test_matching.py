@@ -12,7 +12,7 @@ from jobscout.matching.schemas import EvaluationResult
 from jobscout.matching.vectors import cosine, dim, pack
 from jobscout.models import Job, Match, UserPreferences
 from jobscout.pipeline.matching import run_match, select_candidates
-from jobscout.pipeline.run import list_matches
+from jobscout.pipeline.run import list_matches, set_match_status
 from jobscout.pipeline.users import get_preferences, update_preferences
 from tests.helpers import fetched, make_search
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
@@ -494,3 +494,17 @@ def test_a_search_only_scores_jobs_it_fetched(session):
     prefs_a, prefs_b = get_preferences(session, a.id), get_preferences(session, b.id)
     assert select_candidates(session, prefs_b, b.id) == []
     assert select_candidates(session, prefs_a, a.id) == [job]
+
+
+def test_a_new_match_inherits_the_users_verdict_on_the_job(session):
+    a = make_search(session, "Python LLM engineer.", titles=["AI Engineer"], title="A")
+    b = make_search(session, "Python LLM engineer.", titles=["AI Engineer"], title="B")
+    job = _add_job(session, a, "x")
+    fetched(session, b, job)
+    run_match(session, _settings(), a.id, deps=_deps(CountingChatModel()))
+    set_match_status(session, a.user_id, session.exec(select(Match)).one().id, "dismissed")
+
+    run_match(session, _settings(), b.id, deps=_deps(CountingChatModel()))
+
+    mine = session.exec(select(Match).where(Match.search_id == b.id)).one()
+    assert mine.status == "dismissed" and mine.score is not None
