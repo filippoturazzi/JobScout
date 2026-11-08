@@ -139,5 +139,19 @@
   "ago_h": "há {n}h",
   "ago_d": "há {n}d",
   "ago_w": "há {n} sem",
-  "run_failed": "A última execução parou com um erro ({detail})."
+  "run_failed": "A última execução parou com um erro ({detail}).",
+  "all_searches": "Todas as buscas",
+  "filter_by_search": "Filtrar por busca",
+  "my_jobs_tabs": "Mostrar",
+  "mj_empty_all": "Nenhuma vaga ainda.",
+  "mj_empty_all_hint": "Faça uma busca e as vagas compatíveis aparecem aqui.",
+  "mj_empty_saved": "Nenhuma vaga salva ainda.",
+  "mj_empty_saved_hint": "Salve uma vaga nos resultados de uma busca e ela aparece aqui.",
+  "mj_empty_applied": "Nenhuma candidatura ainda.",
+  "mj_empty_applied_hint": "Marque uma vaga como candidatada e ela aparece aqui.",
+  "mj_dismissed": "Descartada. Esta vaga não aparece mais em Minhas vagas.",
+  "mj_left_tab": "Atualizada. Esta vaga não aparece mais nesta aba.",
+  "tab_all": "Todas",
+  "tab_saved": "Salvas",
+  "tab_applied": "Candidatadas"
 }

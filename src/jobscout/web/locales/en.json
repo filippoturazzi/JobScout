@@ -139,5 +139,19 @@
   "ago_h": "{n}h ago",
   "ago_d": "{n}d ago",
   "ago_w": "{n}w ago",
-  "run_failed": "The last run stopped on an error ({detail})."
+  "run_failed": "The last run stopped on an error ({detail}).",
+  "all_searches": "All searches",
+  "filter_by_search": "Filter by search",
+  "my_jobs_tabs": "Show",
+  "mj_empty_all": "No jobs yet.",
+  "mj_empty_all_hint": "Run a search and the jobs that fit appear here.",
+  "mj_empty_saved": "No saved jobs yet.",
+  "mj_empty_saved_hint": "Save a job from a search's results and it appears here.",
+  "mj_empty_applied": "No applied jobs yet.",
+  "mj_empty_applied_hint": "Mark a job as applied and it appears here.",
+  "mj_dismissed": "Dismissed. This job no longer shows in My jobs.",
+  "mj_left_tab": "Updated. This job no longer shows in this tab.",
+  "tab_all": "All",
+  "tab_saved": "Saved",
+  "tab_applied": "Applied"
 }

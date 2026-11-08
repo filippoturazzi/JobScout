@@ -252,6 +252,22 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .dt-notice__text { margin: 0; color: var(--ink); flex: 1; min-width: 0; }
 .dt-error { margin: 0; color: var(--danger); }
 
+/* My jobs (11, 12): tabs underlined in --brand, the search filter on the right */
+.mj-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-top: var(--space-6); border-bottom: 1px solid var(--border); }
+.mj-tabs { display: flex; gap: var(--space-6); }
+.mj-tab { display: inline-flex; align-items: baseline; gap: var(--space-2); padding: var(--space-3) 0; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-muted); cursor: pointer; font-family: inherit; }
+.mj-tab:hover { color: var(--ink); }
+.mj-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brand); }
+.mj-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.mj-count { color: var(--ink-muted); }
+.mj-filter { position: relative; display: inline-flex; align-items: center; margin-bottom: var(--space-2); }
+.mj-select { appearance: none; -webkit-appearance: none; padding-right: var(--space-8); font-family: inherit; max-width: 100%; }
+.mj-filter > .icon, .mj-filter > svg { position: absolute; right: var(--space-3); pointer-events: none; color: var(--ink-muted); }
+.mj-panel { margin-top: var(--space-6); }
+.mj-empty { display: grid; gap: var(--space-1); justify-items: center; text-align: center; padding: var(--space-8) 0; }
+.mj-empty p { margin: 0; color: var(--ink); }
+.mj-empty .mj-empty__hint { color: var(--ink-muted); }
+
 @media (max-width: 800px) {
   .app-main.has-detail { padding-right: var(--space-4); }
   .app-detail { z-index: 20; }

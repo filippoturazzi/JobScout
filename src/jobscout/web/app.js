@@ -1,4 +1,4 @@
-// The page's entry point: status, locale, theme, sidebar and the route's view (my jobs is a stub until a later task).
+// The page's entry point: status, locale, theme, sidebar and the route's view.
 import { h, mount } from "./js/dom.js";
 import { icon } from "./js/icons.js";
 import { loadLocale, t } from "./js/i18n.js";
@@ -8,6 +8,7 @@ import { renderSidebar } from "./js/sidebar.js";
 import { renderHome } from "./js/views/home.js";
 import { renderSettings } from "./js/views/settings.js";
 import { leaveSearch, renderSearch } from "./js/views/search.js";
+import { leaveMyJobs, renderMyJobs } from "./js/views/myjobs.js";
 
 function applyTheme() {
   let theme = "dark";
@@ -18,16 +19,6 @@ function applyTheme() {
     // Storage can be blocked; dark is the default.
   }
   document.documentElement.dataset.theme = theme;
-}
-
-function viewTitle(route) {
-  if (route.name === "my-jobs") return t("my_jobs");
-  if (route.name === "settings") return t("settings");
-  if (route.name === "search") {
-    const found = state.searches.find((s) => s.id === route.id);
-    return found ? found.title : t("search_title", { id: route.id });
-  }
-  return t("home_title");
 }
 
 async function start() {
@@ -50,6 +41,7 @@ async function start() {
   function render(force = false) {
     const route = currentRoute();
     if (route.name !== "search") leaveSearch();
+    if (route.name !== "my-jobs") leaveMyJobs();
     renderSidebar(sidebar, state, route, () => render());
     const key = route.name === "search" ? `search:${route.id}` : route.name;
     if (force === true || key !== mountedKey || key === "my-jobs") {
@@ -58,7 +50,7 @@ async function start() {
       if (route.name === "home") renderHome(main, ctx);
       else if (route.name === "settings") renderSettings(main, ctx);
       else if (route.name === "search") renderSearch(main, ctx, route.id);
-      else mount(main, h("div", { class: "app-column" }, h("h1", { class: "text-h1 app-title" }, viewTitle(route))));
+      else renderMyJobs(main, ctx, route);
     }
     shell.classList.remove("is-menu-open");
     menuButton.setAttribute("aria-expanded", "false");
