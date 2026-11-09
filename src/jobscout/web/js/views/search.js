@@ -6,7 +6,7 @@
 import { h, mount } from "../dom.js";
 import { t } from "../i18n.js";
 import { api, ApiError } from "../api.js";
-import { refreshSearches, refreshStatus, state as store } from "../store.js";
+import { refreshSearches, refreshStatus, runningMismatch, state as store } from "../store.js";
 import { composer } from "../composer.js";
 import { buildTranscript } from "../transcript.js";
 import { renderEntries } from "../conversation.js";
@@ -18,14 +18,21 @@ import { openDetail } from "../detail.js";
 const POLL_MS = 2000;
 const guard = createGuard();
 let pollTimer = null;
+let polling = false; // a run's polling is on: the shell's own watcher leaves /status to it
 let detail = null; // the open panel's controller
 let detailRoot = null; // the element that makes room for it
 
 function stopPolling() {
+  polling = false;
   if (pollTimer !== null) {
     clearTimeout(pollTimer);
     pollTimer = null;
   }
+}
+
+// Whether the open search is polling its run (and so /status) right now.
+export function isPollingRun() {
+  return polling;
 }
 
 function closeDetail() {
@@ -65,6 +72,8 @@ export async function renderSearch(root, ctx, id) {
     return;
   }
   if (!guard.isCurrent(mine)) return;
+  // The fresh /status may say a run ended (or started) that the sidebar still shows otherwise.
+  if (search.latest_run && runningMismatch(store.status, store.searches)) refreshSearches().catch(() => {});
 
   const ui = {
     editing: null,
@@ -120,7 +129,10 @@ export async function renderSearch(root, ctx, id) {
 
   function schedule() {
     stopPolling();
-    if (guard.isCurrent(mine) && shouldKeepPolling(view())) pollTimer = setTimeout(poll, POLL_MS);
+    if (guard.isCurrent(mine) && shouldKeepPolling(view())) {
+      pollTimer = setTimeout(poll, POLL_MS);
+      polling = true;
+    }
   }
 
   // The panel follows its match while the run rescores it, without moving the user's focus.
@@ -310,6 +322,8 @@ export async function renderSearch(root, ctx, id) {
   function draw({ focus = true } = {}) {
     // Only a submit that went through clears what the user typed.
     const kept = box && !ui.clearComposer ? box.getText() : "";
+    // A redraw the user did not ask for (the run changed state) must not take their focus away.
+    const hadFocus = Boolean(box) && box.hasFocus();
     ui.clearComposer = false;
     const v = view();
     ui.runState = v.state;
@@ -339,7 +353,10 @@ export async function renderSearch(root, ctx, id) {
       ),
       detailHost,
     );
-    if (!focus) return;
+    if (!focus) {
+      if (hadFocus && !locked) box.focus({ end: true });
+      return;
+    }
     if (!locked) box.focus();
     const last = column.lastElementChild;
     if (last && typeof last.scrollIntoView === "function") last.scrollIntoView({ block: "end" });

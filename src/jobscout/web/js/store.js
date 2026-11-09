@@ -20,8 +20,26 @@ export async function refreshStatus({ silent = false } = {}) {
   return state.status;
 }
 
-export async function refreshSearches() {
+// silent: update the list without notifying; the caller redraws what needs it (the sidebar).
+export async function refreshSearches({ silent = false } = {}) {
   state.searches = await api.get("/searches");
-  notify();
+  if (!silent) notify();
   return state.searches;
+}
+
+// Whether something runs, by /status or by the sidebar's own markers (a run that just ended
+// is still marked until the list is read again). Pure.
+export function shouldWatch(status, searches) {
+  const id = status ? status.running_search_id : null;
+  return (id !== null && id !== undefined) || (searches || []).some((s) => s.running);
+}
+
+// Whether /status and the list's running flags disagree, so the list needs reading again.
+// A running id the list does not hold cannot be marked, so it is no disagreement. Pure.
+export function runningMismatch(status, searches) {
+  const list = searches || [];
+  const id = status ? status.running_search_id : null;
+  const marked = list.filter((s) => s.running).map((s) => s.id);
+  const expected = id !== null && id !== undefined && list.some((s) => s.id === id) ? [id] : [];
+  return marked.length !== expected.length || marked.some((m) => !expected.includes(m));
 }
