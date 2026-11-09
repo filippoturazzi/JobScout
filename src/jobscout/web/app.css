@@ -15,8 +15,26 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-/* Shell: sidebar | main */
-.app-shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 100vh; }
+/* Scrollbars in the site's look: no track, a rounded handle in the border colours that
+   brightens under the pointer and while dragged. Chromium and Safari take the ::-webkit
+   rules; Firefox, which has no such pseudo-elements, gets the thin standard ones. */
+::-webkit-scrollbar { width: var(--space-3); height: var(--space-3); }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border) padding-box;
+  border: var(--space-1) solid transparent;
+  border-radius: var(--radius-pill);
+  min-height: var(--space-8);
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--border-strong); }
+::-webkit-scrollbar-thumb:active { background-color: var(--ink-muted); }
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+}
+
+/* Shell: sidebar | main. The page itself never scrolls: the sidebar, the main area and the
+   detail panel each scroll on their own, so every scrollbar sits on the edge of its region. */
+.app-shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); height: 100vh; height: 100dvh; }
 .app-sidebar {
   position: sticky;
   top: 0;
@@ -30,7 +48,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
   background: var(--bg);
   overflow-y: auto;
 }
-.app-content { display: flex; flex-direction: column; min-height: 100vh; min-width: 0; }
+.app-content { display: flex; flex-direction: column; min-width: 0; height: 100vh; height: 100dvh; overflow-y: auto; }
 .app-menu { display: none; align-self: flex-start; margin: var(--space-3); }
 .app-main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: var(--space-8) var(--space-6); }
 .app-column { width: 100%; max-width: 720px; }
@@ -51,6 +69,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 /* Sidebar */
 .sb-logo { padding: var(--space-1) var(--space-2); }
 .sb-new { justify-content: flex-start; }
+.sb-new:hover { border-color: var(--ink-muted); background: var(--surface); }
 .sb-searches { flex: 1; min-height: 0; }
 .sb-heading { color: var(--ink-muted); padding: 0 var(--space-2); margin-bottom: var(--space-2); }
 .sb-empty { color: var(--ink-muted); padding: 0 var(--space-2); margin: 0; }
@@ -236,10 +255,11 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .jc-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .jc-meta { margin-left: auto; }
 
-/* Detail panel (07): fixed on the right; the main area makes room for it */
+/* Detail panel (07): fixed on the right; the main area shrinks to its left, so the list's
+   scrollbar ends where the panel begins instead of sitting beside the panel's own. */
 .app-detail { position: fixed; top: 0; right: 0; bottom: 0; z-index: 5; display: flex; flex-direction: column; gap: var(--space-4); overflow-y: auto; }
 .app-detail[hidden] { display: none; }
-.app-main.has-detail { padding-right: calc(480px + var(--space-6)); }
+.app-content:has(> .app-main.has-detail) { margin-right: 480px; }
 .dt-body { flex: 1; display: grid; gap: var(--space-4); align-content: start; }
 .dt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .dt-title { color: var(--ink); overflow-wrap: anywhere; }
@@ -276,6 +296,37 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .mj-filter { position: relative; display: inline-flex; align-items: center; margin-bottom: var(--space-2); }
 .mj-select { appearance: none; -webkit-appearance: none; padding-right: var(--space-8); font-family: inherit; max-width: 100%; }
 .mj-filter > .icon, .mj-filter > svg { position: absolute; right: var(--space-3); pointer-events: none; color: var(--ink-muted); }
+.mj-select:hover { border-color: var(--ink-muted); }
+
+/* The open list in the site's look, where the browser lets CSS style it (customizable
+   select, Chromium); elsewhere it stays the native menu. */
+@supports (appearance: base-select) {
+  .mj-select, .mj-select::picker(select) { appearance: base-select; }
+  .mj-select::picker-icon { display: none; }
+  .mj-select::picker(select) {
+    margin-top: var(--space-1);
+    padding: var(--space-1);
+    min-width: anchor-size(width);
+    max-height: calc(var(--space-8) * 10);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--ink);
+  }
+  .mj-select option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font: var(--text-body-sm-weight) var(--text-body-sm-size) / var(--text-body-sm-line) var(--font-sans);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .mj-select option:hover, .mj-select option:focus-visible { background: var(--surface-raised); outline: none; }
+  .mj-select option:checked { color: var(--accent-text); font-weight: var(--text-label-weight); }
+  .mj-select option::checkmark { order: 1; margin-left: auto; color: var(--accent-text); }
+}
 .mj-panel { margin-top: var(--space-6); flex: 1; display: flex; flex-direction: column; }
 .app-column:has(.mj-panel) { flex: 1; display: flex; flex-direction: column; }
 .mj-empty { flex: 1; align-content: center; display: grid; gap: var(--space-1); justify-items: center; text-align: center; padding: var(--space-8) 0; }
@@ -283,6 +334,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .mj-empty .mj-empty__hint { color: var(--ink-muted); }
 
 @media (max-width: 800px) {
-  .app-main.has-detail { padding-right: var(--space-4); }
+  .app-content:has(> .app-main.has-detail) { margin-right: 0; }
   .app-detail { z-index: 20; }
 }

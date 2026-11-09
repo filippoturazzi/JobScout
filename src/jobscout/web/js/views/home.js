@@ -64,7 +64,7 @@ export function renderHome(root, ctx) {
 
   mount(
     root,
-    h("div", { class: "app-column home" }, h("h1", { class: "text-h1 home-title" }, t("home_title")), noticeSlot, box.el),
+    h("div", { class: "app-column home" }, h("h1", { class: "text-title home-title" }, t("home_title")), noticeSlot, box.el),
   );
   box.focus();
 }
