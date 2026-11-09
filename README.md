@@ -36,6 +36,32 @@ uv run jobscout search             # the same run in the foreground, on the late
 `search`, `match`, `matches` and `jobs` act on the latest search; `--search ID` picks another
 (ids are in `jobscout searches`). With no search yet they say how to start one.
 
+## Using the page
+
+```bash
+uv run jobscout serve
+```
+
+Open <http://127.0.0.1:8000>. Describe the job you want in a paragraph; the page reads it
+and asks a few quick questions (role level, work mode, location, skills), then runs the
+search across the enabled sources and scores what it finds with your LLM (set a provider
+key in `.env` first). The results list shows each posting with its score; open one for the
+reasoning, matched and missing skills and red flags, then save it, mark it applied or
+dismiss it. **My jobs** gathers saved, applied and dismissed jobs across every search.
+**Settings** shows the model and sources and switches the theme (dark by default) and the
+language (English or pt-BR).
+
+To try the page without a key or network, build a demo database and serve it:
+
+```bash
+uv run python scripts/seed_demo.py demo.db
+DATABASE_URL=sqlite:///demo.db uv run jobscout serve              # bash
+$env:DATABASE_URL = "sqlite:///demo.db"; uv run jobscout serve    # PowerShell
+```
+
+The page is plain HTML, CSS and ES modules under `src/jobscout/web/` (no build step); its
+pure modules are tested with `node --test tests/web/*.test.js`.
+
 ## Matching (AI)
 
 ```bash
@@ -208,6 +234,7 @@ uv run pytest -m integration       # opt-in tests against real APIs
 uv run pytest tests/sources/test_arbeitnow.py::test_fetch_maps_fields   # single test
 uv run ruff check . && uv run ruff format .
 uv run mypy src               # static typing (strict, src only)
+node --test tests/web/*.test.js   # the page's JS modules (Node 22, no packages)
 ```
 
 Adding a job source: implement `JobSource` in `src/jobscout/sources/<name>.py` returning `RawJob`s,

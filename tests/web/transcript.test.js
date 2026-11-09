@@ -64,3 +64,13 @@ test("got-it place reads city, country, anywhere and abroad", () => {
   assert.equal(place({ country: null }), null);
   assert.deepEqual(gotitWhat(base).skills, ["Python", "LangChain", "RAG"]);
 });
+
+test("titleCase capitalises each word and upper-cases acronyms", async () => {
+  const { titleCase } = await import("../../src/jobscout/web/js/transcript.js");
+  assert.equal(titleCase("ai engineer"), "AI Engineer");
+  assert.equal(titleCase("frontend developer"), "Frontend Developer");
+  assert.equal(titleCase("ML  ops engineer"), "ML Ops Engineer");
+  assert.equal(titleCase(""), "");
+  const base = load("search-ready.json");
+  assert.equal(gotitWhat({ ...base, summary: { ...base.summary, role: "data engineer" } }).role, "Data Engineer");
+});

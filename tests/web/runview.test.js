@@ -93,3 +93,9 @@ test("matchChanged notices a new score, reasoning or status only", () => {
   assert.equal(matchChanged(a, { ...a, status: "saved" }), true);
   assert.equal(matchChanged(a, { ...a, matched_skills: ["Python", "RAG"] }), true);
 });
+
+test("runView: searched counts the sources that were not skipped", () => {
+  const sources = [src("himalayas", "done"), src("remotive", "done"), src("linkedin", "failed"), src("indeed", "skipped")];
+  assert.equal(runView(search, run({ sources }), list(0, 0), null).searched, 3);
+  assert.equal(runView(search, run({ sources: [], counters: { sources_ok: 2, sources_failed: 1 } }), list(0, 0), null).searched, 3);
+});

@@ -33,8 +33,12 @@ export function runView(search, run, matchList, runningSearchId) {
     runError = run.error.length > ERROR_LENGTH ? `${run.error.slice(0, ERROR_LENGTH)}…` : run.error;
   }
 
+  // Sources the run actually searched: not the skipped ones.
+  const searched = sources.length ? sources.filter((s) => s.state !== "skipped").length : (counters.sources_ok || 0) + (counters.sources_failed || 0);
+
   return {
     state,
+    searched,
     runError,
     found,
     waiting,

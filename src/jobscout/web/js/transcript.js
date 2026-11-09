@@ -3,6 +3,17 @@
 const LEVELS = ["intern", "junior", "mid", "senior"];
 const MODES = ["remote", "hybrid", "onsite"];
 
+const UPPER_WORDS = new Set(["ai", "ml", "llm", "qa", "ui", "ux", "bi", "sre", "nlp"]);
+
+// A role as the backend titles a search: each word capitalised, acronyms upper-cased.
+export function titleCase(text) {
+  return String(text || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (UPPER_WORDS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join(" ");
+}
+
 export function gotitWhat(search) {
   const s = search.summary || {};
   const reading = search.reading || {};
@@ -15,7 +26,8 @@ export function gotitWhat(search) {
     place = { kind: "anywhere", name: null };
   }
   const skills = s.skills && s.skills.length ? s.skills : reading.required_skills || [];
-  const role = s.role || (s.terms && s.terms.length ? s.terms.join(" / ") : null);
+  const rawRole = s.role || (s.terms && s.terms.length ? s.terms.join(" / ") : null);
+  const role = rawRole ? titleCase(rawRole) : null;
   return { role, skills: [...skills], place };
 }
 

@@ -159,7 +159,7 @@ export function runSection(view, search, ui, handlers) {
       const widenings = search.widenings || [];
       return [
         appLine(
-          h("p", { class: "text-body" }, t("nothing_found", { n: view.progress.sources, m: view.fetched, what: nothingWhat(search.summary) })),
+          h("p", { class: "text-body" }, t("nothing_found", { n: view.searched, m: view.fetched, what: nothingWhat(search.summary) })),
           failureLines(view.failures, view.runError),
           widenings.length
             ? h(

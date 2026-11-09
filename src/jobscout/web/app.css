@@ -82,8 +82,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 /* Below 800 px: one column, the sidebar behind the menu button, the detail panel full-screen */
 @media (max-width: 800px) {
   .app-shell { grid-template-columns: minmax(0, 1fr); }
-  .app-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; width: 260px; transform: translateX(-100%); }
-  .is-menu-open .app-sidebar { transform: none; }
+  .app-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; width: 260px; transform: translateX(-100%); visibility: hidden; }
+  .is-menu-open .app-sidebar { transform: none; visibility: visible; }
   .app-menu { display: inline-flex; }
   .app-main { padding: var(--space-4); }
   .app-detail { position: fixed; inset: 0; z-index: 20; max-width: none; border-left: 0; overflow-y: auto; }
@@ -182,7 +182,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .composer:not(.composer--multiline) { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); }
 .composer:not(.composer--multiline) .composer__foot { display: contents; }
 .composer:not(.composer--multiline) .composer__foot > :first-child { order: -1; color: var(--ink-muted); display: inline-flex; }
-.composer:not(.composer--multiline) .composer__field { flex: 1; min-width: 0; min-height: 0; width: auto; border: 0; background: transparent; resize: none; padding: var(--space-2); }
+.composer:not(.composer--multiline) .composer__field { flex: 1; min-width: 0; min-height: 0; width: auto; border: 0; background: transparent; resize: none; padding: var(--space-2); overflow: hidden; white-space: pre; }
+.composer:not(.composer--multiline) .composer__field::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .app-composer .composer { margin: 0; }
 
 /* The run: progress (05), results (06), nothing found (09). No orange while searching. */
@@ -263,8 +264,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .mj-filter { position: relative; display: inline-flex; align-items: center; margin-bottom: var(--space-2); }
 .mj-select { appearance: none; -webkit-appearance: none; padding-right: var(--space-8); font-family: inherit; max-width: 100%; }
 .mj-filter > .icon, .mj-filter > svg { position: absolute; right: var(--space-3); pointer-events: none; color: var(--ink-muted); }
-.mj-panel { margin-top: var(--space-6); }
-.mj-empty { display: grid; gap: var(--space-1); justify-items: center; text-align: center; padding: var(--space-8) 0; }
+.mj-panel { margin-top: var(--space-6); flex: 1; display: flex; flex-direction: column; }
+.app-column:has(.mj-panel) { flex: 1; display: flex; flex-direction: column; }
+.mj-empty { flex: 1; align-content: center; display: grid; gap: var(--space-1); justify-items: center; text-align: center; padding: var(--space-8) 0; }
 .mj-empty p { margin: 0; color: var(--ink); }
 .mj-empty .mj-empty__hint { color: var(--ink-muted); }
 
