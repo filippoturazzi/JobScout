@@ -7,7 +7,7 @@ export function shouldSubmit(text, { disabled } = {}) {
   return !disabled && String(text).trim().length > 0;
 }
 
-export function composer({ placeholder = "", disabled = false, locked = false, multiline = false, submitLabel = "", primary = true, onSubmit } = {}) {
+export function composer({ placeholder = "", disabled = false, locked = false, multiline = false, submitLabel = "", submitIcon = null, primary = true, onSubmit } = {}) {
   let isDisabled = disabled;
   const field = h("textarea", {
     class: "composer__field",
@@ -16,10 +16,12 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
     "aria-label": placeholder,
     disabled: locked,
   });
+  const label = h("span", {}, submitLabel);
   const button = h(
     "button",
     { class: `js-btn ${primary ? "js-btn--primary" : "js-btn--secondary"}`, type: "submit", disabled: isDisabled || locked },
-    submitLabel,
+    submitIcon ? icon(submitIcon) : null,
+    label,
   );
   const el = h(
     "form",
@@ -68,7 +70,7 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
       else button.removeAttribute("disabled");
     },
     setSubmitLabel: (s) => {
-      button.textContent = s;
+      label.textContent = s;
     },
   };
 }

@@ -93,12 +93,20 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 
 /* Composer (js-pref gives the card; these make it a pinned, auto-growing field) */
 .composer__field { box-sizing: border-box; width: 100%; }
-.composer--multiline .composer__field { min-height: calc(var(--space-8) * 3); }
+/* The home composer is one field, as in the pen.dev design: the card is the box and the
+   textarea sits inside it with no frame of its own; the card carries the focus ring. */
+.composer--multiline { border-color: var(--border-strong); border-radius: var(--radius-md); }
+.composer--multiline:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.composer--multiline .composer__field { min-height: calc(var(--space-8) * 3); padding: 0; border: 0; background: transparent; resize: none; }
+.composer--multiline .composer__field:focus-visible { outline: none; }
+.composer--multiline .composer__foot { justify-content: flex-end; }
+.composer--multiline .composer__foot > span:first-child:empty { display: none; }
 .composer__foot { justify-content: space-between; }
 .composer .js-btn:disabled { cursor: not-allowed; background: transparent; color: var(--ink-muted); border-color: var(--border-strong); }
 
 /* Home */
-.home { display: flex; flex-direction: column; justify-content: center; gap: var(--space-6); min-height: 60vh; }
+/* Title and field centred in the whole main area, both ways */
+.home { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: var(--space-6); }
 .home-title { text-align: center; color: var(--ink); }
 .home-notice {
   display: flex;

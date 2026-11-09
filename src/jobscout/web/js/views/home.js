@@ -35,6 +35,7 @@ export function renderHome(root, ctx) {
     placeholder: t("home_placeholder"),
     multiline: true,
     submitLabel: t("start_search"),
+    submitIcon: "search",
     disabled: noKey,
     onSubmit: submit,
   });
@@ -63,7 +64,7 @@ export function renderHome(root, ctx) {
 
   mount(
     root,
-    h("div", { class: "app-column home" }, h("h1", { class: "text-display home-title" }, t("home_title")), noticeSlot, box.el),
+    h("div", { class: "app-column home" }, h("h1", { class: "text-h1 home-title" }, t("home_title")), noticeSlot, box.el),
   );
   box.focus();
 }
