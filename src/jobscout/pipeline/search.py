@@ -63,7 +63,11 @@ class SearchResult:
     evaluated: int = 0
     embedded: int = 0
     remaining: int = 0
+    to_score: int = 0
+    scored: int = 0
     errors: list[str] = field(default_factory=list)
+    # Per-source progress as `Run.sources` stores it; the page draws one line from each.
+    sources: list[dict[str, object]] = field(default_factory=list)
 
     @property
     def counters(self) -> dict[str, int]:
@@ -75,6 +79,8 @@ class SearchResult:
             "evaluated": self.evaluated,
             "embedded": self.embedded,
             "remaining": self.remaining,
+            "to_score": self.to_score,
+            "scored": self.scored,
             "errors": len(self.errors),
         }
 
@@ -121,6 +127,7 @@ def open_search_run(session: Session, search_id: int) -> Run:
 def _publish(session: Session, run: Run, result: SearchResult) -> None:
     """Write the counters mid-flight. The page polls them while the run is still going."""
     run.counters = result.counters
+    run.sources = [dict(entry) for entry in result.sources]
     session.add(run)
     session.commit()
 
@@ -129,6 +136,7 @@ def _finish(session: Session, run: Run, result: SearchResult, ok: bool) -> None:
     result.ok = ok
     run.ok = ok
     run.counters = result.counters
+    run.sources = [dict(entry) for entry in result.sources]
     run.error = "; ".join(result.errors) or None
     run.finished_at = utcnow()
     session.add(run)
@@ -216,43 +224,78 @@ def _fetch(
     """Search every source, one term per call, isolating each failure from the rest."""
     seen: set[int] = set()
     modes = {mode.lower() for mode in prefs.work_modes}
-    for source in sources:
+
+    def update_entry(index: int, **changes: object) -> None:
+        # A new list each time: the JSON column does not notice a mutated one.
+        result.sources = [
+            {**entry, **changes} if i == index else entry for i, entry in enumerate(result.sources)
+        ]
+
+    for index, source in enumerate(sources):
         if source.all_remote and modes and "remote" not in modes:
-            result.errors.append(f"{source.name}: not searched, it only lists remote jobs")
+            reason = "not searched, it only lists remote jobs"
+            result.errors.append(f"{source.name}: {reason}")
+            update_entry(index, state="skipped", detail=reason)
+            publish()
             continue
         batch: list[JobSource] = [source]
         answered = False
         queries = _queries_for(source, terms, prefs)
+        source_seen: set[int] = set()
+        failure: str | None = None
+        if not queries:
+            reason = "not searched, there was nothing to ask it"
+            result.errors.append(f"{source.name}: {reason}")
+            update_entry(index, state="skipped", detail=reason)
+            publish()
+            continue
+        notes: list[str] = []
         if source.searches_by_location:
             asked = {place for query in queries for place in query.locations}
-            for place in _search_places(prefs.regions):
-                if place not in asked:
-                    result.errors.append(
-                        f"{source.name}: not searched in {place}, "
-                        f"only {len(queries)} searches per run"
+            notes = [
+                f"not searched in {place}, only {len(queries)} searches per run"
+                for place in _search_places(prefs.regions)
+                if place not in asked
+            ]
+            result.errors.extend(f"{source.name}: {note}" for note in notes)
+        update_entry(index, state="searching", queries_total=len(queries), notes=notes)
+        publish()
+        try:
+            # A failure breaks the loop, so the answered queries are the first `number + 1`.
+            for number, query in enumerate(queries):
+                (outcome,) = ingest(session, batch, query)
+                report(
+                    SearchProgress(
+                        stage="source",
+                        source=source.name,
+                        term=query.keywords[0] if query.keywords else None,
+                        fetched=outcome.fetched,
+                        error=outcome.error,
                     )
-        for query in queries:
-            (outcome,) = ingest(session, batch, query)
-            report(
-                SearchProgress(
-                    stage="source",
-                    source=source.name,
-                    term=query.keywords[0] if query.keywords else None,
-                    fetched=outcome.fetched,
-                    error=outcome.error,
                 )
-            )
-            if outcome.error is not None:
-                result.errors.append(f"{source.name}: {outcome.error}")
-                # One term per ingest call, so whatever this source already returned is
-                # committed. Its remaining terms are abandoned rather than retried: a
-                # source that just answered 429 will not answer the next four either.
-                break
-            answered = True
-            record_fetched(session, search_id, outcome.seen_ids)
-            seen.update(outcome.seen_ids)
-            result.fetched = len(seen)
+                if outcome.error is not None:
+                    result.errors.append(f"{source.name}: {outcome.error}")
+                    failure = outcome.error
+                    # One term per ingest call, so whatever this source already returned is
+                    # committed. Its remaining terms are abandoned rather than retried: a
+                    # source that just answered 429 will not answer the next four either.
+                    break
+                answered = True
+                record_fetched(session, search_id, outcome.seen_ids)
+                seen.update(outcome.seen_ids)
+                source_seen.update(outcome.seen_ids)
+                result.fetched = len(seen)
+                update_entry(index, fetched=len(source_seen), queries_done=number + 1)
+                publish()
+        except Exception as exc:
+            # Never leave the source "searching": the page names failures from this entry.
+            session.rollback()
+            detail = f"{type(exc).__name__}: {exc}"
+            result.errors.append(f"{source.name}: {detail}")
+            result.sources_failed += 1
+            update_entry(index, state="failed", detail=detail)
             publish()
+            raise
         # A source counts as ok once it has answered at all, even if a later term failed:
         # the postings it did return are ingested and real. A source that failed on its
         # first term contributed nothing. Every failure is named in `errors` either way;
@@ -261,14 +304,26 @@ def _fetch(
             result.sources_ok += 1
         else:
             result.sources_failed += 1
+        update_entry(
+            index,
+            state="done" if answered else "failed",
+            # A source that answered and then failed keeps "done"; the page still names why.
+            detail=failure,
+        )
+        publish()
         # A source may note something that is not a failure (a region it could not map,
         # say) in a `warnings` list. Only some sources have one, so it is read with
-        # `getattr` rather than widening the protocol. It lands in `errors` because the
-        # page reads the run; it does not touch the ok/failed counters.
-        for warning in dict.fromkeys(getattr(source, "warnings", ())):
+        # `getattr` rather than widening the protocol. It lands in the source's `notes`,
+        # which the page shows under the results, and in `errors` for the run row; it does
+        # not touch the ok/failed counters.
+        warned = [w for w in dict.fromkeys(getattr(source, "warnings", ())) if w not in notes]
+        for warning in warned:
             message = f"{source.name}: {warning}"
             if message not in result.errors:
                 result.errors.append(message)
+        if warned:
+            update_entry(index, notes=[*notes, *warned])
+            publish()
     result.fetched = len(seen)
 
 
@@ -319,10 +374,29 @@ def run_search(
         _finish(session, run, result, ok=False)
         return result
 
+    result.sources = [
+        {
+            "name": source.name,
+            "state": "waiting",
+            "fetched": 0,
+            "queries_done": 0,
+            "queries_total": 0,
+            "detail": None,
+            "notes": [],
+        }
+        for source in sources
+    ]
     publish()
     report(SearchProgress(stage="terms", terms=list(result.terms)))
     if fetch:
-        _fetch(session, search_id, sources, result.terms, prefs, result, publish, report)
+        try:
+            _fetch(session, search_id, sources, result.terms, prefs, result, publish, report)
+        except Exception:
+            # Not a source refusing (that is an outcome, handled inside): something broke
+            # around it. `_fetch` already marked the source failed and named the error.
+            log.exception("the search %s stopped while fetching", search_id)
+            _finish(session, run, result, ok=False)
+            return result
 
     try:
         # Published before scoring starts so the page has a denominator to show while it
@@ -330,21 +404,30 @@ def run_search(
         pending = select_candidates(session, prefs, search_id)
         result.candidates = len(pending)
         result.remaining = len(pending)
+        # An estimate for the page while jobs are embedded; replaced by the real selection
+        # on the first evaluated job and again once `run_match` returns.
+        result.to_score = min(len(pending), settings.max_llm_evaluations_per_run)
         publish()
         report(SearchProgress(stage="scoring", total=len(pending)))
+
+        def evaluated(done: int, total: int) -> None:
+            result.scored = done
+            result.to_score = total
+            publish()
+            report(SearchProgress(stage="evaluated", done=done, total=total))
 
         scored = run_match(
             session,
             settings,
             search_id,
             deps=deps,
-            on_evaluated=lambda done, total: report(
-                SearchProgress(stage="evaluated", done=done, total=total)
-            ),
+            on_evaluated=evaluated,
         )
         if scored.error is not None:
             raise ValueError(scored.error)
         result.candidates = scored.candidates
+        result.to_score = scored.selected
+        result.scored = min(result.scored, result.to_score)
         result.evaluated = scored.evaluated
         result.embedded = scored.embedded
         # What the caps left for the next run. The `skipped_low` jobs are done, not left:
@@ -355,6 +438,8 @@ def run_search(
     except Exception as exc:
         session.rollback()
         log.exception("scoring failed during the search %s", search_id)
+        # The selection is unknown here; never claim more to score than was scored.
+        result.to_score = result.scored
         result.errors.append(f"{type(exc).__name__}: {exc}")
         _finish(session, run, result, ok=False)
         return result

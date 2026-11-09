@@ -1,0 +1,73 @@
+/* Jobscout — design tokens (gerado de tokens.json). Tema padrão: dark. Use <html data-theme="light"> para o claro. */
+
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0b0c;  /* Fundo da página e da janela do app. O preto do Jobscout no tema escuro. */
+  --surface: #141416;  /* Cards de vaga, painel de detalhes, campo de preferências. */
+  --surface-raised: #1c1c1f;  /* Hover de card, botão secundário, cabeçalhos de seção dentro do painel. */
+  --border: #2c2c30;  /* Divisórias e contorno de cards (decorativo, sem significado). */
+  --border-strong: #6a6870;  /* Contorno de controles (textarea, inputs, botão secundário). ≥3:1 sobre surface em ambos os temas. */
+  --ink: #f4f1ec;  /* Texto principal sobre bg, surface e surface-raised. */
+  --ink-muted: #a8a49c;  /* Texto secundário (empresa, local, data, ajuda) e placeholder sobre bg, surface e surface-raised. */
+  --brand: #ff6a13;  /* Scout Orange. Preenchimento do botão primário, card selecionado, marca. Nunca texto sobre fundo claro — use accent-text. */
+  --brand-hover: #ff8236;  /* Hover/pressed do botão primário. */
+  --on-brand: #0b0b0c;  /* Texto e ícones sobre brand e brand-hover (preto, 6.8:1). Nunca branco sobre laranja. */
+  --accent-text: #ff8a3d;  /* Texto/links em laranja e score de match sobre bg, surface, surface-raised e accent-subtle. */
+  --accent-subtle: #2b1708;  /* Fundo de tag de match e destaque suave; texto nele em accent-text. */
+  --focus: #ff8a3d;  /* Anel de foco sólido de 2px, offset 2px, em todos os controles. ≥5:1 sobre bg e surface. */
+  --success: #4ade80;  /* Texto/ícone de 'Candidatado' e 'Nova'. Sempre com palavra ou ícone, nunca só a cor. */
+  --danger: #f87171;  /* Erros (chave de API inválida, falha de plataforma). Sempre com texto. */
+  --info: #7cb4ff;  /* Avisos neutros (rate limit, busca em andamento) e a tag 'Remoto'. */
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #faf8f5;
+  --surface: #ffffff;
+  --surface-raised: #f2efea;
+  --border: #e2dcd2;
+  --border-strong: #8f8a82;
+  --ink: #141416;
+  --ink-muted: #5c5852;
+  --brand: #ff6a13;
+  --brand-hover: #e85a08;
+  --on-brand: #0b0b0c;
+  --accent-text: #b23f08;
+  --accent-subtle: #ffe7d6;
+  --focus: #b23f08;
+  --success: #11703f;
+  --danger: #b42318;
+  --info: #1d4ed8;
+}
+
+:root {
+  --font-display: "Bricolage Grotesque", "Space Grotesk", system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --space-1: 4px;  /* Gap entre ícone e texto. */
+  --space-2: 8px;  /* Gap entre tags; padding vertical de tag. */
+  --space-3: 12px;  /* Padding vertical de botão; gap entre linhas do card. */
+  --space-4: 16px;  /* Padding interno do card; gap entre cards. */
+  --space-6: 24px;  /* Padding de painéis; gap entre colunas. */
+  --space-8: 32px;  /* Separação entre seções da tela. */
+  --radius-sm: 6px;  /* Tags, inputs pequenos. */
+  --radius-md: 10px;  /* Botões, textarea. */
+  --radius-lg: 16px;  /* Cards de vaga, painéis. */
+  --radius-pill: 999px;  /* Score de match e indicador de status. */
+  --text-display-size: 48px; --text-display-line: 52px; --text-display-weight: 700;
+  --text-h1-size: 28px; --text-h1-line: 34px; --text-h1-weight: 700;
+  --text-h2-size: 18px; --text-h2-line: 24px; --text-h2-weight: 600;
+  --text-body-size: 15px; --text-body-line: 22px; --text-body-weight: 400;
+  --text-body-sm-size: 13px; --text-body-sm-line: 18px; --text-body-sm-weight: 400;
+  --text-label-size: 13px; --text-label-line: 16px; --text-label-weight: 600;
+  --text-meta-size: 12px; --text-meta-line: 16px; --text-meta-weight: 500;
+}
+
+/* Estilos de texto */
+.text-display { font-family: var(--font-display); font-size: 48px; line-height: 52px; font-weight: 700; letter-spacing: -0.03em; }  /* Wordmark e telas vazias/onboarding. Uma por tela, no máximo. */
+.text-h1 { font-family: var(--font-display); font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.02em; }  /* Título da vaga no painel de detalhes. */
+.text-h2 { font-family: var(--font-display); font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }  /* Título da vaga no card; títulos de seção. */
+.text-body { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 400; }  /* Descrição da vaga, texto do campo de preferências. */
+.text-body-sm { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 400; }  /* Empresa, local, textos de ajuda. */
+.text-label { font-family: var(--font-sans); font-size: 13px; line-height: 16px; font-weight: 600; }  /* Botões e rótulos de campo. */
+.text-meta { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.02em; }  /* Plataforma de origem, datas, score de match, salário. Dados, não prosa. */

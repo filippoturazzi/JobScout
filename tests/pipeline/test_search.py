@@ -706,6 +706,9 @@ def test_countries_past_the_budget_are_named_in_the_run(session, monkeypatch):
     assert [e for e in result.errors if "Spain" in e] == [
         "fake: not searched in Spain, only 2 searches per run"
     ]
+    # The page reads it from the source's own line, under the results.
+    [entry] = _the_run(session).sources
+    assert entry["notes"] == ["not searched in Spain, only 2 searches per run"]
 
 
 def test_a_remote_board_is_skipped_for_someone_who_refuses_remote(session, monkeypatch):
@@ -742,6 +745,9 @@ def test_a_source_warning_is_named_in_the_run_without_failing_it(session, monkey
         "fake: could not map region 'remoto' to a country, searched worldwide"
     ]
     assert _the_run(session).ok is True
+    [entry] = _the_run(session).sources
+    assert entry["notes"] == [warning], "named once, like the errors"
+    assert entry["state"] == "done"
 
 
 def test_a_block_on_the_second_term_keeps_the_first_term_jobs(session, monkeypatch):
@@ -771,3 +777,183 @@ def test_queries_carry_the_city():
     prefs = UserPreferences(regions=["Brazil"], city="Recife")
     queries = _queries_for(_FakeSource(), ["python", "java"], prefs)
     assert queries and all(q.city == "Recife" for q in queries)
+
+
+# --------------------------------------------------------------------------- run.sources
+
+
+def _fake_fetching(fake: Any, monkeypatch: Any) -> None:
+    monkeypatch.setitem(SOURCE_FACTORIES, fake.name, lambda settings: fake)
+
+
+@respx.mock
+def test_a_search_run_records_each_sources_progress(session, himalayas_sample):
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    respx.get(REMOTIVE_URL).mock(return_value=httpx.Response(429))
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python", "llm"]))
+
+    run_search(session, _settings(sources="himalayas,remotive"), search.id, deps=_deps(chat))
+
+    sources = _the_run(session).sources
+    assert sources[0] == {
+        "name": "himalayas",
+        "state": "done",
+        "fetched": VALID_PER_FIXTURE,
+        "queries_done": 2,
+        "queries_total": 2,
+        "detail": None,
+        "notes": [],
+    }
+    assert sources[1]["name"] == "remotive"
+    assert (sources[1]["state"], sources[1]["fetched"], sources[1]["queries_done"]) == (
+        "failed",
+        0,
+        0,
+    )
+    assert sources[1]["queries_total"] == 2
+    assert isinstance(sources[1]["detail"], str) and sources[1]["detail"]
+    assert len(sources) == 2
+
+
+def test_sources_are_published_while_the_run_is_going(tmp_path, monkeypatch):
+    engine = create_engine_from_url(f"sqlite:///{tmp_path.as_posix()}/search.db")
+    init_db(engine)
+    seen: list[list[dict[str, object]]] = []
+
+    class Probing(_FakeSource):
+        def fetch(self, query: SearchQuery) -> list[RawJob]:
+            with Session(engine) as other:
+                seen.append(list(other.exec(select(Run)).one().sources))
+            return super().fetch(query)
+
+    fake = Probing(name="probe")
+    other_fake = _FakeSource(name="later")
+    _fake_fetching(fake, monkeypatch)
+    _fake_fetching(other_fake, monkeypatch)
+    with Session(engine) as session:
+        search = _search(session)
+        chat = SearchChatModel(_extraction(["python", "sql"]))
+        run_search(session, _settings(sources="probe,later"), search.id, deps=_deps(chat))
+
+    first, second = seen
+    assert [(s["name"], s["state"]) for s in first] == [
+        ("probe", "searching"),
+        ("later", "waiting"),
+    ]
+    assert first[0]["queries_total"] == 2 and first[0]["queries_done"] == 0
+    assert second[0]["queries_done"] == 1 and second[0]["fetched"] == 1
+
+
+def test_a_remote_only_board_is_recorded_as_skipped(session, monkeypatch):
+    fake = _FakeSource(all_remote=True)
+    _search_with(session, monkeypatch, fake, ["python"], work_modes=["onsite", "hybrid"])
+    [entry] = _the_run(session).sources
+    assert entry["state"] == "skipped"
+    assert entry["detail"] == "not searched, it only lists remote jobs"
+    assert entry["queries_done"] == 0
+
+
+def test_scoring_progress_is_published_after_each_job(tmp_path, himalayas_sample):
+    with respx.mock:
+        respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+        engine = create_engine_from_url(f"sqlite:///{tmp_path.as_posix()}/search.db")
+        init_db(engine)
+        seen: list[tuple[int, dict[str, int]]] = []
+
+        def hook(progress: SearchProgress) -> None:
+            if progress.stage != "evaluated":
+                return
+            with Session(engine) as other:
+                seen.append((progress.done, dict(other.exec(select(Run)).one().counters)))
+
+        with Session(engine) as session:
+            search = _search(session)
+            chat = SearchChatModel(_extraction(["python"]))
+            run_search(
+                session,
+                _settings(sources="himalayas"),
+                search.id,
+                deps=_deps(chat),
+                on_progress=hook,
+            )
+
+    assert [done for done, _ in seen] == [1, 2, 3]
+    for done, counters in seen:
+        assert counters["scored"] == done and counters["to_score"] == VALID_PER_FIXTURE
+
+
+def test_ranking_runs_have_no_sources(session):
+    search = _search(session, PARAGRAPH, search_terms=["python"])
+    run_search(session, _settings(sources="himalayas"), search.id, fetch=False)
+    assert _the_run(session).sources == []
+
+
+@respx.mock
+def test_a_finished_run_reports_the_capped_selection(session, himalayas_sample):
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python"]))
+    run_search(
+        session,
+        _settings(sources="himalayas", max_llm_evaluations_per_run=2),
+        search.id,
+        deps=_deps(chat),
+    )
+    counters = _the_run(session).counters
+    assert counters["candidates"] == VALID_PER_FIXTURE
+    assert (counters["to_score"], counters["scored"]) == (2, 2)
+
+
+@respx.mock
+def test_a_run_that_selects_nothing_does_not_keep_a_stale_to_score(session, himalayas_sample):
+    respx.get(HIMALAYAS_URL).mock(return_value=_ok(himalayas_sample))
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python"]))
+    # No job can be embedded, so the estimate (3) is wrong: nothing is selected.
+    run_search(
+        session,
+        _settings(sources="himalayas", max_embeddings_per_run=0),
+        search.id,
+        deps=_deps(chat),
+    )
+    counters = _the_run(session).counters
+    assert counters["candidates"] == VALID_PER_FIXTURE
+    assert (counters["to_score"], counters["scored"]) == (0, 0)
+
+
+def test_a_source_that_failed_after_answering_names_the_error(session, monkeypatch):
+    fake = _FakeSource(block_on="sql")
+    _search_with(session, monkeypatch, fake, ["python", "sql"])
+    [entry] = _the_run(session).sources
+    assert entry["state"] == "done" and entry["queries_done"] == 1
+    assert isinstance(entry["detail"], str) and "429" in entry["detail"]
+
+
+def test_a_source_with_no_queries_is_skipped_with_a_reason(session, monkeypatch):
+    fake = _FakeSource()
+    monkeypatch.setattr("jobscout.pipeline.search._queries_for", lambda *a, **k: [])
+    _search_with(session, monkeypatch, fake, ["python"])
+    [entry] = _the_run(session).sources
+    assert entry["state"] == "skipped" and entry["detail"]
+
+
+def test_an_unexpected_error_in_a_source_marks_it_failed(session, monkeypatch):
+    fake = _FakeSource()
+    _fake_fetching(fake, monkeypatch)
+
+    def boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr("jobscout.pipeline.search.record_fetched", boom)
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python"]))
+    # Never raises: the run row is where the failure is recorded.
+    result = run_search(session, _settings(sources=fake.name), search.id, deps=_deps(chat))
+    assert result.ok is False
+    assert result.sources_failed == 1
+    run = _the_run(session)
+    [entry] = run.sources
+    assert entry["state"] == "failed" and "disk full" in str(entry["detail"])
+    assert run.ok is False and run.finished_at is not None
+    assert run.error == "fake: RuntimeError: disk full"

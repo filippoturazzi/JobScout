@@ -219,3 +219,28 @@ def test_upgrade_refuses_a_database_that_is_not_sqlite(old_db, monkeypatch):
 def test_a_current_database_that_is_not_sqlite_is_simply_up_to_date(engine, monkeypatch):
     monkeypatch.setattr(engine.dialect, "name", "postgresql")
     assert upgrade_database(engine) == UpgradeReport(searches=0, matches=0, runs=0)
+
+
+def test_upgrade_adds_the_sources_column_to_an_upgraded_database(tmp_path):
+    engine = create_engine_from_url(f"sqlite:///{tmp_path / 'a.db'}")
+    init_db(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO run (job, ok, counters, started_at)"
+            " VALUES ('search', 1, '{}', '2026-11-07 00:00:00')"
+        )
+        connection.exec_driver_sql("ALTER TABLE run DROP COLUMN sources")
+    assert needs_upgrade(engine) is True
+
+    report = upgrade_database(engine)
+
+    assert report == UpgradeReport(searches=0, matches=0, runs=0, sources_only=True)
+    assert needs_upgrade(engine) is False
+    with Session(engine) as session:
+        assert session.exec(select(Run)).one().sources == []
+
+
+def test_upgrade_adds_the_sources_column_when_converting_an_old_database(old_db):
+    engine, _ = _upgraded(old_db)
+    with Session(engine) as session:
+        assert [run.sources for run in session.exec(select(Run)).all()] == [[], []]

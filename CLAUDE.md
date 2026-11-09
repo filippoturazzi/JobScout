@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed, and the profile search that drives them (`pipeline.search.run_search`). Saved searches and the conversation backend are done too: a search is a profile with its own preferences, matches and conversation (`pipeline/searches.py`, `pipeline/conversation.py`), reached through `jobscout search` and `POST /searches/{id}/run`. Scheduled ingest has no search terms, so it never reaches the scraped sources. Next is the stage 5 web page (static HTML served by FastAPI), the conversational interface in `docs/superpowers/specs/2026-11-07-chat-interface-design.md`; Jooble is deferred. `SOURCES` defaults to `himalayas,remotive,linkedin,indeed`; Arbeitnow stays registered but off by default (a catalogue with no search). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed, and the profile search that drives them (`pipeline.search.run_search`). Saved searches and the conversation backend are done too: a search is a profile with its own preferences, matches and conversation (`pipeline/searches.py`, `pipeline/conversation.py`), reached through `jobscout search` and `POST /searches/{id}/run`. Scheduled ingest has no search terms, so it never reaches the scraped sources. The stage 5 web page is done too (static HTML served by FastAPI, `src/jobscout/web/`), the conversational interface in `docs/superpowers/specs/2026-11-07-chat-interface-design.md`: stage 5 is complete apart from Jooble, which is deferred. `SOURCES` defaults to `himalayas,remotive,linkedin,indeed`; Arbeitnow stays registered but off by default (a catalogue with no search). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -23,6 +23,12 @@ Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `
 - Notification channel is e-mail over SMTP (stdlib `smtplib`), chosen in stage 4 as the first channel; *sending* always goes through the `Notifier` protocol, never a concrete channel. Rendering is the channel's own business: `render_digest` lives in `notifiers/email.py` and callers import it from there.
 - Distribution is self-hosting only. The hosted demo (quotas, BYOK) was dropped on 2026-10-23: do not propose it.
 - English for code, comments, README; READMEs also in pt-BR and es later.
+
+## UI
+
+- Read `src/jobscout/web/design/DESIGN.md` before any UI work. The page is plain HTML/CSS/ES modules under `src/jobscout/web/`, with no framework and no build step.
+- Tokens only (`var(--...)` from `design/tokens.css`, `js-*` classes from `design/components.css`); never a literal colour or size. Every screen must work in both themes (dark is the default).
+- Copy lives in `web/locales/*.json`, in English and pt-BR; the conversational-page spec's English+pt-BR rule overrides DESIGN.md's pt-BR-only line.
 
 ## Architecture rules
 
@@ -48,4 +54,6 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `GET /runs` — run history (ingest, match, digest, search). The scheduler runs inside `serve` and is off by default (`SCHEDULER_ENABLED=true` turns it on); `POST /searches/{id}/run` runs regardless.
 - `uv run jobscout match|matches` — run the matching graph / list scored matches (needs a provider key).
 - `uv run jobscout search` — one search in the foreground: profile terms → every source → scoring, then the ranking (needs a provider key).
-- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy and pytest.
+- `node --test tests/web/*.test.js` — the page's JS modules (Node's built-in runner, no packages).
+- `uv run python scripts/seed_demo.py demo.db` — a demo database with searches in every state; serve it with `DATABASE_URL=sqlite:///demo.db uv run jobscout serve`.
+- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy, pytest and `node --test tests/web/*.test.js`.

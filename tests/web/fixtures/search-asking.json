@@ -1,0 +1,37 @@
+{
+  "id": 1,
+  "title": "AI Engineer",
+  "created_at": "2026-11-08T10:00:00",
+  "last_used_at": "2026-11-08T10:00:00",
+  "paragraph": "I'm a Python developer with 1 year of experience and LLM projects with LangChain and RAG. Looking for an AI Engineer role in Brazil.",
+  "refinements": [],
+  "reading": {
+    "terms": ["AI Engineer"],
+    "seniority": [],
+    "required_skills": ["Python", "LangChain", "RAG"],
+    "stated_work_modes": [],
+    "stated_regions": ["Brazil"],
+    "suggested_skills": []
+  },
+  "reading_error": null,
+  "asked": ["level"],
+  "answers": {"level": {"choice": "junior", "values": []}},
+  "question": {
+    "id": "work_modes",
+    "number": 2,
+    "position": 2,
+    "total": 3,
+    "multi": true,
+    "typed": false,
+    "options": [
+      {"choice": "remote", "value": null},
+      {"choice": "hybrid", "value": null},
+      {"choice": "onsite", "value": null},
+      {"choice": "any", "value": null}
+    ]
+  },
+  "summary": {"role": "AI Engineer", "terms": ["AI Engineer"], "level": "junior", "work_modes": [], "country": "Brazil", "city": null, "abroad_from": null, "skills": ["Python", "LangChain", "RAG"]},
+  "confirmed": false,
+  "widenings": [],
+  "latest_run": null
+}

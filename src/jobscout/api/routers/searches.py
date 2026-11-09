@@ -22,7 +22,7 @@ from jobscout.config import get_settings
 from jobscout.models import Run, Search
 from jobscout.pipeline import conversation as conv
 from jobscout.pipeline import searches as svc
-from jobscout.pipeline.conversation import Answer
+from jobscout.pipeline.conversation import Answer, Question, QuestionId
 from jobscout.pipeline.run import count_waiting, list_matches
 from jobscout.scheduler import JobScoutScheduler, SearchBusyError
 
@@ -143,6 +143,18 @@ def delete_search(
         raise SearchBusyError(search_id)
     svc.delete_search(session, user_id, search_id)
     return Response(status_code=204)
+
+
+@router.get("/{search_id}/questions/{question_id}", response_model=Question)
+def read_question(
+    search_id: int,
+    question_id: QuestionId,
+    session: Annotated[Session, Depends(get_session)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> Question:
+    """One question with its options, for editing an answer from the summary."""
+    c = svc.conversation_of(svc.get_search(session, user_id, search_id))
+    return conv.question_for(c, question_id)
 
 
 @router.post("/{search_id}/answers", response_model=SearchRead)

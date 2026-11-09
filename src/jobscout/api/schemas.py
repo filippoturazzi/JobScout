@@ -27,6 +27,7 @@ class JobRead(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
     is_active: bool
+    work_mode: Literal["remote", "hybrid", "onsite"] | None = None
 
 
 class MatchRead(BaseModel):
@@ -52,6 +53,18 @@ class SearchStarted(BaseModel):
     run_id: int
 
 
+class RunSource(BaseModel):
+    name: str
+    state: Literal["waiting", "searching", "done", "failed", "skipped"]
+    fetched: int
+    queries_done: int
+    queries_total: int
+    detail: str | None
+    # What the run could not do with this source without it failing: a country past the
+    # search budget, a region the source could not map. Rows from before it read as none.
+    notes: list[str] = Field(default_factory=list)
+
+
 class RunRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,6 +76,7 @@ class RunRead(BaseModel):
     ok: bool
     error: str | None
     counters: dict[str, int]
+    sources: list[RunSource]
 
 
 class ReadingRead(BaseModel):
