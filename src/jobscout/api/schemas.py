@@ -60,6 +60,9 @@ class RunSource(BaseModel):
     queries_done: int
     queries_total: int
     detail: str | None
+    # What the run could not do with this source without it failing: a country past the
+    # search budget, a region the source could not map. Rows from before it read as none.
+    notes: list[str] = Field(default_factory=list)
 
 
 class RunRead(BaseModel):

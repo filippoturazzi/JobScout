@@ -706,6 +706,9 @@ def test_countries_past_the_budget_are_named_in_the_run(session, monkeypatch):
     assert [e for e in result.errors if "Spain" in e] == [
         "fake: not searched in Spain, only 2 searches per run"
     ]
+    # The page reads it from the source's own line, under the results.
+    [entry] = _the_run(session).sources
+    assert entry["notes"] == ["not searched in Spain, only 2 searches per run"]
 
 
 def test_a_remote_board_is_skipped_for_someone_who_refuses_remote(session, monkeypatch):
@@ -742,6 +745,9 @@ def test_a_source_warning_is_named_in_the_run_without_failing_it(session, monkey
         "fake: could not map region 'remoto' to a country, searched worldwide"
     ]
     assert _the_run(session).ok is True
+    [entry] = _the_run(session).sources
+    assert entry["notes"] == [warning], "named once, like the errors"
+    assert entry["state"] == "done"
 
 
 def test_a_block_on_the_second_term_keeps_the_first_term_jobs(session, monkeypatch):
@@ -797,6 +803,7 @@ def test_a_search_run_records_each_sources_progress(session, himalayas_sample):
         "queries_done": 2,
         "queries_total": 2,
         "detail": None,
+        "notes": [],
     }
     assert sources[1]["name"] == "remotive"
     assert (sources[1]["state"], sources[1]["fetched"], sources[1]["queries_done"]) == (
@@ -941,7 +948,12 @@ def test_an_unexpected_error_in_a_source_marks_it_failed(session, monkeypatch):
     monkeypatch.setattr("jobscout.pipeline.search.record_fetched", boom)
     search = _search(session)
     chat = SearchChatModel(_extraction(["python"]))
-    with pytest.raises(RuntimeError, match="disk full"):
-        run_search(session, _settings(sources=fake.name), search.id, deps=_deps(chat))
-    [entry] = _the_run(session).sources
+    # Never raises: the run row is where the failure is recorded.
+    result = run_search(session, _settings(sources=fake.name), search.id, deps=_deps(chat))
+    assert result.ok is False
+    assert result.sources_failed == 1
+    run = _the_run(session)
+    [entry] = run.sources
     assert entry["state"] == "failed" and "disk full" in str(entry["detail"])
+    assert run.ok is False and run.finished_at is not None
+    assert run.error == "fake: RuntimeError: disk full"

@@ -1,15 +1,18 @@
 """ASGI application. Run with ``jobscout serve`` or ``uvicorn jobscout.api.app:app``."""
 
 import logging
+import mimetypes
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.resources import files
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
+from starlette.types import Scope
 
 from jobscout import __version__
 from jobscout.api.routers import jobs, matches, my_jobs, runs, searches, sources, status
@@ -77,6 +80,25 @@ def _add_error_handlers(application: FastAPI) -> None:
         return refuse(422, exc)
 
 
+class _RevalidatedStaticFiles(StaticFiles):
+    """The page's files, revalidated on every load.
+
+    The page has no build step and so no hashed file names: without ``no-cache`` a browser
+    may run yesterday's module beside today's. The ETag keeps the revalidation a 304.
+    """
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def create_app() -> FastAPI:
     # Here, not only in the CLI: every way of serving this app builds it through this function,
     # so every way gets LOG_LEVEL applied and an invalid config stops the process.
@@ -103,8 +125,11 @@ def create_app() -> FastAPI:
             web_dir / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"}
         )
 
+    # A Windows registry can map .js to text/plain, and browsers refuse a module script
+    # served as that.
+    mimetypes.add_type("text/javascript", ".js")
     # Mounted last: every API route above keeps its path.
-    application.mount("/static", StaticFiles(directory=web_dir), name="static")
+    application.mount("/static", _RevalidatedStaticFiles(directory=web_dir), name="static")
     return application
 
 

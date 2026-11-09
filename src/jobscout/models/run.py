@@ -30,7 +30,8 @@ class Run(SQLModel, table=True):
     error: str | None = None
     counters: dict[str, int] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     # A search run's per-source progress, in run order: name, state (waiting, searching, done,
-    # failed, skipped), fetched, queries_done, queries_total, detail. Empty for every other job
+    # failed, skipped), fetched, queries_done, queries_total, detail, notes (what it could not
+    # do without failing; absent from older rows). Empty for every other job
     # and for a ranking run, which fetches nothing. Reassigned, never mutated: a changed JSON
     # value is not marked dirty.
     sources: list[dict[str, object]] = Field(

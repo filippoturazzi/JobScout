@@ -327,6 +327,26 @@ def test_run_read_includes_sources(client, session, chat):
     session.commit()
     session.refresh(run)
     body = client.get(f"/searches/{created['id']}/runs/{run.id}").json()
+    # A row written before `notes` existed reads as having none.
+    assert body["sources"] == [{**entry, "notes": []}]
+
+
+def test_run_read_includes_source_notes(client, session, chat):
+    created = _create(client).json()
+    entry = {
+        "name": "indeed",
+        "state": "done",
+        "fetched": 4,
+        "queries_done": 2,
+        "queries_total": 2,
+        "detail": None,
+        "notes": ["not searched in Spain, only 2 searches per run"],
+    }
+    run = Run(job="search", search_id=created["id"], sources=[entry])
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    body = client.get(f"/searches/{created['id']}/runs/{run.id}").json()
     assert body["sources"] == [entry]
 
 

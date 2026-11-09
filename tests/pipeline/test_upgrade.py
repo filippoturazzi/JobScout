@@ -234,7 +234,7 @@ def test_upgrade_adds_the_sources_column_to_an_upgraded_database(tmp_path):
 
     report = upgrade_database(engine)
 
-    assert report == UpgradeReport(searches=0, matches=0, runs=0)
+    assert report == UpgradeReport(searches=0, matches=0, runs=0, sources_only=True)
     assert needs_upgrade(engine) is False
     with Session(engine) as session:
         assert session.exec(select(Run)).one().sources == []

@@ -594,6 +594,22 @@ def test_upgrade_db_command_backs_up_and_upgrades(old_db, tmp_path, monkeypatch)
     assert len(list(tmp_path.glob("old.db.bak-*"))) == 1, "no backup when nothing changes"
 
 
+def test_upgrade_db_names_a_sources_only_upgrade(tmp_path, monkeypatch):
+    url = f"sqlite:///{tmp_path / 'a.db'}"
+    engine = create_engine_from_url(url)
+    init_db(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE run DROP COLUMN sources")
+    engine.dispose()
+    monkeypatch.setattr(cli, "get_settings", lambda: Settings(_env_file=None, database_url=url))
+
+    result = runner.invoke(cli.app, ["upgrade-db"])
+
+    assert result.exit_code == 0, result.output
+    assert "Added the run.sources column." in result.output
+    assert "searches=0" not in result.output
+
+
 def test_upgrade_db_refuses_postgres(old_db, monkeypatch):
     engine = create_engine_from_url(old_db)
     monkeypatch.setattr(engine.dialect, "name", "postgresql")

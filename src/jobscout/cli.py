@@ -303,6 +303,9 @@ def upgrade_db() -> None:
     except (FileExistsError, UnsupportedDatabaseError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
+    if report.sources_only:
+        typer.echo("Added the run.sources column.")
+        return
     typer.echo(f"searches={report.searches} matches={report.matches} runs={report.runs}")
 
 

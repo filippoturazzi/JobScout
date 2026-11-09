@@ -32,6 +32,8 @@ class UpgradeReport:
     searches: int
     matches: int
     runs: int
+    # The database already had searches and only gained the `run.sources` column.
+    sources_only: bool = False
 
 
 class UnsupportedDatabaseError(RuntimeError):
@@ -127,7 +129,7 @@ def upgrade_database(engine: Engine) -> UpgradeReport:
     with _transaction(engine) as connection:
         if not convert:
             _add_run_sources(connection)
-            return UpgradeReport(searches=0, matches=0, runs=0)
+            return UpgradeReport(searches=0, matches=0, runs=0, sources_only=True)
         old_prefs_table, old_prefs = _rows(connection, "user_preferences")
         old_match_table, old_matches = _rows(connection, "match")
         old_match_table.drop(connection)

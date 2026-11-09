@@ -249,16 +249,17 @@ def _fetch(
             update_entry(index, state="skipped", detail=reason)
             publish()
             continue
-        update_entry(index, state="searching", queries_total=len(queries))
-        publish()
+        notes: list[str] = []
         if source.searches_by_location:
             asked = {place for query in queries for place in query.locations}
-            for place in _search_places(prefs.regions):
-                if place not in asked:
-                    result.errors.append(
-                        f"{source.name}: not searched in {place}, "
-                        f"only {len(queries)} searches per run"
-                    )
+            notes = [
+                f"not searched in {place}, only {len(queries)} searches per run"
+                for place in _search_places(prefs.regions)
+                if place not in asked
+            ]
+            result.errors.extend(f"{source.name}: {note}" for note in notes)
+        update_entry(index, state="searching", queries_total=len(queries), notes=notes)
+        publish()
         try:
             # A failure breaks the loop, so the answered queries are the first `number + 1`.
             for number, query in enumerate(queries):
@@ -289,7 +290,10 @@ def _fetch(
         except Exception as exc:
             # Never leave the source "searching": the page names failures from this entry.
             session.rollback()
-            update_entry(index, state="failed", detail=f"{type(exc).__name__}: {exc}")
+            detail = f"{type(exc).__name__}: {exc}"
+            result.errors.append(f"{source.name}: {detail}")
+            result.sources_failed += 1
+            update_entry(index, state="failed", detail=detail)
             publish()
             raise
         # A source counts as ok once it has answered at all, even if a later term failed:
@@ -309,12 +313,17 @@ def _fetch(
         publish()
         # A source may note something that is not a failure (a region it could not map,
         # say) in a `warnings` list. Only some sources have one, so it is read with
-        # `getattr` rather than widening the protocol. It lands in `errors` because the
-        # page reads the run; it does not touch the ok/failed counters.
-        for warning in dict.fromkeys(getattr(source, "warnings", ())):
+        # `getattr` rather than widening the protocol. It lands in the source's `notes`,
+        # which the page shows under the results, and in `errors` for the run row; it does
+        # not touch the ok/failed counters.
+        warned = [w for w in dict.fromkeys(getattr(source, "warnings", ())) if w not in notes]
+        for warning in warned:
             message = f"{source.name}: {warning}"
             if message not in result.errors:
                 result.errors.append(message)
+        if warned:
+            update_entry(index, notes=[*notes, *warned])
+            publish()
     result.fetched = len(seen)
 
 
@@ -373,13 +382,21 @@ def run_search(
             "queries_done": 0,
             "queries_total": 0,
             "detail": None,
+            "notes": [],
         }
         for source in sources
     ]
     publish()
     report(SearchProgress(stage="terms", terms=list(result.terms)))
     if fetch:
-        _fetch(session, search_id, sources, result.terms, prefs, result, publish, report)
+        try:
+            _fetch(session, search_id, sources, result.terms, prefs, result, publish, report)
+        except Exception:
+            # Not a source refusing (that is an outcome, handled inside): something broke
+            # around it. `_fetch` already marked the source failed and named the error.
+            log.exception("the search %s stopped while fetching", search_id)
+            _finish(session, run, result, ok=False)
+            return result
 
     try:
         # Published before scoring starts so the page has a denominator to show while it
