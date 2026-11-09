@@ -24,6 +24,7 @@ def read_match(match: Match, job: Job) -> MatchRead:
         red_flags=match.red_flags,
         status=match.status,
         llm_model=match.llm_model,
+        updated_at=match.updated_at,
         job=read_job(job),
     )
 

@@ -8,6 +8,18 @@ const ERROR_LENGTH = 200;
 
 const byScore = (a, b) => (typeof b.score === "number" ? b.score : -1) - (typeof a.score === "number" ? a.score : -1);
 
+// While a run is in flight its cards are the ones it scored: a score from before it started
+// (a previous run's, or a stale one waiting to be redone) would read as a fresh result.
+// Both timestamps are naive UTC from the API, so they compare as they are.
+function scoredBy(run) {
+  const started = Date.parse(run.started_at);
+  return (m) => {
+    if (m.status === "stale") return false;
+    const updated = Date.parse(m.updated_at);
+    return Number.isNaN(started) || Number.isNaN(updated) || updated >= started;
+  };
+}
+
 export function runView(search, run, matchList, runningSearchId) {
   const list = matchList || { matches: [], found: 0, waiting: 0 };
   const found = list.found || 0;
@@ -57,7 +69,7 @@ export function runView(search, run, matchList, runningSearchId) {
     searchedSources: sources.some((s) => s.state !== "waiting"),
     failures,
     progress: { sources: sources.length, scored: counters.scored || 0, toScore: counters.to_score || 0 },
-    matches: [...(list.matches || [])].sort(byScore),
+    matches: (list.matches || []).filter(state === "running" ? scoredBy(run) : () => true).sort(byScore),
   };
 }
 

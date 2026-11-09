@@ -42,6 +42,20 @@ test("runView: results, waiting only and nothing", () => {
   assert.equal(runView(search, run(), list(0, 0), 7).state, "nothing");
 });
 
+test("runView: a running search shows only what this run scored, not the last run's scores", () => {
+  const m = (id, status, updated_at) => ({ id, score: 60, status, updated_at });
+  const matches = [
+    m(1, "stale", "2026-10-27T13:23:27"), // an old score waiting to be re-evaluated
+    m(2, "new", "2026-10-27T13:20:00"), // a previous run's result
+    m(3, "new", "2026-11-08T10:01:00"), // scored by this run (it started at 10:00)
+    m(4, "saved", "2026-11-08T10:02:00"), // this run's result the user already saved
+  ];
+  const running = runView(search, run({ finished_at: null }), list(4, 0, matches), 7);
+  assert.deepEqual(running.matches.map((x) => x.id), [3, 4]);
+  // Once the run ends, the results are every score the search has.
+  assert.equal(runView(search, run(), list(4, 0, matches), null).matches.length, 4);
+});
+
 test("runView: cards are ordered by score, unscored last", () => {
   const v = runView(search, run({ finished_at: null }), list(3, 0, [match(1, 60), match(2, null), match(3, 91)]), 7);
   assert.deepEqual(v.matches.map((m) => m.id), [3, 1, 2]);
