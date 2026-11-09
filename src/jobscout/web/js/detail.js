@@ -1,6 +1,7 @@
 // The job detail panel (screen 07), shared by a search's results and My jobs.
 // It sends the verdict itself (PATCH /matches/{id}); the caller decides what the change means
 // for its own listing and may answer with a notice ("it no longer shows here").
+// Every verdict can be taken back: a pressed button sends "new", and a notice offers Undo.
 import { h, mount } from "./dom.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
@@ -30,6 +31,19 @@ function isEditable(el) {
 
 // host: a persistent <aside class="app-detail">. match: MatchRead.
 // opts: { onVerdict(updated) -> notice string | null, onClose() }
+// The statuses the user can set; anything else (the pipeline's own) comes back as "new".
+const USER_STATUSES = new Set(["saved", "dismissed", "applied"]);
+
+// What a click on a verdict button sends: the verdict, or "new" when it is already on.
+export function nextStatus(current, verdict) {
+  return current === verdict ? "new" : verdict;
+}
+
+// The status Undo restores after a verdict changed `before` into something else.
+export function undoStatus(before) {
+  return USER_STATUSES.has(before) ? before : "new";
+}
+
 // Returns { update(match, {focus}), close(restoreFocus = true), id, match }.
 export function openDetail(host, match, opts = {}) {
   const opener = document.activeElement;
@@ -38,6 +52,7 @@ export function openDetail(host, match, opts = {}) {
   let error = null;
   let pending = false;
   let closed = false;
+  let undoTo = null;
 
   // Escape closes the panel from inside it, or from anywhere but a field being typed in.
   function onKey(event) {
@@ -50,9 +65,8 @@ export function openDetail(host, match, opts = {}) {
   }
 
   async function verdict(status, action) {
-    if (pending) return;
-    // Save is the only toggle the API knows one way: a saved job cannot be unsaved.
-    if (current.status === status) return;
+    if (pending || current.status === status) return;
+    const before = current.status;
     pending = true;
     error = null;
     draw(action);
@@ -61,12 +75,14 @@ export function openDetail(host, match, opts = {}) {
       if (closed) return;
       current = updated;
       notice = opts.onVerdict ? opts.onVerdict(updated) || null : null;
+      // Undo is offered with the notice, which is when the job has left the caller's list.
+      undoTo = notice && action !== "undo" ? undoStatus(before) : null;
     } catch (e) {
       if (closed) return;
       error = t("request_failed");
     }
     pending = false;
-    draw(notice ? "notice-close" : action);
+    draw(notice ? (undoTo ? "undo" : "notice-close") : action);
   }
 
   function draw(focusAction) {
@@ -74,7 +90,10 @@ export function openDetail(host, match, opts = {}) {
     const score = scoreLabel(current.score);
     const ago = postedAgo(job);
     const url = safeUrl(job.url);
-    const saved = current.status === "saved";
+    const status = current.status;
+    const saved = status === "saved";
+    const applied = status === "applied";
+    const dismissed = status === "dismissed";
     const title = h("h1", { class: "text-h1 dt-title", tabindex: "-1" }, job.title);
     const actions = [];
     if (url) {
@@ -90,8 +109,15 @@ export function openDetail(host, match, opts = {}) {
     actions.push(
       h(
         "button",
-        // The API cannot unsave: once saved, the button stays as a disabled "Saved".
-        { class: "js-btn js-btn--secondary", type: "button", disabled: pending || saved, "data-action": "save", onclick: () => verdict("saved", "save") },
+        // A pressed verdict button takes the verdict back on the next click.
+        {
+          class: "js-btn js-btn--secondary dt-toggle",
+          type: "button",
+          disabled: pending,
+          "aria-pressed": saved ? "true" : "false",
+          "data-action": "save",
+          onclick: () => verdict(nextStatus(status, "saved"), "save"),
+        },
         icon(saved ? "bookmark-filled" : "bookmark", 16),
         t(saved ? "saved" : "save"),
       ),
@@ -125,7 +151,15 @@ export function openDetail(host, match, opts = {}) {
               "div",
               { class: "dt-notice", role: "status" },
               h("p", { class: "text-body-sm dt-notice__text" }, notice),
-              h("button", { class: "js-btn js-btn--secondary", type: "button", "data-action": "notice-close", onclick: () => close() }, t("close")),
+              undoTo
+                ? h(
+                    "button",
+                    { class: "js-btn js-btn--secondary", type: "button", disabled: pending, "data-action": "undo", onclick: () => verdict(undoTo, "undo") },
+                    icon("rotate-ccw", 16),
+                    t("undo"),
+                  )
+                : null,
+              h("button", { class: "js-btn js-btn--ghost", type: "button", "data-action": "notice-close", onclick: () => close() }, t("close")),
             )
           : null,
         error ? h("p", { class: "text-body-sm dt-error", role: "alert" }, error) : null,
@@ -135,15 +169,29 @@ export function openDetail(host, match, opts = {}) {
           { class: "dt-actions dt-actions--quiet" },
           h(
             "button",
-            { class: "js-btn js-btn--ghost", type: "button", disabled: pending || current.status === "applied", "data-action": "applied", onclick: () => verdict("applied", "applied") },
+            {
+              class: "js-btn js-btn--ghost dt-toggle",
+              type: "button",
+              disabled: pending,
+              "aria-pressed": applied ? "true" : "false",
+              "data-action": "applied",
+              onclick: () => verdict(nextStatus(status, "applied"), "applied"),
+            },
             icon("check-circle", 16),
-            t("mark_applied"),
+            t(applied ? "applied" : "mark_applied"),
           ),
           h(
             "button",
-            { class: "js-btn js-btn--ghost", type: "button", disabled: pending || current.status === "dismissed", "data-action": "dismiss", onclick: () => verdict("dismissed", "dismiss") },
+            {
+              class: "js-btn js-btn--ghost dt-toggle",
+              type: "button",
+              disabled: pending,
+              "aria-pressed": dismissed ? "true" : "false",
+              "data-action": "dismiss",
+              onclick: () => verdict(nextStatus(status, "dismissed"), "dismiss"),
+            },
             icon("eye-off", 16),
-            t("dismiss"),
+            t(dismissed ? "dismissed" : "dismiss"),
           ),
         ),
       ),
@@ -179,6 +227,7 @@ export function openDetail(host, match, opts = {}) {
       } else {
         notice = null;
         error = null;
+        undoTo = null;
       }
       current = next;
       draw(focus ? null : keep);

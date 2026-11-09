@@ -131,6 +131,8 @@
   "applied": "Candidatada",
   "mark_applied": "Marcar como candidatada",
   "dismiss": "Dispensar",
+  "dismissed": "Dispensada",
+  "undo": "Desfazer",
   "close": "Fechar",
   "verdict_dismissed": "Dispensada. Esta vaga não aparece mais nestes resultados.",
   "verdict_applied": "Marcada como candidatada. Esta vaga não aparece mais nestes resultados; ela está em Minhas vagas.",

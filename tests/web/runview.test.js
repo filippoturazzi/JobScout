@@ -139,3 +139,21 @@ test("runHeadline: a run with no sources yet never says it searches 0 of them", 
   const ranked = running({ sources: [], counters: { to_score: 5, scored: 1 } });
   assert.deepEqual(runHeadline(ranked, false), { key: "ranking", showSources: false });
 });
+
+test("a verdict that closes a job takes it out of the results; taking it back puts it back in score order", async () => {
+  const { withVerdict } = await import("../../src/jobscout/web/js/runview.js");
+  const m = (id, score, status = "new") => ({ id, score, status });
+  const list = { found: 3, matches: [m(1, 90), m(2, 70), m(3, 50)] };
+
+  const dismissed = withVerdict(list, m(2, 70, "dismissed"));
+  assert.deepEqual(dismissed.matches.map((x) => x.id), [1, 3]);
+  assert.equal(dismissed.found, 2);
+
+  const back = withVerdict(dismissed, m(2, 70, "new"));
+  assert.deepEqual(back.matches.map((x) => x.id), [1, 2, 3]);
+  assert.equal(back.found, 3);
+
+  const saved = withVerdict(back, m(2, 70, "saved"));
+  assert.deepEqual(saved.matches.map((x) => [x.id, x.status]), [[1, "new"], [2, "saved"], [3, "new"]]);
+  assert.equal(saved.found, 3);
+});

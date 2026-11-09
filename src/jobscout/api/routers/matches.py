@@ -35,7 +35,10 @@ def update_match(
     session: Annotated[Session, Depends(get_session)],
     user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> MatchRead:
-    """Save, dismiss or mark applied. Dismissed and applied stick: no re-evaluation undoes them."""
+    """Save, dismiss or mark applied; ``new`` takes the verdict back.
+
+    Dismissed and applied stick: no re-evaluation undoes them, only the user.
+    """
     row = set_match_status(session, user_id, match_id, payload.status)
     if row is None:
         raise HTTPException(status_code=404, detail=f"no match {match_id}")

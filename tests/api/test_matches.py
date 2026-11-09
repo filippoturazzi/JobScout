@@ -191,7 +191,18 @@ def test_patch_sets_a_user_status(client, session, status):
     assert match.status == status
 
 
-@pytest.mark.parametrize("status", ["stale", "low", "new", "bogus"])
+@pytest.mark.parametrize("verdict", ["saved", "dismissed", "applied"])
+def test_patch_new_takes_a_verdict_back(client, session, verdict):
+    user = _bootstrap_user(client, session)
+    match = _match(session, user, status=verdict)
+    response = client.patch(f"/matches/{match.id}", json={"status": "new"})
+    assert response.status_code == 200
+    assert response.json()["status"] == "new"
+    session.refresh(match)
+    assert match.status == "new"
+
+
+@pytest.mark.parametrize("status", ["stale", "low", "seen", "bogus"])
 def test_patch_rejects_a_status_the_user_cannot_set(client, session, status):
     user = _bootstrap_user(client, session)
     match = _match(session, user)

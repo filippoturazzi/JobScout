@@ -11,7 +11,7 @@ import { composer } from "../composer.js";
 import { buildTranscript } from "../transcript.js";
 import { renderEntries } from "../conversation.js";
 import { createGuard } from "../guard.js";
-import { matchChanged, runView, shouldKeepPolling } from "../runview.js";
+import { matchChanged, runView, shouldKeepPolling, withVerdict } from "../runview.js";
 import { runSection } from "../results.js";
 import { openDetail } from "../detail.js";
 
@@ -223,11 +223,7 @@ export async function renderSearch(root, ctx, id) {
   function onVerdict(updated) {
     const list = ui.matches;
     if (!list) return null;
-    const leaves = updated.status === "dismissed" || updated.status === "applied";
-    const matches = list.matches.map((m) => (m.id === updated.id ? updated : m));
-    ui.matches = leaves
-      ? { ...list, matches: matches.filter((m) => m.id !== updated.id), found: Math.max(list.found - 1, 0) }
-      : { ...list, matches };
+    ui.matches = withVerdict(list, updated);
     drawRun();
     if (updated.status === "dismissed") return t("verdict_dismissed");
     if (updated.status === "applied") return t("verdict_applied");
