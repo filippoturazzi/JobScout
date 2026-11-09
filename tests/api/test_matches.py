@@ -256,3 +256,11 @@ def test_they_are_returned_when_asked_for_by_status(client, session, status):
     _match(session, user, status=status, external_id="x")
     body = _listed(client, user, status=status)
     assert [m["status"] for m in body] == [status]
+
+
+def test_a_listed_match_says_when_it_last_changed(client, session):
+    # The page tells a running search's fresh scores from the last run's by this time.
+    user = _bootstrap_user(client, session)
+    match = _match(session, user)
+    (listed,) = _listed(client, user)
+    assert listed["updated_at"] == match.updated_at.isoformat()

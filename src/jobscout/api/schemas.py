@@ -42,6 +42,7 @@ class MatchRead(BaseModel):
     red_flags: list[str]
     status: str
     llm_model: str | None
+    updated_at: datetime
     job: JobRead
 
 
