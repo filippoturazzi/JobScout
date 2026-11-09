@@ -5,6 +5,7 @@ import { icon } from "./icons.js";
 import { t } from "./i18n.js";
 import { sourceName } from "./format.js";
 import { jobCard } from "./jobcard.js";
+import { runHeadline } from "./runview.js";
 import { appLine } from "./conversation.js";
 
 const SOURCE_ICONS = { done: "check-circle", searching: "loader", waiting: "clock", failed: "alert-triangle", skipped: "minus" };
@@ -49,7 +50,11 @@ function failureLine(iconName, text) {
   return h("li", { class: "text-body-sm run-failure" }, h("span", { class: "run-failure__icon" }, icon(iconName, 16)), h("span", {}, text));
 }
 
-// One line per source that failed or was skipped, then the run's own error if it ended on one.
+const FAILURE_ICONS = { skipped: "minus", note: "info", failed: "alert-triangle" };
+
+// One line per source that failed or was skipped and per note a source left, then the run's own
+// error if it ended on one. A note ("Indeed: not searched in Spain, …") is not a failure: it
+// reads "{source}: {detail}", like a skip, never "did not answer".
 export function failureLines(failures, runError = null) {
   if (!failures.length && !runError) return null;
   return h(
@@ -58,10 +63,10 @@ export function failureLines(failures, runError = null) {
     runError ? failureLine("alert-triangle", t("run_failed", { detail: runError })) : null,
     failures.map((f) =>
       failureLine(
-        f.kind === "skipped" ? "minus" : "alert-triangle",
-        f.kind === "skipped"
-          ? t("source_skipped_line", { source: sourceName(f.name), detail: f.detail })
-          : t("source_failed_line", { source: sourceName(f.name), detail: f.detail }),
+        FAILURE_ICONS[f.kind] || "alert-triangle",
+        f.kind === "failed"
+          ? t("source_failed_line", { source: sourceName(f.name), detail: f.detail })
+          : t("source_skipped_line", { source: sourceName(f.name), detail: f.detail }),
       ),
     ),
   );
@@ -124,12 +129,11 @@ export function runSection(view, search, ui, handlers) {
 
   switch (view.state) {
     case "running": {
-      // A ranking run calls no source, so its source lines would all say "waiting".
-      const showSources = !ui.ranking && (view.searchedSources || view.progress.toScore === 0);
+      const headline = runHeadline(view, ui.ranking);
       return [
         appLine(
-          h("p", { class: "text-body run-status", "aria-live": "polite" }, showSources ? t("searching_sources", { n: view.progress.sources }) : t("ranking")),
-          showSources ? sourceRows(view.sources) : null,
+          h("p", { class: "text-body run-status", "aria-live": "polite" }, t(headline.key, { n: headline.n })),
+          headline.showSources ? sourceRows(view.sources) : null,
           scoring(view.progress),
           cards(view.matches, ui, handlers),
         ),

@@ -40,12 +40,19 @@ class FakeElement extends FakeNode {
   addEventListener(type, fn) {
     (this.listeners[type] ||= []).push(fn);
   }
+  focus() {
+    fakeDocument.activeElement = this;
+  }
+  setSelectionRange(start, end) {
+    this.selection = [start, end];
+  }
   get textContent() {
     return this.childNodes.map((n) => n.textContent).join("");
   }
 }
 
 export const fakeDocument = {
+  activeElement: null,
   createElement: (tag) => new FakeElement(tag),
   createTextNode: (data) => new FakeText(data),
 };

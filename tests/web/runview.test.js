@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { runView, shouldKeepPolling, matchChanged } = await import("../../src/jobscout/web/js/runview.js");
+const { runView, runHeadline, shouldKeepPolling, matchChanged } = await import("../../src/jobscout/web/js/runview.js");
 
 const search = { id: 7 };
 const src = (name, state, extra = {}) => ({ name, state, fetched: 0, queries_done: 0, queries_total: 0, detail: null, ...extra });
@@ -98,4 +98,44 @@ test("runView: searched counts the sources that were not skipped", () => {
   const sources = [src("himalayas", "done"), src("remotive", "done"), src("linkedin", "failed"), src("indeed", "skipped")];
   assert.equal(runView(search, run({ sources }), list(0, 0), null).searched, 3);
   assert.equal(runView(search, run({ sources: [], counters: { sources_ok: 2, sources_failed: 1 } }), list(0, 0), null).searched, 3);
+});
+
+test("runView: a source's notes become lines of their own, after its failure", () => {
+  const r = run({
+    sources: [
+      src("indeed", "done", { fetched: 4, notes: ["not searched in Spain, only 2 searches per run"] }),
+      src("linkedin", "failed", { detail: "too many requests", notes: ["could not map region 'remoto'"] }),
+      src("himalayas", "done"),
+    ],
+  });
+  assert.deepEqual(runView(search, r, list(1, 0), null).failures, [
+    { name: "indeed", kind: "note", detail: "not searched in Spain, only 2 searches per run" },
+    { name: "linkedin", kind: "failed", detail: "too many requests" },
+    { name: "linkedin", kind: "note", detail: "could not map region 'remoto'" },
+  ]);
+  // A row from before notes existed has none.
+  assert.deepEqual(runView(search, run(), list(1, 0), null).failures, []);
+});
+
+test("runView: the run error leaves out what a source line already says", () => {
+  const sources = [
+    src("linkedin", "failed", { detail: "SourceBlocked: 429" }),
+    src("indeed", "failed", { detail: "HTTP 500", notes: ["not searched in Spain, only 2 searches per run"] }),
+  ];
+  const every = run({ ok: false, sources, error: "linkedin: SourceBlocked: 429; indeed: not searched in Spain, only 2 searches per run; indeed: HTTP 500" });
+  assert.equal(runView(search, every, list(0, 0), null).runError, null);
+  const more = run({ ok: false, sources, error: "linkedin: SourceBlocked: 429; ValueError: scoring broke" });
+  assert.equal(runView(search, more, list(0, 0), null).runError, "ValueError: scoring broke");
+});
+
+test("runHeadline: a run with no sources yet never says it searches 0 of them", () => {
+  const running = (extra) => runView(search, run({ finished_at: null, ...extra }), list(0, 0), 7);
+  // The placeholder run a start draws before the first poll, and a reloaded ranking run.
+  assert.deepEqual(runHeadline(running({ sources: [], counters: {} }), false), { key: "searching", showSources: false });
+  const two = running({ sources: [src("himalayas", "searching"), src("remotive", "waiting")], counters: {} });
+  assert.deepEqual(runHeadline(two, false), { key: "searching_sources", n: 2, showSources: true });
+  // A ranking run calls no source.
+  assert.deepEqual(runHeadline(two, true), { key: "ranking", showSources: false });
+  const ranked = running({ sources: [], counters: { to_score: 5, scored: 1 } });
+  assert.deepEqual(runHeadline(ranked, false), { key: "ranking", showSources: false });
 });

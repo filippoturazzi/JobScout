@@ -22,15 +22,24 @@ export function runView(search, run, matchList, runningSearchId) {
   else if (waiting > 0) state = "waiting_only";
   else state = "nothing";
 
-  // A source that answered and then failed stays "done" but carries why in `detail`.
-  const failures = sources
-    .filter((s) => s.state === "failed" || s.state === "skipped" || (s.state === "done" && s.detail))
-    .map((s) => ({ name: s.name, kind: s.state === "skipped" ? "skipped" : "failed", detail: s.detail || "" }));
+  // A source that answered and then failed stays "done" but carries why in `detail`. Its notes
+  // (a country past the budget, a region it could not map) follow it, one line each.
+  const failures = [];
+  for (const s of sources) {
+    if (s.state === "failed" || s.state === "skipped" || (s.state === "done" && s.detail)) {
+      failures.push({ name: s.name, kind: s.state === "skipped" ? "skipped" : "failed", detail: s.detail || "" });
+    }
+    for (const note of s.notes || []) failures.push({ name: s.name, kind: "note", detail: note });
+  }
 
   // A run that ended with an error says so, cut to a readable length (provider errors are long).
+  // The run's error joins every source's message with "; ": the ones a line above already
+  // names are left out, so a run where every source failed does not say it all twice.
   let runError = null;
   if (run && run.finished_at && !run.ok && run.error) {
-    runError = run.error.length > ERROR_LENGTH ? `${run.error.slice(0, ERROR_LENGTH)}…` : run.error;
+    const named = new Set(failures.map((f) => `${f.name}: ${f.detail}`));
+    const rest = run.error.split("; ").filter((part) => !named.has(part)).join("; ");
+    if (rest) runError = rest.length > ERROR_LENGTH ? `${rest.slice(0, ERROR_LENGTH)}…` : rest;
   }
 
   // Sources the run actually searched: not the skipped ones.
@@ -50,6 +59,16 @@ export function runView(search, run, matchList, runningSearchId) {
     progress: { sources: sources.length, scored: counters.scored || 0, toScore: counters.to_score || 0 },
     matches: [...(list.matches || [])].sort(byScore),
   };
+}
+
+// The line over a running search. A run with no sources yet (the placeholder a start draws
+// before the first poll, or a reloaded ranking run) says "Searching…", never "0 sources".
+export function runHeadline(view, ranking) {
+  // A ranking run calls no source, so its source lines would all say "waiting".
+  const searching = !ranking && (view.searchedSources || view.progress.toScore === 0);
+  if (!searching) return { key: "ranking", showSources: false };
+  if (!view.progress.sources) return { key: "searching", showSources: false };
+  return { key: "searching_sources", n: view.progress.sources, showSources: true };
 }
 
 // Polling runs only while the run is in flight here; an interrupted run stops it.

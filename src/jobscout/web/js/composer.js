@@ -45,7 +45,15 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
 
   return {
     el,
-    focus: () => field.focus(),
+    // end: put the caret after the text (a redraw rebuilt the field under the user's typing).
+    focus: ({ end = false } = {}) => {
+      field.focus();
+      if (end && typeof field.setSelectionRange === "function") {
+        const n = String(field.value || "").length;
+        field.setSelectionRange(n, n);
+      }
+    },
+    hasFocus: () => typeof document !== "undefined" && document.activeElement === field,
     getText: () => field.value,
     setText: (s) => {
       field.value = s;
