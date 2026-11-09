@@ -72,6 +72,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .sb-item__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-del { opacity: 0; padding: var(--space-2); }
 .sb-row:hover .sb-del, .sb-row:focus-within .sb-del { opacity: 1; }
+/* No hover on a touch screen: the delete button is always there. */
+@media (hover: none) { .sb-del { opacity: 1; } }
 .sb-row--confirm { justify-content: space-between; gap: var(--space-2); padding: var(--space-1) var(--space-2); flex-wrap: wrap; }
 .sb-confirm { display: inline-flex; }
 .sb-error { flex-basis: 100%; margin: 0; padding: var(--space-1) var(--space-2) var(--space-2); color: var(--danger); }

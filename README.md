@@ -47,7 +47,8 @@ and asks a few quick questions (role level, work mode, location, skills), then r
 search across the enabled sources and scores what it finds with your LLM (set a provider
 key in `.env` first). The results list shows each posting with its score; open one for the
 reasoning, matched and missing skills and red flags, then save it, mark it applied or
-dismiss it. **My jobs** gathers saved, applied and dismissed jobs across every search.
+dismiss it. **My jobs** gathers your jobs across every search, under the tabs All, Saved
+and Applied; a dismissed job leaves every tab.
 **Settings** shows the model and sources and switches the theme (dark by default) and the
 language (English or pt-BR).
 

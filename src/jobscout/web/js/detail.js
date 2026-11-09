@@ -90,7 +90,8 @@ export function openDetail(host, match, opts = {}) {
     actions.push(
       h(
         "button",
-        { class: "js-btn js-btn--secondary", type: "button", "aria-pressed": saved ? "true" : "false", disabled: pending, "data-action": "save", onclick: () => verdict("saved", "save") },
+        // The API cannot unsave: once saved, the button stays as a disabled "Saved".
+        { class: "js-btn js-btn--secondary", type: "button", disabled: pending || saved, "data-action": "save", onclick: () => verdict("saved", "save") },
         icon(saved ? "bookmark-filled" : "bookmark", 16),
         t(saved ? "saved" : "save"),
       ),

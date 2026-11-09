@@ -11,7 +11,6 @@ Jobscout é um buscador open source de vagas de tecnologia: a pessoa roda localm
 | `tokens.css` | **Fonte da verdade** em CSS custom properties: cores (dark padrão + light), fontes, espaços, raios e classes `.text-*` |
 | `tokens.json` | Os mesmos tokens em JSON, com nota de uso de cada um |
 | `components.css` | Componentes base com classes `js-*` (Button, Tag, JobCard, PreferenceInput, Logo) |
-| `tailwind.preset.js` | Preset opcional, mapeia o Tailwind para os tokens |
 | `logos/` | `jobscout-mark.svg` (principal), `jobscout-mark-orange.svg`, `jobscout-glyph.svg`, `favicon.svg` |
 | `examples/index.html` | Tela principal de referência (abra no navegador) |
 
@@ -28,7 +27,7 @@ Jobscout é um buscador open source de vagas de tecnologia: a pessoa roda localm
 
 - Em React/Next: importe `tokens.css` e `components.css` no CSS global; em Next.js pode trocar o `<link>` das fontes por `next/font/google` mantendo os nomes de família.
 - **Regras para código:**
-  - Nunca escreva hex, px de espaçamento ou fonte soltos: use `var(--token)` (ou as classes do preset Tailwind).
+  - Nunca escreva hex, px de espaçamento ou fonte soltos: use `var(--token)`.
   - Para tokens novos, adicione em `tokens.css` **e** `tokens.json`, com comentário de uso, e confira contraste (texto ≥ 4.5:1, bordas de controle e foco ≥ 3:1) nos dois temas.
   - Tema: alterne `data-theme` no `<html>`; respeite a preferência salva do usuário, padrão `dark`.
 

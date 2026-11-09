@@ -4,9 +4,8 @@ import { icon } from "../icons.js";
 import { t, loadLocale, currentLocale } from "../i18n.js";
 import { api } from "../api.js";
 import { refreshStatus } from "../store.js";
+import { sourceName } from "../format.js";
 import { withCode } from "./common.js";
-
-const SOURCE_NAMES = { himalayas: "Himalayas", remotive: "Remotive", linkedin: "LinkedIn", indeed: "Indeed", arbeitnow: "Arbeitnow" };
 
 function row(label, value) {
   return h("div", { class: "set-row" }, h("span", { class: "text-body set-label" }, label), value);
@@ -46,7 +45,7 @@ function sourceRow(s) {
   return h(
     "div",
     { class: "set-row set-source" },
-    h("span", { class: "text-body set-source__name" }, SOURCE_NAMES[s.name] || s.name),
+    h("span", { class: "text-body set-source__name" }, sourceName(s.name)),
     h("span", { class: "text-body-sm set-source__desc" }, reason || t(`source_${s.name}`)),
     s.active
       ? h("span", { class: "js-tag js-tag--success" }, icon("check-circle", 12), t("source_active"))
