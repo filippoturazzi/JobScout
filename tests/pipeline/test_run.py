@@ -438,6 +438,23 @@ def test_a_verdict_applies_to_every_search_that_found_the_job(session):
     assert list_my_jobs(session, a.user_id).items == []
 
 
+def test_taking_a_verdict_back_restores_every_search_of_the_job(session):
+    a = make_search(session, title="A")
+    b = make_search(session, title="B")
+    job = _job(session, "x")
+    first = _scored(session, a, job, 60)
+    rejected = _scored(session, b, job, None, status="low")
+    set_match_status(session, a.user_id, first.id, "applied")
+
+    row = set_match_status(session, a.user_id, first.id, "new")
+
+    assert row is not None and row[0].status == "new"
+    session.refresh(rejected)
+    # The prefilter's rejection comes back as it was: no score, so not a new card.
+    assert rejected.status == "low"
+    assert [i.job.id for i in list_my_jobs(session, a.user_id).items] == [job.id]
+
+
 def test_my_jobs_does_not_resurface_a_dismissed_job_scored_later(session):
     a = make_search(session, "Python LLM engineer.", title="A")
     b = make_search(session, "Python LLM engineer.", title="B")

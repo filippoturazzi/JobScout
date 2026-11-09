@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from sqlalchemy import case
 from sqlmodel import Session, col, desc, select, update
 from sqlmodel.sql.expression import Select, SelectOfScalar
 
@@ -198,15 +199,16 @@ def list_my_jobs(
 def set_match_status(
     session: Session, user_id: int, match_id: int, status: str
 ) -> tuple[Match, Job] | None:
-    """Record the user's verdict on a job; ``None`` if the match is not theirs.
+    """Record the user's verdict on a job, or take it back with ``"new"``; ``None`` if the
+    match is not theirs.
 
     A verdict is about the job, so it lands on every match the user has for it, whichever
-    search scored it. Returns the requested row.
+    search scored it. Taking it back restores what the pipeline had: a scored row is ``new``
+    again, an unscored one (the prefilter's rejection) ``low``. Returns the requested row.
     """
-    if status not in USER_STATUSES:
-        raise ValueError(
-            f"status {status!r} cannot be set; expected one of {sorted(USER_STATUSES)}"
-        )
+    settable = USER_STATUSES | {"new"}
+    if status not in settable:
+        raise ValueError(f"status {status!r} cannot be set; expected one of {sorted(settable)}")
     row = session.exec(
         select(Match, Job)
         .join(Job, col(Match.job_id) == col(Job.id))
@@ -215,11 +217,15 @@ def set_match_status(
     if row is None:
         return None
     match, job = row
-    session.exec(
-        update(Match)
-        .where(col(Match.user_id) == user_id, col(Match.job_id) == match.job_id)
-        .values(status=status)
-    )
+    same_job = (col(Match.user_id) == user_id, col(Match.job_id) == match.job_id)
+    if status == "new":
+        session.exec(
+            update(Match)
+            .where(*same_job, col(Match.status).in_(USER_STATUSES))
+            .values(status=case((col(Match.score).is_(None), "low"), else_="new"))
+        )
+    else:
+        session.exec(update(Match).where(*same_job).values(status=status))
     session.commit()
     session.refresh(match)
     return match, job

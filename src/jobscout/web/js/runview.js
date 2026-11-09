@@ -82,3 +82,18 @@ export function matchChanged(a, b) {
   const keys = ["score", "reasoning", "status", "matched_skills", "missing_skills", "red_flags"];
   return keys.some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 }
+
+// A search's results after a verdict on one of them: dismissed and applied leave the list,
+// any other status stays (or comes back, when a verdict was taken back) in score order.
+export function withVerdict(list, updated) {
+  const rest = list.matches.filter((m) => m.id !== updated.id);
+  const wasListed = rest.length !== list.matches.length;
+  if (updated.status === "dismissed" || updated.status === "applied") {
+    return wasListed ? { ...list, matches: rest, found: Math.max(list.found - 1, 0) } : list;
+  }
+  if (wasListed) return { ...list, matches: list.matches.map((m) => (m.id === updated.id ? updated : m)) };
+  const score = (m) => (m.score === null || m.score === undefined ? -1 : m.score);
+  const at = rest.findIndex((m) => score(m) < score(updated));
+  const matches = at === -1 ? [...rest, updated] : [...rest.slice(0, at), updated, ...rest.slice(at)];
+  return { ...list, matches, found: list.found + 1 };
+}

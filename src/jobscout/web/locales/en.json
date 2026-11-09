@@ -131,6 +131,8 @@
   "applied": "Applied",
   "mark_applied": "Mark as applied",
   "dismiss": "Dismiss",
+  "dismissed": "Dismissed",
+  "undo": "Undo",
   "close": "Close",
   "verdict_dismissed": "Dismissed. This job no longer shows in these results.",
   "verdict_applied": "Marked as applied. This job no longer shows in these results; find it in My jobs.",

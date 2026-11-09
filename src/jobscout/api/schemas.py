@@ -46,7 +46,8 @@ class MatchRead(BaseModel):
 
 
 class MatchStatusUpdate(BaseModel):
-    status: Literal["saved", "dismissed", "applied"]
+    # "new" takes the verdict back.
+    status: Literal["saved", "dismissed", "applied", "new"]
 
 
 class SearchStarted(BaseModel):
