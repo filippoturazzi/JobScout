@@ -68,6 +68,7 @@ Jobscout é um buscador open source de vagas de tecnologia: a pessoa roda localm
 | Classe | Fonte | Tamanho/altura | Peso | Uso |
 |---|---|---|---|---|
 | `.text-display` | Bricolage Grotesque | 48/52, -0.03em | 700 | Wordmark, telas vazias (1 por tela) |
+| `.text-title` | Bricolage Grotesque | 36/42, -0.025em | 700 | Pergunta central da home, acima do campo |
 | `.text-h1` | Bricolage Grotesque | 28/34, -0.02em | 700 | Título da vaga nos detalhes |
 | `.text-h2` | Bricolage Grotesque | 18/24, -0.01em | 600 | Título no card, seções |
 | `.text-body` | IBM Plex Sans | 15/22 | 400 | Descrição, campo de preferências |

@@ -55,6 +55,7 @@
   --radius-lg: 16px;  /* Cards de vaga, painéis. */
   --radius-pill: 999px;  /* Score de match e indicador de status. */
   --text-display-size: 48px; --text-display-line: 52px; --text-display-weight: 700;
+  --text-title-size: 36px; --text-title-line: 42px; --text-title-weight: 700;
   --text-h1-size: 28px; --text-h1-line: 34px; --text-h1-weight: 700;
   --text-h2-size: 18px; --text-h2-line: 24px; --text-h2-weight: 600;
   --text-body-size: 15px; --text-body-line: 22px; --text-body-weight: 400;
@@ -65,6 +66,7 @@
 
 /* Estilos de texto */
 .text-display { font-family: var(--font-display); font-size: 48px; line-height: 52px; font-weight: 700; letter-spacing: -0.03em; }  /* Wordmark e telas vazias/onboarding. Uma por tela, no máximo. */
+.text-title { font-family: var(--font-display); font-size: 36px; line-height: 42px; font-weight: 700; letter-spacing: -0.025em; }  /* Pergunta central da home, acima do campo. */
 .text-h1 { font-family: var(--font-display); font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.02em; }  /* Título da vaga no painel de detalhes. */
 .text-h2 { font-family: var(--font-display); font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }  /* Título da vaga no card; títulos de seção. */
 .text-body { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 400; }  /* Descrição da vaga, texto do campo de preferências. */
