@@ -133,11 +133,31 @@ def _record_duplicate(job: Job, raw: RawJob) -> None:
     job.raw = {**job.raw, "duplicates": duplicates}
 
 
+def _without_nul(raw: RawJob) -> RawJob:
+    """Strip NUL from the text fields: Postgres text columns reject it, and one scraped posting
+    carrying it would roll back its whole source's batch."""
+    text: dict[str, str | list[str]] = {
+        name: value.replace("\x00", "")
+        for name, value in raw.model_dump(include=_TEXT_FIELDS).items()
+        if isinstance(value, str) and "\x00" in value
+    }
+    if any("\x00" in tag for tag in raw.tags):
+        text["tags"] = [tag.replace("\x00", "") for tag in raw.tags]
+    return raw.model_copy(update=text) if text else raw
+
+
+_TEXT_FIELDS = {
+    "source", "external_id", "title", "company", "location", "url", "description",
+    "salary_currency",
+}  # fmt: skip
+
+
 def upsert_jobs(
     session: Session, raw_jobs: list[RawJob], now: datetime | None = None
 ) -> UpsertStats:
     now = now or utcnow()
     stats = UpsertStats()
+    raw_jobs = [_without_nul(r) for r in raw_jobs]
     # Collapse duplicates inside the batch; last one wins.
     by_key = {(r.source, r.external_id): r for r in raw_jobs}
     if not by_key:

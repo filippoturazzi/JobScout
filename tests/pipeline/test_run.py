@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import pytest
 from sqlmodel import select
 
 from jobscout.config import Settings
@@ -330,6 +331,7 @@ def test_my_jobs_shows_a_job_found_twice_once_at_its_best_score(session):
     assert sorted(item.searches) == [(a.id, "A"), (b.id, "B")]
 
 
+@pytest.mark.sqlite_only  # a dangling search_id needs SQLite's unenforced foreign keys
 def test_my_jobs_never_lists_a_match_whose_search_is_gone(session):
     search = make_search(session)
     kept, orphan = _job(session, "kept"), _job(session, "orphan")

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed, and the profile search that drives them (`pipeline.search.run_search`). Saved searches and the conversation backend are done too: a search is a profile with its own preferences, matches and conversation (`pipeline/searches.py`, `pipeline/conversation.py`), reached through `jobscout search` and `POST /searches/{id}/run`. Scheduled ingest has no search terms, so it never reaches the scraped sources. The stage 5 web page is done too (static HTML served by FastAPI, `src/jobscout/web/`), the conversational interface in `docs/superpowers/specs/2026-11-07-chat-interface-design.md`: stage 5 is complete apart from Jooble, which is deferred. `SOURCES` defaults to `himalayas,remotive,linkedin,indeed`; Arbeitnow stays registered but off by default (a catalogue with no search). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed, and the profile search that drives them (`pipeline.search.run_search`). Saved searches and the conversation backend are done too: a search is a profile with its own preferences, matches and conversation (`pipeline/searches.py`, `pipeline/conversation.py`), reached through `jobscout search` and `POST /searches/{id}/run`. Scheduled ingest has no search terms, so it never reaches the scraped sources. The stage 5 web page is done too (static HTML served by FastAPI, `src/jobscout/web/`), the conversational interface in `docs/superpowers/specs/2026-11-07-chat-interface-design.md`: stage 5 is complete apart from Jooble, which is deferred. Stage 6 is done: Postgres is supported (the suite runs on it in CI via `TEST_DATABASE_URL`) and `docker-compose.yml` runs the app plus Postgres 24h, published on `127.0.0.1:8000` only (`docs/superpowers/specs/2026-11-11-stage-6-docker-postgres-design.md`). `SOURCES` defaults to `himalayas,remotive,linkedin,indeed`; Arbeitnow stays registered but off by default (a catalogue with no search). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -13,7 +13,7 @@ Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `
 ## Decisions already made (do not reopen without the user)
 
 - Package `jobscout`, src-layout at repo root (`src/jobscout/`), `uv` + `ruff` + `pytest`, Python 3.12, MIT.
-- Single fixed user for now, but **everything is keyed by `user_id`**; `api/deps.py::get_current_user()` is the only place that changes when auth arrives.
+- Single fixed user, and **everything stays keyed by `user_id`**; `api/deps.py::get_current_user()` returns it. **Auth and multi-user were dropped on 2026-11-11** (self-hosted, single-user): do not propose them. Protection is by binding to localhost by default; exposing the app is the operator's job (reverse proxy or tunnel, documented in the README).
 - **Operator config (env, `Settings`) is strictly separate from user preferences (DB).** Never put LLM keys, DB URLs, or intervals in user tables; never put job-search preferences in env.
 - SQLModel; SQLite by default, Postgres via `DATABASE_URL`. Embeddings stored as bytes — no vector DB.
 - LLM and embeddings via LangChain abstractions, provider chosen by env. Chat takes one `LLM_API_KEY` from any provider (google, openai, anthropic, groq, deepseek; ollama keyless), detected from the key prefix unless `LLM_PROVIDER` says otherwise, with a cheap default model per provider (`LLM_MODEL` overrides); all in `matching/llm.py`. Embeddings are separate (`EMBEDDING_PROVIDER`, default Gemini via `GOOGLE_API_KEY`), since most chat providers have none. No direct vendor SDK calls.
@@ -38,7 +38,7 @@ Ingest is an **upsert** keyed by `(source, external_id)`: it maintains `first_se
 
 ## Roadmap (stage-gated; each stage runs end to end)
 
-0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources (Himalayas, Remotive; LinkedIn and Indeed via JobSpy; Google Jobs dropped, Jooble deferred) → 6 auth, Postgres/Docker (the Reflex UI and i18n were dropped on 2026-10-22) → ~~7 Quotas, BYOK, public demo~~ dropped (no hosted demo).
+0 Foundation → 1 Vertical slice without AI (Arbeitnow, SQLite, CLI, API) → 2 LangGraph matching + backfill → 3 Scheduler + inactive marking → 4 `Notifier` + first channel → 5 More sources (Himalayas, Remotive; LinkedIn and Indeed via JobSpy; Google Jobs dropped, Jooble deferred) → 6 Postgres/Docker (the Reflex UI and i18n were dropped on 2026-10-22; auth and multi-user on 2026-11-11) → ~~7 Quotas, BYOK, public demo~~ dropped (no hosted demo).
 
 Follow this order unless the user says otherwise. TDD for all logic; tests never touch the network (fixtures + `respx`; LangChain fake models). Real-API tests live behind `pytest -m integration` and are off by default.
 
@@ -47,6 +47,8 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv sync --all-groups` — install (Python 3.12 is pinned in `.python-version`; never use the system Python).
 - `uv run pytest` — unit tests, no network. Single test: `uv run pytest tests/sources/test_arbeitnow.py::test_fetch_maps_fields -v`.
 - `uv run pytest -m integration` — opt-in tests against real APIs (off by default via `addopts`).
+- `TEST_DATABASE_URL=postgresql+psycopg://... uv run pytest` — the suite on Postgres (CI job `test-postgres`); tests marked `sqlite_only` skip there.
+- `docker compose up -d` — app + Postgres (needs `POSTGRES_PASSWORD` in `.env`). `bash scripts/compose_smoke.sh` smoke-tests the stack under its own project name (CI workflow `docker.yml`, which also pushes `ghcr.io/filippoturazzi/jobscout` from `main`).
 - `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
 - `uv run mypy src` — strict type check of `src/`; must be clean before committing (CI enforces it).
 - `uv run jobscout fetch|jobs|searches|repair-descriptions|upgrade-db|serve` — CLI. `search`, `match`, `matches` and `jobs` take `--search ID` (default: the latest search); `upgrade-db` converts a pre-saved-searches database after backing it up. `serve` runs uvicorn on `jobscout.api.app:app`.
@@ -56,4 +58,4 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv run jobscout search` — one search in the foreground: profile terms → every source → scoring, then the ranking (needs a provider key).
 - `node --test tests/web/*.test.js` — the page's JS modules (Node's built-in runner, no packages).
 - `uv run python scripts/seed_demo.py demo.db` — a demo database with searches in every state; serve it with `DATABASE_URL=sqlite:///demo.db uv run jobscout serve`.
-- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy, pytest and `node --test tests/web/*.test.js`.
+- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy, pytest and `node --test tests/web/*.test.js`, plus pytest on Postgres; `docker.yml` runs the compose smoke test and publishes the image.

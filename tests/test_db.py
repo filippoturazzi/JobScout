@@ -89,3 +89,10 @@ def test_needs_upgrade_when_run_has_no_sources_column(tmp_path):
     assert needs_upgrade(engine) is True
     with pytest.raises(DatabaseNeedsUpgradeError, match="upgrade-db"):
         init_db(engine)
+
+
+def test_a_server_database_survives_its_restart():
+    """A restarted Postgres leaves dead pooled connections; pre-ping replaces them before use
+    instead of failing the next request or scheduled run. No connection is opened here."""
+    engine = create_engine_from_url("postgresql+psycopg://u:p@localhost:5432/db")
+    assert engine.pool._pre_ping is True

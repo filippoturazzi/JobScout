@@ -23,6 +23,7 @@ dependencies = [
     "langchain-anthropic>=1.7.10",
     "langchain-groq>=1.1.3",
     "langchain-deepseek>=1.1.1",
+    "psycopg[binary]>=3.2",
 ]
 
 [project.scripts]
@@ -75,6 +76,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 markers = [
     "integration: hits real external services; deselected by default",
+    "sqlite_only: SQLite by nature; skipped when TEST_DATABASE_URL points at another database",
 ]
 addopts = "-m 'not integration'"
 filterwarnings = [

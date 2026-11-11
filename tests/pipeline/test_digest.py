@@ -65,6 +65,7 @@ def test_selects_only_matches_above_the_threshold(session: Session):
     assert held == 0
 
 
+@pytest.mark.sqlite_only  # a dangling search_id needs SQLite's unenforced foreign keys
 def test_never_selects_a_match_whose_search_is_gone(session: Session):
     user = get_or_create_default_user(session)
     kept = _match(session, user.id, 80)

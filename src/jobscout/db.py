@@ -18,7 +18,9 @@ def create_engine_from_url(url: str) -> Engine:
             # One shared in-memory database across connections (tests).
             kwargs["poolclass"] = StaticPool
         return create_engine(url, **kwargs)
-    return create_engine(url)
+    # A database server can restart under a long-running app (Docker updates, OOM); pre-ping
+    # swaps a dead pooled connection for a fresh one instead of failing the next query.
+    return create_engine(url, pool_pre_ping=True)
 
 
 class DatabaseNeedsUpgradeError(RuntimeError):
