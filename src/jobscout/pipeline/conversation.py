@@ -143,17 +143,31 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
-def _stated_countries(c: Conversation) -> list[str]:
+def _stated_regions(c: Conversation) -> list[str]:
+    """The stated regions, with "City, Country" split into the city and the country.
+
+    Models asked for a city's country often give both in one entry ("Brasilia, Brazil").
+    Only a trailing country is split off, so "São Paulo, SP" stays one city.
+    """
     if c.reading is None:
         return []
-    return _dedupe([n for n in (_country(r) for r in c.reading.stated_regions) if n is not None])
+    regions: list[str] = []
+    for region in c.reading.stated_regions:
+        place, _, last = region.rpartition(",")
+        if place.strip() and country_of(last) is not None:
+            regions.extend([place.strip(), last.strip()])
+        else:
+            regions.append(region)
+    return regions
+
+
+def _stated_countries(c: Conversation) -> list[str]:
+    return _dedupe([n for n in (_country(r) for r in _stated_regions(c)) if n is not None])
 
 
 def _stated_city(c: Conversation) -> str | None:
     """The first stated region that is neither a country nor an area such as "Europe"."""
-    if c.reading is None:
-        return None
-    for region in c.reading.stated_regions:
+    for region in _stated_regions(c):
         if country_of(region) is None and not is_area(region):
             return region
     return None
@@ -197,14 +211,19 @@ def _country_known(c: Conversation) -> str | None:
 
 
 def _applicable_stated_city(c: Conversation) -> str | None:
-    """The stated city, unless the user answered a country the reading does not state."""
+    """The stated city, unless the user answered a country the reading does not state.
+
+    A reading with a city and no country at all is the user being asked the city's country:
+    their answer completes the city rather than replacing it.
+    """
     city = _stated_city(c)
     if city is None:
         return None
     answered = any(
         a.choice == "country" for qid, a in c.answers.items() if qid in ("location", "country")
     )
-    if not answered or _country_known(c) in _stated_countries(c):
+    stated = _stated_countries(c)
+    if not answered or not stated or _country_known(c) in stated:
         return city
     return None
 

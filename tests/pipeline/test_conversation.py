@@ -532,3 +532,22 @@ def test_a_rebuilt_search_with_no_terms_is_not_confirmed():
     rebuilt = from_preferences(_stored(search_terms=[], work_modes=["remote"], regions=["Brazil"]))
     assert pending(rebuilt) == ["role"]
     assert rebuilt.confirmed is False
+
+
+def test_a_stated_city_survives_answering_its_country():
+    """'Estágio em Brasília': the reading named only the city, the user then named Brazil."""
+    c = conv(seniority=["intern"], stated_work_modes=["onsite"], stated_regions=["Brasilia"])
+    assert pending(c) == ["country"]
+    c = answer(c, "country", Answer(choice="country", values=["Brazil"]))
+    assert pending(c) == []
+    assert summary(c).city == "Brasilia"
+
+
+def test_a_city_given_with_its_country_in_one_entry_asks_nothing():
+    """What the model actually returned for 'em Brasilia': one "City, Country" entry."""
+    c = conv(
+        seniority=["intern"], stated_work_modes=["onsite"], stated_regions=["Brasilia, Brazil"]
+    )
+    assert pending(c) == []
+    s = summary(c)
+    assert (s.country, s.city) == ("Brazil", "Brasilia")
