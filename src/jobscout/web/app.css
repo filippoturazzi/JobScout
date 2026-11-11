@@ -74,7 +74,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .sb-heading { color: var(--ink-muted); padding: 0 var(--space-2); margin-bottom: var(--space-2); }
 .sb-empty { color: var(--ink-muted); padding: 0 var(--space-2); margin: 0; }
 .sb-list { display: grid; gap: var(--space-1); }
-.sb-row { position: relative; display: flex; align-items: center; border-radius: var(--radius-md); }
+/* Wraps so a refused delete's .sb-error (flex-basis 100%) drops below the title instead of
+   squeezing it to nothing. */
+.sb-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; border-radius: var(--radius-md); }
 .sb-row:hover, .sb-row:focus-within { background: var(--surface-raised); }
 .sb-item {
   flex: 1;
@@ -93,12 +95,29 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .sb-row:hover .sb-del, .sb-row:focus-within .sb-del { opacity: 1; }
 /* No hover on a touch screen: the delete button is always there. */
 @media (hover: none) { .sb-del { opacity: 1; } }
-.sb-row--confirm { justify-content: space-between; gap: var(--space-2); padding: var(--space-1) var(--space-2); flex-wrap: wrap; }
-.sb-confirm { display: inline-flex; }
 .sb-error { flex-basis: 100%; margin: 0; padding: var(--space-1) var(--space-2) var(--space-2); color: var(--danger); }
 .sb-foot { display: grid; gap: var(--space-1); border-top: 1px solid var(--border); padding-top: var(--space-3); }
 .sb-link { justify-content: flex-start; }
 .sb-link[aria-current="page"] { color: var(--ink); background: var(--surface-raised); }
+
+/* Confirm-delete dialog: native <dialog>, centred by the browser, on a dimmed backdrop. */
+.cd {
+  box-sizing: border-box;
+  width: calc(100% - var(--space-8));
+  max-width: calc(var(--space-8) * 14);
+  padding: var(--space-6);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.cd::backdrop { background: var(--bg); opacity: 0.8; }
+.cd-title { color: var(--ink); }
+.cd-body { margin: var(--space-2) 0 0; color: var(--ink-muted); overflow-wrap: anywhere; }
+.cd-actions { display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-6); }
+.cd-delete { color: var(--danger); }
+.cd-delete:hover { border-color: var(--danger); }
+.cd-delete:disabled { cursor: progress; opacity: 0.5; }
 
 /* Below 800 px: one column, the sidebar behind the menu button, the detail panel full-screen */
 @media (max-width: 800px) {
