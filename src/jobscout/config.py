@@ -70,9 +70,16 @@ class Settings(BaseSettings):
 
     api_host: str = "127.0.0.1"
     api_port: int = 8000
-    llm_provider: str = "google"
-    llm_model: str = "gemini-3.5-flash"
-    embedding_model: str = "gemini-embedding-2"
+    # One key for the chat model, whichever provider issued it: the provider is read from the
+    # key's prefix (see matching/llm.py) unless LLM_PROVIDER names it, and LLM_MODEL defaults
+    # to a cheap model of that provider.
+    llm_api_key: str | None = None
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    # Embeddings default to Gemini whatever runs the chat: its free tier is bounded per
+    # minute, not per day, and most chat providers (Groq, DeepSeek, Anthropic) have none.
+    embedding_provider: str = "google"
+    embedding_model: str | None = None
     embedding_dim: int = 768
     # Live run 2026-09-25 (30 active jobs, profile "Junior AI engineer... Python, FastAPI,
     # LLM applications, LangGraph. Remote, Europe."): observed cosine similarity ranged
@@ -90,8 +97,26 @@ class Settings(BaseSettings):
     # measurement above _EMBED_CHUNK in pipeline/matching.py before raising this.
     # 100 jobs x ~175 tokens is ~18k, inside the free tier's ~30k/min.
     max_embeddings_per_run: int = 100
+    # Provider-specific keys. GOOGLE_API_KEY is what Gemini embeddings use; both also serve
+    # as the chat key when LLM_API_KEY is empty (how .env files written before it worked).
     google_api_key: str | None = None
     openai_api_key: str | None = None
+
+    @field_validator(
+        "llm_api_key",
+        "llm_provider",
+        "llm_model",
+        "embedding_model",
+        "google_api_key",
+        "openai_api_key",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: Any) -> Any:
+        # `.env.example` ships `LLM_API_KEY=`: an empty line means "not set", not "".
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value.strip() if isinstance(value, str) else value
 
     @property
     def source_names(self) -> list[str]:

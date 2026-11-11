@@ -29,9 +29,12 @@ def test_get_settings_is_cached():
 
 def test_matching_defaults():
     s = Settings(_env_file=None)
-    assert s.llm_provider == "google"
-    assert s.llm_model == "gemini-3.5-flash"
-    assert s.embedding_model == "gemini-embedding-2"
+    # Chat provider and model follow LLM_API_KEY unless set; embeddings default to Gemini.
+    assert s.llm_provider is None
+    assert s.llm_model is None
+    assert s.llm_api_key is None
+    assert s.embedding_provider == "google"
+    assert s.embedding_model is None
     assert s.embedding_dim == 768
     assert s.similarity_threshold == 0.45
     # Sized to the free tier's ~30k embedding tokens/min: the vector is built from the

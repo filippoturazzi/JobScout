@@ -4,7 +4,7 @@ from langchain_core.language_models import BaseChatModel
 from sqlmodel import Session, col, delete, desc, select
 
 from jobscout.config import Settings
-from jobscout.matching.llm import MissingProviderError, provider_key_found
+from jobscout.matching.llm import resolve_chat
 from jobscout.matching.terms import read_profile
 from jobscout.models import Match, Search, SearchJob, UserPreferences
 from jobscout.models.base import utcnow
@@ -113,10 +113,7 @@ def create_search(
     session: Session, settings: Settings, user_id: int, paragraph: str, chat: BaseChatModel
 ) -> Search:
     """A new search from a paragraph, read once. Writes nothing without a provider key."""
-    if not provider_key_found(settings):
-        raise MissingProviderError(
-            f"No API key for LLM_PROVIDER {settings.llm_provider!r}: reading needs one."
-        )
+    resolve_chat(settings)  # raises MissingProviderError, saying what to set
     if not paragraph.strip():
         raise ValueError("The profile paragraph is empty; there is nothing to search for.")
     search = add_search(session, user_id, conv.title(Conversation(paragraph=paragraph)), paragraph)

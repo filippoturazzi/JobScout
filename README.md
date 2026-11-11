@@ -66,11 +66,20 @@ pure modules are tested with `node --test tests/web/*.test.js`.
 ## Matching (AI)
 
 ```bash
-cp .env.example .env          # set LLM_PROVIDER and your provider key
+cp .env.example .env          # set LLM_API_KEY and GOOGLE_API_KEY
 uv run jobscout match --dry-run   # ranked candidates, no LLM call (still embeds)
 uv run jobscout match             # score them (bounded by MAX_LLM_EVALUATIONS_PER_RUN)
 uv run jobscout matches --min-score 70
 ```
+
+Two keys go in `.env`. `LLM_API_KEY` drives the chat model and can come from any supported
+provider (Groq, DeepSeek, Google, OpenAI or Anthropic): JobScout recognises the provider from
+the key's prefix and picks a cheap default model, so there is nothing else to set. Groq and
+DeepSeek are the cheapest way to search every day; Gemini's free chat tier allows only about
+20 requests a day. `GOOGLE_API_KEY` drives the embeddings (Gemini, free tier, bounded per
+minute rather than per day), because most chat providers have no embeddings; a Google
+`LLM_API_KEY` serves both. `.env.example` lists the prefixes, default models and prices, and
+the optional `LLM_PROVIDER`, `LLM_MODEL` and `EMBEDDING_PROVIDER` overrides.
 
 Each match carries a 0–100 score, a written justification, matched and missing skills, and
 red flags. A cosine prefilter over cached embeddings decides what is worth an LLM call, so a

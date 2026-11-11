@@ -39,6 +39,10 @@ def _isolate_engines(monkeypatch):
     from jobscout.db import reset_engines
 
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    # The developer's own provider config in .env must not reach a test (CI has no .env):
+    # an env var outranks .env, and a blank one reads as unset.
+    for name in ("LLM_API_KEY", "LLM_PROVIDER", "LLM_MODEL", "GOOGLE_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.setenv(name, "")
     reset_engines()
     get_settings.cache_clear()
     yield

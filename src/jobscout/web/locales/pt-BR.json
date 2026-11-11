@@ -18,7 +18,7 @@
   "start_search": "Iniciar busca",
   "searching": "Buscando…",
   "no_key_title": "Adicione uma chave de LLM para começar a buscar.",
-  "no_key_hint": "Defina LLM_PROVIDER e a chave da API no arquivo .env e reinicie o jobscout.",
+  "no_key_hint": "Defina LLM_API_KEY (chat, de qualquer provedor) e GOOGLE_API_KEY (embeddings, gratuita) no arquivo .env e reinicie o jobscout.",
   "no_key_setup": "Como configurar",
   "request_failed": "Algo deu errado. Tente de novo.",
   "model": "Modelo",
