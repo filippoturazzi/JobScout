@@ -19,7 +19,7 @@ function notice() {
       "div",
       { class: "home-notice__text" },
       h("p", { class: "text-body home-notice__title" }, t("no_key_title")),
-      h("p", { class: "text-body-sm home-notice__hint" }, withCode(t("no_key_hint"), ["LLM_PROVIDER", ".env"])),
+      h("p", { class: "text-body-sm home-notice__hint" }, withCode(t("no_key_hint"), ["LLM_API_KEY", "GOOGLE_API_KEY", ".env"])),
     ),
     h("a", { class: "text-label home-notice__link", href: SETUP_URL, target: "_blank", rel: "noopener noreferrer" }, t("no_key_setup")),
   );

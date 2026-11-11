@@ -15,7 +15,12 @@ from sqlmodel import Session, col, select
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps, build_graph
-from jobscout.matching.llm import MissingProviderError, chat_model, embeddings
+from jobscout.matching.llm import (
+    MissingProviderError,
+    chat_model,
+    chat_model_name,
+    embeddings,
+)
 from jobscout.matching.prompts import (
     build_user_prompt,
     job_embedding_text,
@@ -189,7 +194,7 @@ def _default_deps(settings: Settings) -> GraphDeps:
         chat=chat_model(settings),
         embed=embeddings(settings),
         threshold=settings.similarity_threshold,
-        model_name=settings.llm_model,
+        model_name=chat_model_name(settings),
     )
 
 

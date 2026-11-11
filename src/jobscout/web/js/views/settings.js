@@ -61,7 +61,10 @@ export function renderSettings(root, ctx) {
     t("model"),
     row(t("provider"), h("span", { class: "text-meta" }, status.llm_provider || "")),
     row(t("chat_model"), h("span", { class: "text-meta" }, status.llm_model || "")),
-    row(t("embeddings"), h("span", { class: "text-meta" }, status.embedding_model || "")),
+    row(
+      t("embeddings"),
+      h("span", { class: "text-meta" }, [status.embedding_provider, status.embedding_model].filter(Boolean).join(" · ")),
+    ),
     row(
       t("status"),
       h(

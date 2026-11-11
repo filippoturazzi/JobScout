@@ -162,6 +162,7 @@ class StatusRead(BaseModel):
     llm_key_found: bool
     llm_provider: str
     llm_model: str
+    embedding_provider: str
     embedding_model: str
     sources: list[SourceStatus]
     running_search_id: int | None

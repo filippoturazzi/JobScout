@@ -16,7 +16,7 @@ Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `
 - Single fixed user for now, but **everything is keyed by `user_id`**; `api/deps.py::get_current_user()` is the only place that changes when auth arrives.
 - **Operator config (env, `Settings`) is strictly separate from user preferences (DB).** Never put LLM keys, DB URLs, or intervals in user tables; never put job-search preferences in env.
 - SQLModel; SQLite by default, Postgres via `DATABASE_URL`. Embeddings stored as bytes — no vector DB.
-- LLM and embeddings via LangChain abstractions, provider chosen by env (`LLM_PROVIDER`, `LLM_MODEL`, `EMBEDDING_MODEL`). No direct vendor SDK calls.
+- LLM and embeddings via LangChain abstractions, provider chosen by env. Chat takes one `LLM_API_KEY` from any provider (google, openai, anthropic, groq, deepseek; ollama keyless), detected from the key prefix unless `LLM_PROVIDER` says otherwise, with a cheap default model per provider (`LLM_MODEL` overrides); all in `matching/llm.py`. Embeddings are separate (`EMBEDDING_PROVIDER`, default Gemini via `GOOGLE_API_KEY`), since most chat providers have none. No direct vendor SDK calls.
 - **LangGraph is used only for the per-job matching graph** (`matching/graph.py`): embed → prefilter by cosine similarity → LLM structured evaluation → decide. The prefilter's conditional edge must skip the LLM for low-similarity jobs. Collection, dedup, and notification are plain Python in `pipeline/`.
 - APScheduler inside the FastAPI lifespan (no Celery/Redis).
 - Interface is FastAPI + Typer CLI, plus a page of static HTML/CSS/JS served by FastAPI (replaced Reflex on 2026-10-22; see `docs/superpowers/specs/2026-10-22-stage-5-sources-and-dashboard-design.md`).
