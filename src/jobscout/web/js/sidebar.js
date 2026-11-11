@@ -6,9 +6,49 @@ import { api } from "./api.js";
 import { go } from "./router.js";
 import { refreshSearches } from "./store.js";
 
-// Which search row is asking "Delete this search?", and which one was refused because a run is going.
-let confirmingId = null;
+// The search whose delete was refused (a run is going, or the request failed).
 let errorFor = null; // { id, key }
+
+// "Delete this search?" asks in a modal dialog centred on the page. It lives on <body>, not in
+// the sidebar, so re-rendering the sidebar never tears it down while it is open.
+let dialog = null;
+
+function confirmDelete(s, route, rerender) {
+  errorFor = null;
+  if (dialog) dialog.remove();
+  const close = () => dialog.close();
+  const confirm = h(
+    "button",
+    { class: "js-btn js-btn--secondary cd-delete", type: "button", onclick: () => remove(s.id, route, rerender, confirm) },
+    icon("trash"),
+    t("delete"),
+  );
+  dialog = h(
+    "dialog",
+    {
+      class: "cd",
+      "aria-labelledby": "cd-title",
+      "aria-describedby": "cd-body",
+      // A click on the backdrop lands on the dialog itself: treat it as Cancel.
+      onclick: (e) => { if (e.target === dialog) close(); },
+      onclose: () => { dialog.remove(); dialog = null; },
+    },
+    h("h2", { class: "text-h2 cd-title", id: "cd-title" }, t("delete_confirm")),
+    h(
+      "p",
+      { class: "text-body cd-body", id: "cd-body" },
+      t("delete_confirm_body", { title: s.title }),
+    ),
+    h(
+      "div",
+      { class: "cd-actions" },
+      h("button", { class: "js-btn js-btn--ghost", type: "button", autofocus: true, onclick: close }, t("cancel")),
+      confirm,
+    ),
+  );
+  document.body.appendChild(dialog);
+  dialog.showModal();
+}
 
 function navLink(href, name, iconName, route, routeName) {
   const current = route.name === routeName;
@@ -22,19 +62,6 @@ function navLink(href, name, iconName, route, routeName) {
 
 function searchRow(s, route, rerender) {
   const current = route.name === "search" && route.id === s.id;
-  if (confirmingId === s.id) {
-    return h(
-      "li",
-      { class: "sb-row sb-row--confirm" },
-      h("span", { class: "text-body-sm" }, t("delete_confirm")),
-      h(
-        "span",
-        { class: "sb-confirm" },
-        h("button", { class: "js-btn js-btn--ghost", type: "button", onclick: () => remove(s.id, route, rerender) }, t("delete")),
-        h("button", { class: "js-btn js-btn--ghost", type: "button", onclick: () => { confirmingId = null; rerender(); } }, t("cancel")),
-      ),
-    );
-  }
   return h(
     "li",
     { class: "sb-row" },
@@ -50,7 +77,7 @@ function searchRow(s, route, rerender) {
         class: "js-btn js-btn--ghost sb-del",
         type: "button",
         "aria-label": `${t("delete")}: ${s.title}`,
-        onclick: () => { confirmingId = s.id; errorFor = null; rerender(); },
+        onclick: () => confirmDelete(s, route, rerender),
       },
       icon("trash"),
     ),
@@ -58,15 +85,16 @@ function searchRow(s, route, rerender) {
   );
 }
 
-async function remove(id, route, rerender) {
+async function remove(id, route, rerender, button) {
+  button.disabled = true;
   try {
     await api.del(`/searches/${id}`);
-    confirmingId = null;
+    if (dialog) dialog.close();
     errorFor = null;
     if (route.name === "search" && route.id === id) go("/");
     await refreshSearches();
   } catch (e) {
-    confirmingId = null;
+    if (dialog) dialog.close();
     errorFor = { id, key: e && e.code === "search_busy" ? "search_busy" : "delete_failed" };
     rerender();
   }

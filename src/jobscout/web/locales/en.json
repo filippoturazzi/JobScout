@@ -6,6 +6,7 @@
   "settings": "Settings",
   "delete": "Delete",
   "delete_confirm": "Delete this search?",
+  "delete_confirm_body": "“{title}” and its matches will be removed. This cannot be undone.",
   "cancel": "Cancel",
   "search_running": "Running",
   "delete_failed": "Could not delete this search. Try again.",

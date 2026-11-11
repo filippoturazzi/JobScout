@@ -6,6 +6,7 @@
   "settings": "Configurações",
   "delete": "Excluir",
   "delete_confirm": "Excluir esta busca?",
+  "delete_confirm_body": "“{title}” e as vagas encontradas nela serão removidas. Não dá para desfazer.",
   "cancel": "Cancelar",
   "search_running": "Em andamento",
   "delete_failed": "Não foi possível excluir esta busca. Tente de novo.",
