@@ -1,21 +1,42 @@
 import json
+import os
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from sqlmodel import Session
+from sqlalchemy import Engine
+from sqlmodel import Session, SQLModel
 
 from jobscout.db import create_engine_from_url, init_db
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+def _test_database_url() -> str | None:
+    """`TEST_DATABASE_URL` runs the `engine` fixture on another database (CI: Postgres)."""
+    return os.environ.get("TEST_DATABASE_URL") or None
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    url = _test_database_url()
+    if url and not url.startswith("sqlite") and item.get_closest_marker("sqlite_only"):
+        pytest.skip("SQLite-specific; TEST_DATABASE_URL points elsewhere")
+
+
 @pytest.fixture
-def engine():
-    engine = create_engine_from_url("sqlite://")
+def engine() -> Iterator[Engine]:
+    url = _test_database_url()
+    if url is None:
+        engine = create_engine_from_url("sqlite://")
+        init_db(engine)
+        yield engine
+        return
+    engine = create_engine_from_url(url)
+    SQLModel.metadata.drop_all(engine)
     init_db(engine)
-    return engine
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture
