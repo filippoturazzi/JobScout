@@ -460,3 +460,17 @@ def test_seen_ids_cover_created_updated_and_merged_rows(session):
 
     assert second.merged == 1 and second.created == 0
     assert second.seen_ids == [a.id]
+
+
+def test_nul_bytes_are_stripped_before_storing(session):
+    """Postgres text columns reject NUL, and one scraped posting carrying it would roll back
+    its whole source's batch. SQLite would store it, so the test checks the stored value."""
+    upsert_jobs(
+        session,
+        [raw("j\x001", title="AI\x00 Engineer", description="Build\x00 agents.", tags=["py\x00"])],
+        now=T0,
+    )
+    job = session.exec(select(Job)).one()
+    assert (job.external_id, job.title, job.description) == ("j1", "AI Engineer", "Build agents.")
+    assert job.company == "Acme j1"
+    assert job.tags == ["py"]

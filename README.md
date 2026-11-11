@@ -51,7 +51,8 @@ You need a Linux server with Docker and the compose plugin.
 ```bash
 git clone https://github.com/filippoturazzi/JobScout.git && cd JobScout
 cp .env.example .env
-# edit .env: LLM_API_KEY, GOOGLE_API_KEY, POSTGRES_PASSWORD (openssl rand -hex 24), TZ
+# edit .env: LLM_API_KEY, GOOGLE_API_KEY, POSTGRES_PASSWORD (letters and digits only:
+# openssl rand -hex 24), TZ
 docker compose up -d
 docker compose logs -f app         # Ctrl+C stops following, not the app
 ```
@@ -94,9 +95,14 @@ open port.
 ### Keeping it running
 
 ```bash
-git pull && docker compose pull && docker compose up -d            # update
-docker compose exec -T db pg_dump -U jobscout jobscout > jobscout-$(date +%F).sql   # back up
-docker compose exec -T db psql -U jobscout jobscout < jobscout-2026-11-11.sql      # restore, into an empty database
+# update
+git pull && docker compose pull && docker compose up -d
+# back up (the dump drops and recreates every table when restored)
+docker compose exec -T db pg_dump -U jobscout --clean --if-exists jobscout > jobscout-$(date +%F).sql
+# restore: stop the app first so nothing writes meanwhile; it stops at the first error
+docker compose stop app
+docker compose exec -T db psql -U jobscout -v ON_ERROR_STOP=1 -q jobscout < jobscout-2026-11-11.sql
+docker compose start app
 ```
 
 The data lives in the `pgdata` volume: `docker compose down` keeps it, `docker compose down -v`
