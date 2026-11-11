@@ -202,3 +202,34 @@ def test_an_onsite_job_still_passes_after_a_remote_preference_is_saved(session):
     prefs = _saved_prefs(session, work_modes=["remote"])
     assert prefs.work_modes == []
     assert job_matches_preferences(_job(remote=False), prefs)
+
+
+@pytest.mark.parametrize(
+    ("said", "level"),
+    [
+        ("Estagiário", "intern"),
+        ("estagio", "intern"),
+        ("Internship", "intern"),
+        ("Júnior", "junior"),
+        ("entry-level", "junior"),
+        ("Pleno", "mid"),
+        ("mid-level", "mid"),
+        ("Sênior", "senior"),
+    ],
+)
+def test_seniority_synonyms_become_the_page_levels(said, level):
+    """'Estagiário' came back as a level the page does not offer, or as junior."""
+    assert extract_profile(PARAGRAPH, fake(terms=["python"], seniority=[said])).seniority == [level]
+
+
+def test_unknown_seniority_is_kept_and_duplicates_after_mapping_are_dropped():
+    result = extract_profile(
+        PARAGRAPH, fake(terms=["python"], seniority=["estágio", "intern", "lead"])
+    )
+    assert result.seniority == ["intern", "lead"]
+
+
+def test_the_prompt_names_the_page_levels_and_internships():
+    prompt = " ".join(SYSTEM_PROMPT.split())
+    assert "intern, junior, mid, senior" in prompt
+    assert "estágio" in prompt.lower()

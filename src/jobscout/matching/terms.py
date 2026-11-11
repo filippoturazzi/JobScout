@@ -7,6 +7,7 @@ silently stop constraining anything.
 """
 
 import hashlib
+import unicodedata
 from typing import cast
 
 from langchain_core.language_models import BaseChatModel
@@ -24,7 +25,8 @@ Rules:
 - terms: job-board search keywords, MOST IMPORTANT FIRST, at most {MAX_TERMS}. Each term is one to
   {MAX_TERM_WORDS} words (a role or a core technology, e.g. "ai engineer", "python"). Never a
   sentence: the job APIs match keywords and a long query returns nothing.
-- seniority: e.g. junior, mid, senior.
+- seniority: one of intern, junior, mid, senior. An internship (estágio, estagiário, internship)
+  is intern, never junior.
 - required_skills: skills the candidate insists on.
 - suggested_skills: up to {MAX_SUGGESTED_SKILLS} skills typical for this role, whether or not the
   text names them. They are options to choose from, not requirements.
@@ -104,6 +106,36 @@ _WORK_MODES = {
 }
 
 
+# What a paragraph or a model says for a level, folded (lower case, no accents, no hyphens),
+# mapped to the levels the page offers. Anything else is kept as said.
+_LEVELS: dict[str, str] = {
+    "intern": "intern",
+    "internship": "intern",
+    "estagio": "intern",
+    "estagiario": "intern",
+    "estagiaria": "intern",
+    "junior": "junior",
+    "jr": "junior",
+    "entry level": "junior",
+    "mid": "mid",
+    "mid level": "mid",
+    "mid senior": "mid",
+    "pleno": "mid",
+    "senior": "senior",
+    "sr": "senior",
+}
+
+
+def _fold(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value.lower())
+    plain = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return " ".join(plain.replace("-", " ").replace("_", " ").split())
+
+
+def _level(value: str) -> str:
+    return _LEVELS.get(_fold(value), value.lower())
+
+
 def _dedupe(values: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -139,7 +171,7 @@ def read_profile(paragraph: str, llm: BaseChatModel) -> ExtractedProfile:
     ]
     return ExtractedProfile(
         terms=terms,
-        seniority=[value.lower() for value in _dedupe(raw.seniority)],
+        seniority=_dedupe([_level(value) for value in _dedupe(raw.seniority)]),
         required_skills=required_skills,
         suggested_skills=suggested_skills[:MAX_SUGGESTED_SKILLS],
         excluded_keywords=_dedupe(raw.excluded_keywords),
