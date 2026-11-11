@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 from jobscout import cli
 from jobscout.config import Settings
 from jobscout.db import create_engine_from_url, get_engine, init_db, needs_upgrade
+from jobscout.matching.llm import chat_model_name
 from jobscout.models import Job, Match, Search, User
 from jobscout.models.base import utcnow
 from jobscout.pipeline.search import SearchProgress, SearchResult
@@ -289,7 +290,7 @@ def test_match_scores_and_persists_a_candidate_end_to_end(tmp_path, monkeypatch)
     with Session(engine) as session:
         row = session.exec(select(Match)).one()
         assert row.score == 75 and row.status == "new"
-        assert row.reasoning and row.llm_model == settings.llm_model
+        assert row.reasoning and row.llm_model == chat_model_name(settings)
 
 
 def test_match_reports_a_provider_runtime_error_without_a_traceback(tmp_path, monkeypatch):
