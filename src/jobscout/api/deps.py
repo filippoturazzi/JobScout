@@ -1,4 +1,5 @@
-"""FastAPI dependencies. ``get_current_user`` is the single seam auth will replace in stage 6."""
+"""FastAPI dependencies. JobScout is self-hosted and single-user: ``get_current_user`` returns
+the one fixed user, and everything stays keyed by its id."""
 
 from collections.abc import Iterator
 from typing import Annotated
@@ -24,7 +25,7 @@ def get_current_user(session: Annotated[Session, Depends(get_session)]) -> User:
 
 
 def get_current_user_id(user: Annotated[User, Depends(get_current_user)]) -> int:
-    """The current user's id, non-optional. Auth (stage 6) replaces get_current_user only."""
+    """The current user's id, non-optional."""
     assert user.id is not None, "a persisted user always has an id"
     return user.id
 

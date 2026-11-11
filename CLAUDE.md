@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed, and the profile search that drives them (`pipeline.search.run_search`). Saved searches and the conversation backend are done too: a search is a profile with its own preferences, matches and conversation (`pipeline/searches.py`, `pipeline/conversation.py`), reached through `jobscout search` and `POST /searches/{id}/run`. Scheduled ingest has no search terms, so it never reaches the scraped sources. The stage 5 web page is done too (static HTML served by FastAPI, `src/jobscout/web/`), the conversational interface in `docs/superpowers/specs/2026-11-07-chat-interface-design.md`: stage 5 is complete apart from Jooble, which is deferred. `SOURCES` defaults to `himalayas,remotive,linkedin,indeed`; Arbeitnow stays registered but off by default (a catalogue with no search). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
+Stages 0 through 4 are implemented, and stage 5's backend is (see the plans in `docs/superpowers/plans/`): Himalayas, Remotive, LinkedIn and Indeed, and the profile search that drives them (`pipeline.search.run_search`). Saved searches and the conversation backend are done too: a search is a profile with its own preferences, matches and conversation (`pipeline/searches.py`, `pipeline/conversation.py`), reached through `jobscout search` and `POST /searches/{id}/run`. Scheduled ingest has no search terms, so it never reaches the scraped sources. The stage 5 web page is done too (static HTML served by FastAPI, `src/jobscout/web/`), the conversational interface in `docs/superpowers/specs/2026-11-07-chat-interface-design.md`: stage 5 is complete apart from Jooble, which is deferred. Stage 6 is done: Postgres is supported (the suite runs on it in CI via `TEST_DATABASE_URL`) and `docker-compose.yml` runs the app plus Postgres 24h, published on `127.0.0.1:8000` only (`docs/superpowers/specs/2026-11-11-stage-6-docker-postgres-design.md`). `SOURCES` defaults to `himalayas,remotive,linkedin,indeed`; Arbeitnow stays registered but off by default (a catalogue with no search). The design source of truth is `docs/superpowers/specs/2026-09-19-jobscout-design.md`; `job-radar-contexto.md` is the original Portuguese brainstorm.
 
 ## What the project is
 
@@ -47,6 +47,8 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv sync --all-groups` — install (Python 3.12 is pinned in `.python-version`; never use the system Python).
 - `uv run pytest` — unit tests, no network. Single test: `uv run pytest tests/sources/test_arbeitnow.py::test_fetch_maps_fields -v`.
 - `uv run pytest -m integration` — opt-in tests against real APIs (off by default via `addopts`).
+- `TEST_DATABASE_URL=postgresql+psycopg://... uv run pytest` — the suite on Postgres (CI job `test-postgres`); tests marked `sqlite_only` skip there.
+- `docker compose up -d` — app + Postgres (needs `POSTGRES_PASSWORD` in `.env`). `bash scripts/compose_smoke.sh` smoke-tests the stack under its own project name (CI workflow `docker.yml`, which also pushes `ghcr.io/filippoturazzi/jobscout` from `main`).
 - `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
 - `uv run mypy src` — strict type check of `src/`; must be clean before committing (CI enforces it).
 - `uv run jobscout fetch|jobs|searches|repair-descriptions|upgrade-db|serve` — CLI. `search`, `match`, `matches` and `jobs` take `--search ID` (default: the latest search); `upgrade-db` converts a pre-saved-searches database after backing it up. `serve` runs uvicorn on `jobscout.api.app:app`.
@@ -56,4 +58,4 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv run jobscout search` — one search in the foreground: profile terms → every source → scoring, then the ranking (needs a provider key).
 - `node --test tests/web/*.test.js` — the page's JS modules (Node's built-in runner, no packages).
 - `uv run python scripts/seed_demo.py demo.db` — a demo database with searches in every state; serve it with `DATABASE_URL=sqlite:///demo.db uv run jobscout serve`.
-- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy, pytest and `node --test tests/web/*.test.js`.
+- CI (`.github/workflows/ci.yml`) runs ruff check, ruff format --check, mypy, pytest and `node --test tests/web/*.test.js`, plus pytest on Postgres; `docker.yml` runs the compose smoke test and publishes the image.

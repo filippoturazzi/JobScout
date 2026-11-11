@@ -4,9 +4,9 @@ Open-source AI agent that continuously searches public job-board APIs (and, for
 LinkedIn and Indeed, scrapes them; see Job sources) and matches
 postings against **your** profile — with an LLM explaining every score.
 
-> Status: in development. Collection, LLM matching, the scheduler and e-mail digests (stages 0–4) work. Stage 5's
-> sources, saved searches and the conversation that builds them work from the CLI and the API (`jobscout search`,
-> `POST /searches`); the web page on top of them is next.
+> Status: in development. Collection, LLM matching, the scheduler and e-mail digests (stages 0–4) work, as do
+> stage 5's sources, saved searches and the conversational web page. Stage 6 adds Postgres and a Docker setup to
+> run it 24 hours a day on a server.
 > See `docs/superpowers/specs/2026-09-19-jobscout-design.md` for the full design and roadmap.
 
 ## Quick start
@@ -35,6 +35,73 @@ uv run jobscout search             # the same run in the foreground, on the late
 
 `search`, `match`, `matches` and `jobs` act on the latest search; `--search ID` picks another
 (ids are in `jobscout searches`). With no search yet they say how to start one.
+
+`serve` listens on `127.0.0.1` only, so nothing on your machine is reachable from the network.
+The page has no login and spends your LLM key: change `API_HOST` only if you know you want
+that, and prefer one of the options in [Run with Docker on a VPS](#run-with-docker-on-a-vps).
+
+## Run with Docker on a VPS
+
+The Docker setup runs JobScout 24 hours a day: the API, the page and the scheduler in one
+container, Postgres in another, both restarting on failure and on boot. It publishes the page
+on the server's `127.0.0.1:8000` only; the next section is how you reach it from your phone.
+
+You need a Linux server with Docker and the compose plugin.
+
+```bash
+git clone https://github.com/filippoturazzi/JobScout.git && cd JobScout
+cp .env.example .env
+# edit .env: LLM_API_KEY, GOOGLE_API_KEY, POSTGRES_PASSWORD (openssl rand -hex 24), TZ
+docker compose up -d
+docker compose logs -f app         # Ctrl+C stops following, not the app
+```
+
+`docker compose up -d` pulls the published image; `docker compose up -d --build` builds it from
+your checkout instead. Compose sets `DATABASE_URL` (its own Postgres) and `SCHEDULER_ENABLED=true`
+itself, whatever `.env` says. Set `TZ` (for example `America/Sao_Paulo`): the daily digest hour
+is local time, and a container is UTC otherwise.
+
+### Open it from anywhere: Tailscale
+
+[Tailscale](https://tailscale.com) puts the server and your own devices on one private network.
+The page then opens from your phone or laptop anywhere, and from nowhere else. No domain, no
+open port.
+
+1. On the server: `curl -fsSL https://tailscale.com/install.sh | sh`, then `sudo tailscale up`.
+2. Install the Tailscale app on your phone and computer and sign in with the same account.
+3. On the server: `sudo tailscale serve --bg 8000`. It prints the address, of the form
+   `https://<server-name>.<tailnet>.ts.net`, with HTTPS already set up.
+
+### Other ways in
+
+- **SSH tunnel**, for an occasional look from a computer: `ssh -L 8000:127.0.0.1:8000 user@server`,
+  then open `http://127.0.0.1:8000` locally.
+- **A public address with Caddy.** Point a domain at the server, install
+  [Caddy](https://caddyserver.com), make a password hash with `caddy hash-password`, and use this
+  `Caddyfile`; Caddy gets the HTTPS certificate on its own:
+
+  ```
+  jobs.example.com {
+      basic_auth {
+          me <hash from caddy hash-password>
+      }
+      reverse_proxy 127.0.0.1:8000
+  }
+  ```
+
+  Anyone with that password can run searches and spend your LLM key, so make it a long one.
+
+### Keeping it running
+
+```bash
+git pull && docker compose pull && docker compose up -d            # update
+docker compose exec -T db pg_dump -U jobscout jobscout > jobscout-$(date +%F).sql   # back up
+docker compose exec -T db psql -U jobscout jobscout < jobscout-2026-11-11.sql      # restore, into an empty database
+```
+
+The data lives in the `pgdata` volume: `docker compose down` keeps it, `docker compose down -v`
+deletes it. The schema is created at startup and there is no migration tool yet, so a future
+release that changes the schema will come with upgrade instructions for Postgres installs.
 
 ## Using the page
 
