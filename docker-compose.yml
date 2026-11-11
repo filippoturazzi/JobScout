@@ -1,0 +1,37 @@
+# JobScout with Postgres. `cp .env.example .env`, fill it in, then `docker compose up -d`.
+# The page is published on 127.0.0.1:8000 only; see the README to reach it from elsewhere.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: jobscout
+      POSTGRES_DB: jobscout
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobscout -d jobscout"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  app:
+    image: ghcr.io/filippoturazzi/jobscout:latest
+    build: .
+    env_file: .env
+    environment:
+      # These outrank .env, whose DATABASE_URL is for running without Docker.
+      DATABASE_URL: postgresql+psycopg://jobscout:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/jobscout
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
