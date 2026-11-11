@@ -202,3 +202,8 @@ def test_an_onsite_job_still_passes_after_a_remote_preference_is_saved(session):
     prefs = _saved_prefs(session, work_modes=["remote"])
     assert prefs.work_modes == []
     assert job_matches_preferences(_job(remote=False), prefs)
+
+
+def test_the_prompt_asks_for_the_country_of_a_stated_city():
+    """A city alone left the country unknown, so the page asked a question the text answered."""
+    assert "country of every city" in " ".join(SYSTEM_PROMPT.split())

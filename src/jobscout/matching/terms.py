@@ -30,7 +30,9 @@ Rules:
   text names them. They are options to choose from, not requirements.
 - excluded_keywords: words that must NOT appear in a job title (e.g. "senior" for a junior).
 - stated_work_modes: the work modes the text says it wants: remote, hybrid or onsite.
-- stated_regions: the countries or cities the text says it wants to work in.
+- stated_regions: the countries or cities the text says it wants to work in. Give the country of
+  every city too, as its own entry ("Recife" -> ["Recife", "Brazil"]): the city states it, so
+  that is not a guess.
 - Use only what the text states for every field except suggested_skills. Leave a field empty
   rather than guess."""
 
