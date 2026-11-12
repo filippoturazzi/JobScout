@@ -5,6 +5,7 @@ from langchain_core.language_models import BaseChatModel
 from sqlmodel import Session, col, desc, select
 
 from jobscout.api.deps import get_chat_model, get_current_user_id, get_session
+from jobscout.api.routers.jobs import read_job
 from jobscout.api.routers.matches import read_match
 from jobscout.api.schemas import (
     AnswerCreate,
@@ -16,6 +17,7 @@ from jobscout.api.schemas import (
     SearchListItem,
     SearchRead,
     SearchStarted,
+    UnscoredRead,
     WideningRead,
 )
 from jobscout.config import get_settings
@@ -23,7 +25,7 @@ from jobscout.models import Run, Search
 from jobscout.pipeline import conversation as conv
 from jobscout.pipeline import searches as svc
 from jobscout.pipeline.conversation import Answer, Question, QuestionId
-from jobscout.pipeline.run import count_waiting, list_matches
+from jobscout.pipeline.run import count_waiting, list_matches, list_unscored
 from jobscout.scheduler import JobScoutScheduler, SearchBusyError
 
 router = APIRouter(prefix="/searches", tags=["searches"])
@@ -260,7 +262,7 @@ def read_search_matches(
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ) -> MatchList:
     """This search's matches, best first, with how many the default listing holds and how
-    many jobs still wait to be scored."""
+    many jobs still wait to be scored, and the jobs that have no score at all."""
     svc.get_search(session, user_id, search_id)
     rows = list_matches(session, search_id, min_score=min_score, status=status, limit=limit)
     found = len(list_matches(session, search_id, limit=DEFAULT_LISTING_LIMIT))
@@ -268,4 +270,8 @@ def read_search_matches(
         matches=[read_match(match, job) for match, job in rows],
         found=found,
         waiting=count_waiting(session, search_id),
+        unscored=[
+            UnscoredRead(job=read_job(item.job), similarity=item.similarity, match_id=item.match_id)
+            for item in list_unscored(session, search_id, limit=DEFAULT_LISTING_LIMIT)
+        ],
     )

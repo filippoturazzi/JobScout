@@ -259,6 +259,54 @@ def test_matches_report_found_and_waiting(client, session):
     assert body["waiting"] == 1
 
 
+def test_matches_include_unscored_jobs(client, session):
+    user = get_or_create_default_user(session)
+    search = make_search(session)
+    scored, waiting, low = _job(session, "scored"), _job(session, "waiting"), _job(session, "low")
+    fetched(session, search, scored, waiting, low)
+    for job, score, status, similarity in ((scored, 80, "new", 0.7), (low, None, "low", 0.2)):
+        session.add(
+            Match(
+                job_id=job.id,
+                user_id=user.id,
+                search_id=search.id,
+                similarity=similarity,
+                score=score,
+                status=status,
+            )
+        )
+    session.commit()
+    body = client.get(f"/searches/{search.id}/matches").json()
+    assert body["found"] == 1
+    assert body["waiting"] == 1
+    by_id = {item["job"]["id"]: item for item in body["unscored"]}
+    assert set(by_id) == {waiting.id, low.id}
+    assert by_id[low.id]["similarity"] == pytest.approx(0.2)
+    assert by_id[low.id]["match_id"] is not None
+    assert by_id[waiting.id]["match_id"] is None
+    assert by_id[waiting.id]["similarity"] is None
+
+
+def test_matches_unscored_is_empty_when_everything_is_scored(client, session):
+    user = get_or_create_default_user(session)
+    search = make_search(session)
+    scored = _job(session, "scored")
+    fetched(session, search, scored)
+    session.add(
+        Match(
+            job_id=scored.id,
+            user_id=user.id,
+            search_id=search.id,
+            similarity=0.7,
+            score=80,
+            status="new",
+        )
+    )
+    session.commit()
+    body = client.get(f"/searches/{search.id}/matches").json()
+    assert body["unscored"] == []
+
+
 def test_another_users_search_is_404(client, session, chat):
     get_or_create_default_user(session)
     other = User(email="other@example.com")
