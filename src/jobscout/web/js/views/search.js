@@ -64,7 +64,7 @@ export async function renderSearch(root, ctx, id) {
     search = await api.get(`/searches/${id}`);
     if (search.latest_run) {
       // A fresh /status tells a run in flight from one a restart left unfinished.
-      [matchList] = await Promise.all([api.get(`/searches/${id}/matches`), refreshStatus().catch(() => null)]);
+      [matchList] = await Promise.all([api.get(`/searches/${id}/matches?limit=500`), refreshStatus().catch(() => null)]);
     }
   } catch (e) {
     if (!guard.isCurrent(mine)) return;
@@ -152,7 +152,7 @@ export async function renderSearch(root, ctx, id) {
     try {
       const [run, list] = await Promise.all([
         api.get(`/searches/${id}/runs/${runId}`),
-        api.get(`/searches/${id}/matches`),
+        api.get(`/searches/${id}/matches?limit=500`),
         // Silent: a notifying refresh would redraw the sidebar (and close the menu) every 2 s.
         refreshStatus({ silent: true }).catch(() => null),
       ]);
@@ -163,7 +163,7 @@ export async function renderSearch(root, ctx, id) {
       if (run.finished_at) {
         // The matches above may predate the run's last writes: read them once more.
         try {
-          const last = await api.get(`/searches/${id}/matches`);
+          const last = await api.get(`/searches/${id}/matches?limit=500`);
           if (!guard.isCurrent(mine)) return;
           ui.matches = last;
         } catch (e) {

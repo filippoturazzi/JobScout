@@ -17,7 +17,8 @@ const run = (extra = {}) => ({
   ...extra,
 });
 const match = (id, score) => ({ id, score, job: { id } });
-const list = (found, waiting, matches = []) => ({ matches, found, waiting });
+const list = (found, waiting, matches = [], unscored = []) => ({ matches, found, waiting, unscored });
+const loose = (n) => Array.from({ length: n }, (_, i) => ({ job: { id: 100 + i }, similarity: null, match_id: null }));
 
 test("runView: no run is none", () => {
   assert.equal(runView(search, null, null, null).state, "none");
@@ -36,7 +37,7 @@ test("runView: unfinished but not running is interrupted", () => {
 
 test("runView: results, waiting only and nothing", () => {
   assert.equal(runView(search, run(), list(12, 9), null).state, "results");
-  assert.equal(runView(search, run(), list(0, 9), null).state, "waiting_only");
+  assert.equal(runView(search, run(), list(0, 9, [], loose(9)), null).state, "results");
   assert.equal(runView(search, run(), list(0, 0), null).state, "nothing");
   // A finished run is never running, whatever /status says.
   assert.equal(runView(search, run(), list(0, 0), 7).state, "nothing");
@@ -170,4 +171,32 @@ test("a verdict that closes a job takes it out of the results; taking it back pu
   const saved = withVerdict(back, m(2, 70, "saved"));
   assert.deepEqual(saved.matches.map((x) => [x.id, x.status]), [[1, "new"], [2, "saved"], [3, "new"]]);
   assert.equal(saved.found, 3);
+});
+
+test("runView: unscored jobs alone are results, with the widenings when none can be scored", () => {
+  const v = runView(search, run(), list(0, 0, [], loose(2)), null);
+  assert.equal(v.state, "results");
+  assert.equal(v.widen, true);
+  assert.equal(v.unscored.length, 2);
+});
+
+test("runView: no widenings once something is scored or can still be", () => {
+  assert.equal(runView(search, run(), list(3, 4, [match(1, 80)], loose(4)), null).widen, false);
+  assert.equal(runView(search, run(), list(0, 4, [], loose(4)), null).widen, false);
+});
+
+test("runView: nothing scored and nothing unscored is nothing", () => {
+  assert.equal(runView(search, run(), list(0, 0, [], []), null).state, "nothing");
+});
+
+test("runView: a running search shows no unscored jobs", () => {
+  const v = runView(search, run({ finished_at: null }), list(0, 3, [], loose(3)), 7);
+  assert.equal(v.state, "running");
+  assert.deepEqual(v.unscored, []);
+});
+
+test("runView: a payload without unscored reads as none", () => {
+  const v = runView(search, run(), { matches: [match(1, 80)], found: 1, waiting: 0 }, null);
+  assert.deepEqual(v.unscored, []);
+  assert.equal(v.state, "results");
 });
