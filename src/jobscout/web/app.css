@@ -70,6 +70,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .sb-logo { padding: var(--space-1) var(--space-2); }
 .sb-new { justify-content: flex-start; }
 .sb-new:hover { border-color: var(--ink-muted); background: var(--surface); }
+.sb-new.js-highlight:hover { border-color: var(--brand); }
 .sb-searches { flex: 1; min-height: 0; }
 .sb-heading { color: var(--ink-muted); padding: 0 var(--space-2); margin-bottom: var(--space-2); }
 .sb-empty { color: var(--ink-muted); padding: 0 var(--space-2); margin: 0; }
@@ -134,6 +135,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 /* The home composer is one field, as in the pen.dev design: the card is the box and the
    textarea sits inside it with no frame of its own; the card carries the focus ring. */
 .composer--multiline { border-color: var(--border-strong); border-radius: var(--radius-md); }
+.composer.js-highlight { border-style: dashed; border-color: var(--brand); }
 .composer--multiline:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
 .composer--multiline .composer__field { min-height: calc(var(--space-8) * 3); padding: 0; border: 0; background: transparent; resize: none; }
 .composer--multiline .composer__field:focus-visible { outline: none; }
@@ -265,8 +267,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline
 .run-grid .js-card { align-content: start; }
 .run-best { display: grid; gap: var(--space-2); }
 .run-best__label { margin: 0; color: var(--ink-muted); }
-.run-grid--top .js-card { background: var(--surface-raised); border-color: var(--border-strong); }
-.run-grid--top .js-card[aria-selected="true"] { border-color: var(--brand); }
 .jc-reason { margin: 0; color: var(--ink-muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .run-divider { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--border); }
 .run-divider__title { margin: 0; color: var(--ink); }

@@ -93,9 +93,9 @@ function card(m, ui, handlers, opts = {}) {
   return jobCard(m, { selected: cardKey(m) === ui.selectedId, onOpen: handlers.onOpen, ...opts });
 }
 
-function grid(label, cards, extra = "") {
+function grid(label, cards) {
   if (!cards.length) return null;
-  return h("div", { class: `run-grid${extra}`, role: "listbox", "aria-label": label }, cards);
+  return h("div", { class: "run-grid", role: "listbox", "aria-label": label }, cards);
 }
 
 function cards(matches, ui, handlers) {
@@ -141,7 +141,7 @@ function resultsBody(view, ui, handlers, rank) {
           "section",
           { class: "run-best" },
           h("p", { class: "text-meta run-best__label" }, t("best_for_you")),
-          grid(t("best_for_you"), layout.highlighted.map((m) => card(m, ui, handlers, { excerpt: true })), " run-grid--top"),
+          grid(t("best_for_you"), layout.highlighted.map((m) => card(m, ui, handlers, { excerpt: true }))),
         )
       : null,
     grid(t("results_label"), scored.map((it) => card(it.match, ui, handlers))),

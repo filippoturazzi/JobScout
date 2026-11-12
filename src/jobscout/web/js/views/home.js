@@ -34,6 +34,8 @@ export function renderHome(root, ctx) {
   const box = composer({
     placeholder: t("home_placeholder"),
     multiline: true,
+    // The paragraph is where a search starts: the design system's highlight marks it.
+    highlight: true,
     submitLabel: t("start_search"),
     submitIcon: "search",
     disabled: noKey,

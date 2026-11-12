@@ -27,3 +27,17 @@ test("pager buttons say which control they are, so focus can come back to it", (
   three.listeners.click[0]();
   assert.deepEqual(calls, [[3, "next"], [1, "prev"], [3, "3"]]);
 });
+
+const hasClass = (el, name) => (el.getAttribute("class") || "").split(" ").includes(name);
+const cardsIn = (root) => {
+  const out = [];
+  const walk = (node) => node.childNodes.forEach((c) => { if (c.nodeType === 1) { if (c.tagName === "ARTICLE") out.push(c); walk(c); } });
+  walk(root);
+  return out;
+};
+
+test("every result card looks the same: none carries the highlight", () => {
+  const host = render(1, () => {});
+  const cards = cardsIn(host);
+  assert.deepEqual(cards.map((c) => hasClass(c, "js-highlight")), Array(12).fill(false));
+});

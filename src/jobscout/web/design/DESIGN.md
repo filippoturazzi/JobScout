@@ -88,6 +88,7 @@ Jobscout é um buscador open source de vagas de tecnologia: a pessoa roda localm
 - **Tag** — `js-tag` (plataforma, senioridade, modalidade), `js-tag--match` (score, pill laranja suave, uma por card), `js-tag--remote`, `js-tag--success`. Mono, caixa alta, até ~16 caracteres, máx. 4 por card.
 - **JobCard** — `article.js-card` com `aria-selected`. Ordem fixa: título (`js-card__title`) → empresa · local (`js-card__company`) → tags (`js-card__tags`) → linha `js-meta` (salário · tempo). Score no canto superior direito. Selecionado = borda `--brand`; só um por vez. Sem salário, omita (não invente "A combinar"). Sem logos de empresa, sem borda lateral colorida, sem sombra.
   - Dados: `title, company, location, source, workMode, seniority, matchScore (0–100), salary?, postedAt, selected`.
+- **Highlight** — `js-highlight`: borda tracejada `--brand` sobre o que já tem borda (card, botão secundário). Marca onde uma busca começa: "Nova busca" no menu (em todas as telas) e o campo do parágrafo na tela inicial. Não muda o fundo nem o hover do componente; selecionado vence (borda sólida). Não usar em cards de vaga: todos os resultados têm o mesmo visual.
 - **PreferenceInput** — `form.js-pref` com `label` ("Que vaga você procura?"), `textarea` (placeholder = exemplo concreto completo) e rodapé `js-pref__foot` (status em `js-meta` à esquerda, botão primário à direita). Buscando: botão "Buscando…" desabilitado e progresso por plataforma em `--info`.
 - **Logo** — `span.js-logo` com `<img src="logos/jobscout-mark.svg" alt="">` + texto `jobscout`.
 

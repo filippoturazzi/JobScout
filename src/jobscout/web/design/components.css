@@ -40,3 +40,9 @@ body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); 
 /* Logo lockup */
 .js-logo { display: inline-flex; align-items: center; gap: var(--space-2); font: 700 28px/1 var(--font-display); letter-spacing: -0.03em; color: var(--ink); }
 .js-logo img { height: 36px; width: 36px; }
+
+/* Highlight: a dashed Scout Orange border on whatever already has one. Marks where a search
+   starts: New search in the menu and the home screen's paragraph. Selected wins: solid.
+   Last in the file on purpose: it must override the base components above. */
+.js-highlight { border-style: dashed; border-color: var(--brand); }
+.js-highlight[aria-selected="true"] { border-style: solid; }

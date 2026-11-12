@@ -32,3 +32,12 @@ test("a rebuilt composer takes the focus back, caret at the end, only if the old
   assert.equal(old.hasFocus(), false);
   assert.deepEqual(fakeDocument.activeElement.selection, [11, 11]);
 });
+
+test("a composer asked for the highlight carries it; others do not", async () => {
+  const { fakeDocument } = await import("./fake-dom.js");
+  globalThis.document = fakeDocument;
+  const { composer } = await import("../../src/jobscout/web/js/composer.js");
+  const classes = (box) => box.el.getAttribute("class").split(" ");
+  assert.ok(classes(composer({ multiline: true, highlight: true })).includes("js-highlight"));
+  assert.ok(!classes(composer({})).includes("js-highlight"));
+});
