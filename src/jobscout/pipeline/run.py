@@ -10,6 +10,7 @@ from sqlmodel import Session, col, desc, select, update
 from sqlmodel.sql.expression import Select, SelectOfScalar
 
 from jobscout.config import Settings
+from jobscout.matching.vectors import cosine, dim, unpack
 from jobscout.models import (
     CLOSED_STATUSES,
     USER_STATUSES,
@@ -114,6 +115,78 @@ def list_matches(
 def count_waiting(session: Session, search_id: int) -> int:
     """Jobs this search fetched that are still waiting to be scored."""
     return len(select_candidates(session, get_preferences(session, search_id), search_id))
+
+
+@dataclass
+class Unscored:
+    """A job this search fetched that has no score: never evaluated, or turned away by the
+    cosine prefilter (`low`). `similarity` is read from stored vectors, never computed by a
+    provider call; `None` when either vector is missing or the dimensions disagree."""
+
+    job: Job
+    similarity: float | None
+    match_id: int | None
+
+
+def list_unscored(session: Session, search_id: int, limit: int = 500) -> list[Unscored]:
+    """This search's jobs with no score, most similar to the profile first.
+
+    A job is in exactly one of the two listings: a stale row that still carries a score
+    stays in `list_matches` with it. A job with no row here that the user dismissed or
+    applied to in another search stays out, as the verdict is about the job."""
+    prefs = get_preferences(session, search_id)
+    rows = {
+        match.job_id: match
+        for match in session.exec(select(Match).where(Match.search_id == search_id)).all()
+    }
+    profile = prefs.profile_embedding
+
+    def similarity_of(job: Job) -> float | None:
+        if job.embedding is None or profile is None or dim(job.embedding) != dim(profile):
+            return None
+        return cosine(unpack(job.embedding), unpack(profile))
+
+    items: list[Unscored] = []
+    unevaluated = [
+        job
+        for job in select_candidates(session, prefs, search_id)
+        if job.id not in rows or rows[job.id].score is None
+    ]
+    if unevaluated:
+        closed = set(
+            session.exec(
+                select(Match.job_id).where(
+                    col(Match.user_id) == prefs.user_id,
+                    col(Match.job_id).in_([job.id for job in unevaluated]),
+                    col(Match.status).in_(CLOSED_STATUSES),
+                )
+            ).all()
+        )
+        for job in unevaluated:
+            assert job.id is not None
+            row = rows.get(job.id)
+            if row is None and job.id in closed:
+                continue
+            items.append(Unscored(job, similarity_of(job), row.id if row else None))
+
+    low = session.exec(
+        select(Match, Job)
+        .join(Job, col(Match.job_id) == col(Job.id))
+        .where(
+            col(Match.search_id) == search_id,
+            col(Match.status) == "low",
+            col(Job.is_active).is_(True),
+        )
+    ).all()
+    items.extend(
+        Unscored(job, match.similarity, match.id)
+        for match, job in low
+        if job_matches_preferences(job, prefs)
+    )
+
+    # Stable: jobs with no similarity keep `select_candidates`' freshest-first order.
+    items.sort(key=lambda item: (item.similarity is None, -(item.similarity or 0.0)))
+    return items[:limit]
 
 
 MyJobTab = Literal["all", "saved", "applied"]
