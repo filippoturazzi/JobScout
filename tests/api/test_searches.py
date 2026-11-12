@@ -287,6 +287,15 @@ def test_matches_include_unscored_jobs(client, session):
     assert by_id[waiting.id]["similarity"] is None
 
 
+def test_matches_leave_unscored_out_when_asked(client, session):
+    search = make_search(session)
+    waiting = _job(session, "waiting")
+    fetched(session, search, waiting)
+    body = client.get(f"/searches/{search.id}/matches?unscored=false").json()
+    assert body["unscored"] == []
+    assert body["waiting"] == 1
+
+
 def test_matches_unscored_is_empty_when_everything_is_scored(client, session):
     user = get_or_create_default_user(session)
     search = make_search(session)

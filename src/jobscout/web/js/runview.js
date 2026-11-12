@@ -92,6 +92,14 @@ export function shouldKeepPolling(view) {
   return view.state === "running";
 }
 
+// The polled match for what the detail panel shows: by match id, or, for a job that had no
+// score when it was opened, the match a ranking has since given that job.
+export function freshFor(list, current) {
+  const matches = (list && list.matches) || [];
+  const unscored = current.id === null || current.id === undefined;
+  return matches.find((m) => (unscored ? m.job && m.job.id === current.job.id : m.id === current.id)) || null;
+}
+
 // Whether a polled match differs from the one shown in the detail panel.
 export function matchChanged(a, b) {
   if (!a || !b) return Boolean(a) !== Boolean(b);

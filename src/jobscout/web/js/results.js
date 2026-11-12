@@ -104,13 +104,13 @@ function cards(matches, ui, handlers) {
 
 function pager(layout, handlers) {
   if (layout.pages <= 1) return null;
-  const go = (n) => () => handlers.onPage(n);
+  const go = (n, key) => () => handlers.onPage(n, key);
   const numbers = [];
   for (let n = 1; n <= layout.pages; n++) {
     numbers.push(
       h(
         "button",
-        { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "aria-label": t("page_n", { n }), "aria-current": n === layout.page ? "page" : null, onclick: go(n) },
+        { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "data-pager": String(n), "aria-label": t("page_n", { n }), "aria-current": n === layout.page ? "page" : null, onclick: go(n, String(n)) },
         String(n),
       ),
     );
@@ -118,9 +118,9 @@ function pager(layout, handlers) {
   return h(
     "nav",
     { class: "run-pager", "aria-label": t("pages") },
-    h("button", { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "aria-label": t("page_prev"), disabled: layout.page <= 1, onclick: go(layout.page - 1) }, icon("chevron-left", 16)),
+    h("button", { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "data-pager": "prev", "aria-label": t("page_prev"), disabled: layout.page <= 1, onclick: go(layout.page - 1, "prev") }, icon("chevron-left", 16)),
     numbers,
-    h("button", { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "aria-label": t("page_next"), disabled: layout.page >= layout.pages, onclick: go(layout.page + 1) }, icon("chevron-right", 16)),
+    h("button", { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "data-pager": "next", "aria-label": t("page_next"), disabled: layout.page >= layout.pages, onclick: go(layout.page + 1, "next") }, icon("chevron-right", 16)),
   );
 }
 

@@ -260,6 +260,10 @@ def read_search_matches(
         ),
     ] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    unscored: Annotated[
+        bool,
+        Query(description="false leaves the unscored jobs out (the page's polls during a run)."),
+    ] = True,
 ) -> MatchList:
     """This search's matches, best first, with how many the default listing holds and how
     many jobs still wait to be scored, and the jobs that have no score at all."""
@@ -272,6 +276,8 @@ def read_search_matches(
         waiting=count_waiting(session, search_id),
         unscored=[
             UnscoredRead(job=read_job(item.job), similarity=item.similarity, match_id=item.match_id)
-            for item in list_unscored(session, search_id, limit=DEFAULT_LISTING_LIMIT)
+            for item in (
+                list_unscored(session, search_id, limit=DEFAULT_LISTING_LIMIT) if unscored else []
+            )
         ],
     )

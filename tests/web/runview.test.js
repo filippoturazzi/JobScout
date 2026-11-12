@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { runView, runHeadline, shouldKeepPolling, matchChanged } = await import("../../src/jobscout/web/js/runview.js");
+const { runView, runHeadline, shouldKeepPolling, matchChanged, freshFor } = await import("../../src/jobscout/web/js/runview.js");
 
 const search = { id: 7 };
 const src = (name, state, extra = {}) => ({ name, state, fetched: 0, queries_done: 0, queries_total: 0, detail: null, ...extra });
@@ -199,4 +199,17 @@ test("runView: a payload without unscored reads as none", () => {
   const v = runView(search, run(), { matches: [match(1, 80)], found: 1, waiting: 0 }, null);
   assert.deepEqual(v.unscored, []);
   assert.equal(v.state, "results");
+});
+
+test("freshFor: a panel finds its match again by id", () => {
+  const list = { matches: [match(5, 70), match(6, 80)] };
+  assert.equal(freshFor(list, match(6, 50)).score, 80);
+  assert.equal(freshFor(list, match(9, 50)), null);
+});
+
+test("freshFor: an unscored job open in the panel finds the match a ranking gave it", () => {
+  const scored = { id: 12, score: 81, job: { id: 300 } };
+  const open = { id: null, score: null, job: { id: 300 }, unscored: true };
+  assert.equal(freshFor({ matches: [match(5, 70), scored] }, open), scored);
+  assert.equal(freshFor({ matches: [match(5, 70)] }, open), null);
 });

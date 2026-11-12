@@ -139,12 +139,13 @@ def list_unscored(session: Session, search_id: int, limit: int = 500) -> list[Un
         match.job_id: match
         for match in session.exec(select(Match).where(Match.search_id == search_id)).all()
     }
-    profile = prefs.profile_embedding
+    blob = prefs.profile_embedding
+    profile = unpack(blob) if blob is not None else None
 
     def similarity_of(job: Job) -> float | None:
-        if job.embedding is None or profile is None or dim(job.embedding) != dim(profile):
+        if job.embedding is None or profile is None or dim(job.embedding) != len(profile):
             return None
-        return cosine(unpack(job.embedding), unpack(profile))
+        return cosine(unpack(job.embedding), profile)
 
     items: list[Unscored] = []
     unevaluated = [
