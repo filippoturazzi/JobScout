@@ -4,7 +4,8 @@ import { h } from "./dom.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
 import { sourceName } from "./format.js";
-import { jobCard } from "./jobcard.js";
+import { cardKey, jobCard } from "./jobcard.js";
+import { resultsLayout } from "./resultslayout.js";
 import { runHeadline } from "./runview.js";
 import { appLine } from "./conversation.js";
 
@@ -72,13 +73,89 @@ export function failureLines(failures, runError = null) {
   );
 }
 
+// An unscored job (UnscoredRead) in the shape the cards and the detail panel read.
+export function asMatch(item) {
+  return {
+    id: null,
+    score: null,
+    reasoning: null,
+    matched_skills: [],
+    missing_skills: [],
+    red_flags: [],
+    status: "new",
+    similarity: item.similarity,
+    job: item.job,
+    unscored: true,
+  };
+}
+
+function card(m, ui, handlers, opts = {}) {
+  return jobCard(m, { selected: cardKey(m) === ui.selectedId, onOpen: handlers.onOpen, ...opts });
+}
+
+function grid(label, cards, extra = "") {
+  if (!cards.length) return null;
+  return h("div", { class: `run-grid${extra}`, role: "listbox", "aria-label": label }, cards);
+}
+
 function cards(matches, ui, handlers) {
-  if (!matches.length) return null;
+  return grid(t("results_label"), matches.map((m) => card(m, ui, handlers)));
+}
+
+function pager(layout, handlers) {
+  if (layout.pages <= 1) return null;
+  const go = (n) => () => handlers.onPage(n);
+  const numbers = [];
+  for (let n = 1; n <= layout.pages; n++) {
+    numbers.push(
+      h(
+        "button",
+        { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "aria-label": t("page_n", { n }), "aria-current": n === layout.page ? "page" : null, onclick: go(n) },
+        String(n),
+      ),
+    );
+  }
   return h(
-    "div",
-    { class: "run-cards", role: "listbox", "aria-label": t("results_label") },
-    matches.map((m) => jobCard(m, { selected: m.id === ui.selectedId, onOpen: handlers.onOpen })),
+    "nav",
+    { class: "run-pager", "aria-label": t("pages") },
+    h("button", { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "aria-label": t("page_prev"), disabled: layout.page <= 1, onclick: go(layout.page - 1) }, icon("chevron-left", 16)),
+    numbers,
+    h("button", { class: "js-btn js-btn--ghost run-pager__btn", type: "button", "aria-label": t("page_next"), disabled: layout.page >= layout.pages, onclick: go(layout.page + 1) }, icon("chevron-right", 16)),
   );
+}
+
+// "Rank the rest", with how many it would score. Shown only while there is something to score.
+function rankLine(view, rank) {
+  if (view.waiting <= 0) return null;
+  return h("div", { class: "run-actions run-rank" }, h("span", { class: "text-meta" }, t("can_score", { m: view.waiting })), rank());
+}
+
+function resultsBody(view, ui, handlers, rank) {
+  const layout = resultsLayout(view.matches, view.unscored, ui.page || 1);
+  const split = layout.items.findIndex((it) => it.kind === "divider");
+  const scored = split === -1 ? layout.items : layout.items.slice(0, split);
+  const loose = split === -1 ? [] : layout.items.slice(split + 1);
+  return [
+    layout.highlighted.length
+      ? h(
+          "section",
+          { class: "run-best" },
+          h("p", { class: "text-meta run-best__label" }, t("best_for_you")),
+          grid(t("best_for_you"), layout.highlighted.map((m) => card(m, ui, handlers, { excerpt: true })), " run-grid--top"),
+        )
+      : null,
+    grid(t("results_label"), scored.map((it) => card(it.match, ui, handlers))),
+    split !== -1
+      ? h(
+          "div",
+          { class: "run-divider" },
+          h("p", { class: "text-body run-divider__title" }, t("unscored_divider", { n: view.unscored.length })),
+          rankLine(view, rank),
+        )
+      : null,
+    grid(t("unscored_divider", { n: view.unscored.length }), loose.map((it) => card(asMatch(it.item), ui, handlers, { unscored: true }))),
+    pager(layout, handlers),
+  ];
 }
 
 // "on-site junior roles in Recife", built from the summary: work mode, level, place.
@@ -121,8 +198,23 @@ function notices(ui) {
   return out;
 }
 
-// view: runView(...). ui: { selectedId, starting, ranking, busyOther, runError, error, busy }.
-// handlers: { onSearchAgain, onRank, onWiden(widening), onOpen(match) }
+function widenBlock(search, ui, handlers) {
+  const widenings = search.widenings || [];
+  if (!widenings.length) return null;
+  return h(
+    "div",
+    { class: "run-widen" },
+    h("p", { class: "text-body" }, t("widen_intro")),
+    h(
+      "div",
+      { class: "conv-chips" },
+      widenings.map((w) => button("secondary conv-chip", widenLabel(w, search.summary), null, () => handlers.onWiden(w), ui.busy || ui.starting)),
+    ),
+  );
+}
+
+// view: runView(...). ui: { selectedId, page, starting, ranking, busyOther, runError, error, busy }.
+// handlers: { onSearchAgain, onRank, onWiden(widening), onOpen(match), onPage(n) }
 export function runSection(view, search, ui, handlers) {
   const again = () => button("secondary", t("search_again"), "rotate-ccw", () => handlers.onSearchAgain(), ui.starting);
   const rank = () => button("secondary", t("rank_rest"), null, () => handlers.onRank(), ui.starting);
@@ -142,41 +234,23 @@ export function runSection(view, search, ui, handlers) {
     case "results":
       return [
         appLine(
-          h("p", { class: "text-body" }, view.waiting > 0 ? [t("found", { n: view.found }), " ", t("more_waiting", { m: view.waiting })] : t("found", { n: view.found })),
-          view.waiting > 0 ? h("div", { class: "run-actions" }, rank()) : null,
-          cards(view.matches, ui, handlers),
+          h("p", { class: "text-body" }, view.found > 0 ? t("found", { n: view.found }) : t("none_scored")),
+          view.widen ? widenBlock(search, ui, handlers) : null,
+          // With nothing unscored to list (old scores waiting to be redone), the rank line has
+          // no divider to sit in: it goes under the count, as before.
+          view.unscored.length ? null : rankLine(view, rank),
+          resultsBody(view, ui, handlers, rank),
           failureLines(view.failures, view.runError),
           h("div", { class: "run-actions" }, again()),
           notices(ui),
         ),
       ];
-    case "waiting_only":
-      return [
-        appLine(
-          h("p", { class: "text-body" }, t("waiting_only", { m: view.waiting })),
-          failureLines(view.failures, view.runError),
-          h("div", { class: "run-actions" }, rank()),
-          notices(ui),
-        ),
-      ];
     case "nothing": {
-      const widenings = search.widenings || [];
       return [
         appLine(
           h("p", { class: "text-body" }, t("nothing_found", { n: view.searched, m: view.fetched, what: nothingWhat(search.summary) })),
           failureLines(view.failures, view.runError),
-          widenings.length
-            ? h(
-                "div",
-                { class: "run-widen" },
-                h("p", { class: "text-body" }, t("widen_intro")),
-                h(
-                  "div",
-                  { class: "conv-chips" },
-                  widenings.map((w) => button("secondary conv-chip", widenLabel(w, search.summary), null, () => handlers.onWiden(w), ui.busy || ui.starting)),
-                ),
-              )
-            : null,
+          widenBlock(search, ui, handlers),
           h("div", { class: "run-actions" }, again()),
           notices(ui),
         ),

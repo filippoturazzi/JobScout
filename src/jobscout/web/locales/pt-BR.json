@@ -96,8 +96,6 @@
   "src_failed": "falhou",
   "src_skipped": "pulada",
   "scoring": "Pontuando {done} de {total} vagas",
-  "more_waiting": "Outras {m} esperam uma nota.",
-  "waiting_only": "Ainda sem notas. {m} vagas esperam uma nota.",
   "rank_rest": "Pontuar o resto",
   "search_again": "Buscar de novo",
   "nothing_found": "Nenhuma vaga combinou. Busquei em {n} fontes e encontrei {m} anúncios, mas nenhum serve para {what}.",
@@ -156,5 +154,14 @@
   "mj_left_tab": "Atualizada. Esta vaga não aparece mais nesta aba.",
   "tab_all": "Todas",
   "tab_saved": "Salvas",
-  "tab_applied": "Candidatadas"
+  "tab_applied": "Candidatadas",
+  "best_for_you": "Melhores para você",
+  "unscored_divider": "Ainda sem nota ({n})",
+  "can_score": "{m} ainda podem receber nota",
+  "no_score": "Sem nota",
+  "none_scored": "Nenhuma vaga tem nota ainda.",
+  "pages": "Páginas",
+  "page_prev": "Página anterior",
+  "page_next": "Próxima página",
+  "page_n": "Página {n}"
 }

@@ -14,6 +14,7 @@ import { createGuard } from "../guard.js";
 import { matchChanged, runView, shouldKeepPolling, withVerdict } from "../runview.js";
 import { runSection } from "../results.js";
 import { openDetail } from "../detail.js";
+import { cardKey } from "../jobcard.js";
 
 const POLL_MS = 2000;
 const guard = createGuard();
@@ -93,6 +94,7 @@ export async function renderSearch(root, ctx, id) {
     busyOther: null,
     runError: null,
     selectedId: null,
+    page: 1,
     wide: false,
   };
   const status = ctx.state.status;
@@ -231,7 +233,7 @@ export async function renderSearch(root, ctx, id) {
   }
 
   function openMatch(match) {
-    ui.selectedId = match.id;
+    ui.selectedId = cardKey(match);
     if (detail) detail.update(match);
     else {
       detail = openDetail(detailHost, match, {
@@ -294,6 +296,11 @@ export async function renderSearch(root, ctx, id) {
     // A widening changes one answer and the summary; it does not search.
     onWiden: (w) => mutate("widen", () => api.post(`/searches/${id}/answers`, { question: w.question, choice: w.answer.choice, values: w.answer.values }), () => {}),
     onOpen: (match) => openMatch(match),
+    onPage: (n) => {
+      ui.page = n;
+      drawRun();
+      if (runHost && typeof runHost.scrollIntoView === "function") runHost.scrollIntoView({ block: "start" });
+    },
   };
 
   function submitText(text) {
