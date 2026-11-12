@@ -11,9 +11,10 @@ import { composer } from "../composer.js";
 import { buildTranscript } from "../transcript.js";
 import { renderEntries } from "../conversation.js";
 import { createGuard } from "../guard.js";
-import { matchChanged, runView, shouldKeepPolling, withVerdict } from "../runview.js";
+import { freshFor, matchChanged, runView, shouldKeepPolling, withVerdict } from "../runview.js";
 import { runSection } from "../results.js";
 import { openDetail } from "../detail.js";
+import { cardKey } from "../jobcard.js";
 
 const POLL_MS = 2000;
 const guard = createGuard();
@@ -64,7 +65,7 @@ export async function renderSearch(root, ctx, id) {
     search = await api.get(`/searches/${id}`);
     if (search.latest_run) {
       // A fresh /status tells a run in flight from one a restart left unfinished.
-      [matchList] = await Promise.all([api.get(`/searches/${id}/matches`), refreshStatus().catch(() => null)]);
+      [matchList] = await Promise.all([api.get(`/searches/${id}/matches?limit=500`), refreshStatus().catch(() => null)]);
     }
   } catch (e) {
     if (!guard.isCurrent(mine)) return;
@@ -93,6 +94,7 @@ export async function renderSearch(root, ctx, id) {
     busyOther: null,
     runError: null,
     selectedId: null,
+    page: 1,
     wide: false,
   };
   const status = ctx.state.status;
@@ -138,8 +140,11 @@ export async function renderSearch(root, ctx, id) {
   // The panel follows its match while the run rescores it, without moving the user's focus.
   function refreshDetail() {
     if (!detail || !ui.matches) return;
-    const fresh = ui.matches.matches.find((m) => m.id === detail.id);
-    if (fresh && matchChanged(detail.match, fresh)) detail.update(fresh, { focus: false });
+    const fresh = freshFor(ui.matches, detail.match);
+    if (!fresh || !matchChanged(detail.match, fresh)) return;
+    // A job opened with no score keeps its place in the list under its new match id.
+    if (ui.selectedId === cardKey(detail.match)) ui.selectedId = cardKey(fresh);
+    detail.update(fresh, { focus: false });
   }
 
   // Each poll reads the run, the matches and /status together: nothing finishes a run that a
@@ -152,7 +157,8 @@ export async function renderSearch(root, ctx, id) {
     try {
       const [run, list] = await Promise.all([
         api.get(`/searches/${id}/runs/${runId}`),
-        api.get(`/searches/${id}/matches`),
+        // A running search shows no unscored jobs: do not build them every poll.
+        api.get(`/searches/${id}/matches?limit=500&unscored=false`),
         // Silent: a notifying refresh would redraw the sidebar (and close the menu) every 2 s.
         refreshStatus({ silent: true }).catch(() => null),
       ]);
@@ -163,7 +169,7 @@ export async function renderSearch(root, ctx, id) {
       if (run.finished_at) {
         // The matches above may predate the run's last writes: read them once more.
         try {
-          const last = await api.get(`/searches/${id}/matches`);
+          const last = await api.get(`/searches/${id}/matches?limit=500`);
           if (!guard.isCurrent(mine)) return;
           ui.matches = last;
         } catch (e) {
@@ -231,7 +237,7 @@ export async function renderSearch(root, ctx, id) {
   }
 
   function openMatch(match) {
-    ui.selectedId = match.id;
+    ui.selectedId = cardKey(match);
     if (detail) detail.update(match);
     else {
       detail = openDetail(detailHost, match, {
@@ -294,6 +300,18 @@ export async function renderSearch(root, ctx, id) {
     // A widening changes one answer and the summary; it does not search.
     onWiden: (w) => mutate("widen", () => api.post(`/searches/${id}/answers`, { question: w.question, choice: w.answer.choice, values: w.answer.values }), () => {}),
     onOpen: (match) => openMatch(match),
+    onPage: (n, key) => {
+      ui.page = n;
+      drawRun();
+      if (runHost && typeof runHost.scrollIntoView === "function") runHost.scrollIntoView({ block: "start" });
+      // The redraw replaced the pressed button: give focus back to its twin on the new page.
+      const again = runHost && runHost.querySelector(`[data-pager="${key}"]`);
+      if (again && !again.disabled) again.focus();
+      else if (runHost) {
+        const current = runHost.querySelector(`[data-pager="${n}"]`);
+        if (current) current.focus();
+      }
+    },
   };
 
   function submitText(text) {

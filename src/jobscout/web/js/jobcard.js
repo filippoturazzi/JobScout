@@ -35,8 +35,14 @@ export function verdictTag(status) {
   return null;
 }
 
-// match: MatchRead. opts: { selected, onOpen(match), searches: [{id, title}] (My jobs only) }
-export function jobCard(match, { selected = false, onOpen, searches = null } = {}) {
+// What identifies a card on the page: the match id, or the job's for a job with no score.
+export function cardKey(match) {
+  return match.id === null || match.id === undefined ? `job-${match.job.id}` : String(match.id);
+}
+
+// match: MatchRead. opts: { selected, onOpen(match), searches: [{id, title}] (My jobs only),
+// excerpt (the LLM's reasoning under the title, for the best three), unscored ("No score" tag) }
+export function jobCard(match, { selected = false, onOpen, searches = null, excerpt = false, unscored = false } = {}) {
   const job = match.job;
   const score = scoreLabel(match.score);
   const named = searches && searches.length ? searches.map((s) => s.title).join(", ") : null;
@@ -51,7 +57,7 @@ export function jobCard(match, { selected = false, onOpen, searches = null } = {
       role: "option",
       tabindex: "0",
       "aria-selected": selected ? "true" : "false",
-      "data-match-id": match.id,
+      "data-match-id": cardKey(match),
       onclick: open,
       onkeydown: (event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -65,7 +71,9 @@ export function jobCard(match, { selected = false, onOpen, searches = null } = {
       { class: "js-card__top" },
       h("div", { class: "jc-head" }, h("h3", { class: "js-card__title" }, job.title), h("p", { class: "js-card__company" }, companyLine(job))),
       score ? h("span", { class: "js-tag js-tag--match" }, score) : null,
+      !score && unscored ? h("span", { class: "js-tag" }, t("no_score")) : null,
     ),
+    excerpt && match.reasoning ? h("p", { class: "text-body-sm jc-reason" }, match.reasoning) : null,
     h("div", { class: "jc-foot" }, h("div", { class: "jc-tags" }, jobTags(job), verdictTag(match.status)), meta ? h("span", { class: "js-meta jc-meta" }, meta) : null),
   );
 }

@@ -37,6 +37,8 @@ const SHAPES = {
   "rotate-ccw": path("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8") + path("M3 3v5h5"),
   lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>' + path("M7 11V7a5 5 0 0 1 10 0v4"),
   "chevron-down": path("m6 9 6 6 6-6"),
+  "chevron-left": path("m15 18-6-6 6-6"),
+  "chevron-right": path("m9 18 6-6-6-6"),
   trash:
     path("M3 6h18") +
     path("M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6") +

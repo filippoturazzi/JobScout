@@ -137,10 +137,19 @@ class SearchRead(BaseModel):
     latest_run: RunRead | None
 
 
+class UnscoredRead(BaseModel):
+    """A job the search fetched that has no score; `similarity` is never an LLM score."""
+
+    job: JobRead
+    similarity: float | None
+    match_id: int | None
+
+
 class MatchList(BaseModel):
     matches: list[MatchRead]
     found: int
     waiting: int
+    unscored: list[UnscoredRead]
 
 
 class SearchTitle(BaseModel):

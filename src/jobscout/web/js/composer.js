@@ -7,7 +7,7 @@ export function shouldSubmit(text, { disabled } = {}) {
   return !disabled && String(text).trim().length > 0;
 }
 
-export function composer({ placeholder = "", disabled = false, locked = false, multiline = false, submitLabel = "", submitIcon = null, primary = true, onSubmit } = {}) {
+export function composer({ placeholder = "", disabled = false, locked = false, multiline = false, submitLabel = "", submitIcon = null, primary = true, highlight = false, onSubmit } = {}) {
   let isDisabled = disabled;
   const field = h("textarea", {
     class: "composer__field",
@@ -25,7 +25,7 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
   );
   const el = h(
     "form",
-    { class: `js-pref composer${multiline ? " composer--multiline" : ""}`, novalidate: true },
+    { class: `js-pref composer${multiline ? " composer--multiline" : ""}${highlight ? " js-highlight" : ""}`, novalidate: true },
     field,
     h("div", { class: "js-pref__foot composer__foot" }, locked ? icon("lock") : h("span", {}), button),
   );

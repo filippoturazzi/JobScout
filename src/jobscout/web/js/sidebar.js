@@ -110,7 +110,13 @@ export function renderSidebar(root, state, route, rerender) {
       h("img", { src: "/static/design/logos/jobscout-mark.svg", alt: "" }),
       "jobscout",
     ),
-    h("a", { class: "js-btn js-btn--secondary sb-new", href: "#/" }, icon("plus"), t("new_search")),
+    // New search always carries the highlight; on the home screen it is also where you are.
+    h(
+      "a",
+      { class: "js-btn js-btn--secondary sb-new js-highlight", href: "#/", "aria-current": route.name === "home" ? "page" : null },
+      icon("plus"),
+      t("new_search"),
+    ),
     h(
       "nav",
       { class: "sb-searches", "aria-label": t("searches") },

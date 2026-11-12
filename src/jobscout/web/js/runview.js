@@ -1,8 +1,8 @@
 // What a search's run area shows, from the search, its latest run and its matches. Pure.
 //
 // state: none (no run) · running (unfinished and this search is the one in flight) ·
-// interrupted (unfinished, but nothing runs it any more: a restart) · results (found > 0) ·
-// waiting_only (nothing found, jobs waiting for a score) · nothing.
+// interrupted (unfinished, but nothing runs it any more: a restart) · results (something
+// scored, or jobs with no score to list after it) · nothing.
 
 const ERROR_LENGTH = 200;
 
@@ -21,17 +21,17 @@ function scoredBy(run) {
 }
 
 export function runView(search, run, matchList, runningSearchId) {
-  const list = matchList || { matches: [], found: 0, waiting: 0 };
+  const list = matchList || { matches: [], found: 0, waiting: 0, unscored: [] };
   const found = list.found || 0;
   const waiting = list.waiting || 0;
+  const unscored = list.unscored || [];
   const sources = (run && run.sources) || [];
   const counters = (run && run.counters) || {};
 
   let state;
   if (!run) state = "none";
   else if (!run.finished_at) state = runningSearchId === search.id ? "running" : "interrupted";
-  else if (found > 0) state = "results";
-  else if (waiting > 0) state = "waiting_only";
+  else if (found > 0 || unscored.length > 0) state = "results";
   else state = "nothing";
 
   // A source that answered and then failed stays "done" but carries why in `detail`. Its notes
@@ -63,6 +63,10 @@ export function runView(search, run, matchList, runningSearchId) {
     runError,
     found,
     waiting,
+    // While a run is in flight the unscored list grows on every poll: it shows once it ends.
+    unscored: state === "running" ? [] : unscored,
+    // Nothing scored and nothing left to score: only jobs the prefilter turned away.
+    widen: found === 0 && waiting === 0,
     fetched: counters.fetched || 0,
     sources,
     // A ranking run never touches the sources: they all stay "waiting".
@@ -86,6 +90,14 @@ export function runHeadline(view, ranking) {
 // Polling runs only while the run is in flight here; an interrupted run stops it.
 export function shouldKeepPolling(view) {
   return view.state === "running";
+}
+
+// The polled match for what the detail panel shows: by match id, or, for a job that had no
+// score when it was opened, the match a ranking has since given that job.
+export function freshFor(list, current) {
+  const matches = (list && list.matches) || [];
+  const unscored = current.id === null || current.id === undefined;
+  return matches.find((m) => (unscored ? m.job && m.job.id === current.job.id : m.id === current.id)) || null;
 }
 
 // Whether a polled match differs from the one shown in the detail panel.

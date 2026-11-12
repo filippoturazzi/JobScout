@@ -96,8 +96,6 @@
   "src_failed": "failed",
   "src_skipped": "skipped",
   "scoring": "Scoring {done} of {total} jobs",
-  "more_waiting": "{m} more are waiting for a score.",
-  "waiting_only": "No scores yet. {m} jobs are waiting for a score.",
   "rank_rest": "Rank the rest",
   "search_again": "Search again",
   "nothing_found": "No jobs matched. I searched {n} sources and found {m} postings, but none fit {what}.",
@@ -156,5 +154,14 @@
   "mj_left_tab": "Updated. This job no longer shows in this tab.",
   "tab_all": "All",
   "tab_saved": "Saved",
-  "tab_applied": "Applied"
+  "tab_applied": "Applied",
+  "best_for_you": "Best for you",
+  "unscored_divider": "Still unscored ({n})",
+  "can_score": "{m} can still be scored",
+  "no_score": "No score",
+  "none_scored": "No job has a score yet.",
+  "pages": "Pages",
+  "page_prev": "Previous page",
+  "page_next": "Next page",
+  "page_n": "Page {n}"
 }

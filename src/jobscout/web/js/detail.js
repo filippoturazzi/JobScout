@@ -94,6 +94,8 @@ export function openDetail(host, match, opts = {}) {
     const saved = status === "saved";
     const applied = status === "applied";
     const dismissed = status === "dismissed";
+    // A job with no score has no match to give a verdict on: the panel only shows it.
+    const verdicts = current.id !== null && current.id !== undefined;
     const title = h("h1", { class: "text-h1 dt-title", tabindex: "-1" }, job.title);
     const actions = [];
     if (url) {
@@ -106,7 +108,7 @@ export function openDetail(host, match, opts = {}) {
         ),
       );
     }
-    actions.push(
+    if (verdicts) actions.push(
       h(
         "button",
         // A pressed verdict button takes the verdict back on the next click.
@@ -135,7 +137,7 @@ export function openDetail(host, match, opts = {}) {
               "div",
               { class: "dt-score" },
               score ? h("span", { class: "js-tag js-tag--match" }, score) : null,
-              h("span", { class: "text-meta dt-score__label" }, [t("fit_score"), ago].filter(Boolean).join(" · ")),
+              h("span", { class: "text-meta dt-score__label" }, [score ? t("fit_score") : null, ago].filter(Boolean).join(" · ")),
             )
           : null,
         current.reasoning ? h("p", { class: "text-body dt-reasoning" }, current.reasoning) : null,
@@ -164,7 +166,8 @@ export function openDetail(host, match, opts = {}) {
           : null,
         error ? h("p", { class: "text-body-sm dt-error", role: "alert" }, error) : null,
         h("div", { class: "dt-actions" }, actions),
-        h(
+        verdicts
+          ? h(
           "div",
           { class: "dt-actions dt-actions--quiet" },
           h(
@@ -193,7 +196,8 @@ export function openDetail(host, match, opts = {}) {
             icon("eye-off", 16),
             t(dismissed ? "dismissed" : "dismiss"),
           ),
-        ),
+        )
+          : null,
       ),
     );
     if (focusAction === "none") return;

@@ -5,6 +5,7 @@ from sqlmodel import select
 
 from jobscout.config import Settings
 from jobscout.matching.graph import GraphDeps
+from jobscout.matching.vectors import pack
 from jobscout.models import Job, Match, User
 from jobscout.models.base import utcnow
 from jobscout.pipeline.ingest import upsert_jobs
@@ -14,12 +15,13 @@ from jobscout.pipeline.run import (
     list_jobs,
     list_matches,
     list_my_jobs,
+    list_unscored,
     match_listing_statement,
     run_ingest,
     run_listing_statement,
     set_match_status,
 )
-from jobscout.pipeline.users import update_preferences
+from jobscout.pipeline.users import get_preferences, update_preferences
 from jobscout.sources.base import RawJob, SearchQuery
 from tests.helpers import fetched, make_search
 from tests.matching.fakes import CountingChatModel, DeterministicFakeEmbedding
@@ -473,3 +475,127 @@ def test_my_jobs_does_not_resurface_a_dismissed_job_scored_later(session):
     result = list_my_jobs(session, a.user_id)
     assert [i.job.id for i in result.items] == [other.id]
     assert result.counts == before
+
+
+# --- list_unscored -------------------------------------------------------------------------
+
+
+def _jobs(session, *ids):
+    upsert_jobs(session, [raw(i, "AI Engineer") for i in ids], now=T0)
+    return {j.external_id: j for j in session.exec(select(Job)).all()}
+
+
+def _row(session, search, job, status="new", score=None, similarity=0.5):
+    match = Match(
+        job_id=job.id,
+        user_id=search.user_id,
+        search_id=search.id,
+        similarity=similarity,
+        score=score,
+        status=status,
+    )
+    session.add(match)
+    session.commit()
+    return match
+
+
+def test_list_unscored_includes_unevaluated_and_low_jobs(session):
+    search = make_search(session)
+    jobs = _jobs(session, "fresh", "low", "scored")
+    fetched(session, search, *jobs.values())
+    low = _row(session, search, jobs["low"], status="low", similarity=0.3)
+    _row(session, search, jobs["scored"], score=80)
+
+    items = {item.job.external_id: item for item in list_unscored(session, search.id)}
+
+    assert set(items) == {"fresh", "low"}
+    assert items["low"].match_id == low.id
+    assert items["low"].similarity == pytest.approx(0.3)
+    assert items["fresh"].match_id is None
+
+
+def test_list_unscored_keeps_scored_stale_rows_out(session):
+    search = make_search(session)
+    jobs = _jobs(session, "old_score", "no_score")
+    fetched(session, search, *jobs.values())
+    _row(session, search, jobs["old_score"], status="stale", score=70)
+    _row(session, search, jobs["no_score"], status="stale", score=None)
+
+    ids = [item.job.external_id for item in list_unscored(session, search.id)]
+
+    assert ids == ["no_score"]
+
+
+def test_list_unscored_orders_by_similarity_with_unknown_last(session):
+    search = make_search(session)
+    prefs = get_preferences(session, search.id)
+    prefs.profile_embedding = pack([1.0, 0.0])
+    session.add(prefs)
+    jobs = _jobs(session, "partial", "exact", "unknown")
+    jobs["partial"].embedding = pack([0.6, 0.8])
+    jobs["exact"].embedding = pack([1.0, 0.0])
+    session.add_all(jobs.values())
+    session.commit()
+    fetched(session, search, *jobs.values())
+
+    items = list_unscored(session, search.id)
+
+    assert [item.job.external_id for item in items] == ["exact", "partial", "unknown"]
+    assert items[0].similarity == pytest.approx(1.0)
+    assert items[1].similarity == pytest.approx(0.6)
+    assert items[2].similarity is None
+
+
+def test_list_unscored_without_profile_embedding_has_no_similarity(session):
+    search = make_search(session)
+    jobs = _jobs(session, "a", "b")
+    jobs["a"].embedding = pack([1.0, 0.0])
+    session.add(jobs["a"])
+    session.commit()
+    fetched(session, search, *jobs.values())
+
+    items = list_unscored(session, search.id)
+
+    assert len(items) == 2
+    assert all(item.similarity is None for item in items)
+
+
+def test_list_unscored_hides_jobs_closed_in_another_search(session):
+    search = make_search(session)
+    other = make_search(session, title="Other")
+    jobs = _jobs(session, "dismissed", "saved")
+    fetched(session, search, *jobs.values())
+    _row(session, other, jobs["dismissed"], status="dismissed", score=50)
+    _row(session, other, jobs["saved"], status="saved", score=50)
+
+    ids = [item.job.external_id for item in list_unscored(session, search.id)]
+
+    assert ids == ["saved"]
+
+
+def test_list_unscored_hides_inactive_and_unselected_jobs(session):
+    search = make_search(session)
+    jobs = _jobs(session, "gone", "elsewhere", "kept")
+    jobs["gone"].is_active = False
+    jobs["elsewhere"].location = "United States"
+    jobs["kept"].location = "Worldwide"
+    session.add_all(jobs.values())
+    session.commit()
+    for job in jobs.values():
+        _row(session, search, job, status="low", similarity=0.2)
+    update_preferences(session, search.id, {"regions": ["Brasil"]})
+
+    ids = [item.job.external_id for item in list_unscored(session, search.id)]
+
+    assert ids == ["kept"]
+
+
+def test_list_unscored_does_not_embed(session):
+    search = make_search(session)
+    jobs = _jobs(session, "a")
+    fetched(session, search, *jobs.values())
+
+    list_unscored(session, search.id)
+
+    session.refresh(jobs["a"])
+    assert jobs["a"].embedding is None

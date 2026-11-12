@@ -43,6 +43,15 @@ class FakeElement extends FakeNode {
   focus() {
     fakeDocument.activeElement = this;
   }
+  // Only `[name="value"]`, the one selector detail.js asks for.
+  querySelector(selector) {
+    const m = /^\[([\w-]+)="([^"]*)"\]$/.exec(selector);
+    if (!m) return null;
+    return findElement(this, (el) => el.getAttribute(m[1]) === m[2]);
+  }
+  contains(node) {
+    return node === this || Boolean(findElement(this, (el) => el === node));
+  }
   setSelectionRange(start, end) {
     this.selection = [start, end];
   }
@@ -51,8 +60,21 @@ class FakeElement extends FakeNode {
   }
 }
 
+// The first element under `root` (not root itself) for which `test` holds.
+export function findElement(root, test) {
+  for (const child of root.childNodes) {
+    if (child.nodeType !== 1) continue;
+    if (test(child)) return child;
+    const found = findElement(child, test);
+    if (found) return found;
+  }
+  return null;
+}
+
 export const fakeDocument = {
   activeElement: null,
+  addEventListener() {},
+  removeEventListener() {},
   createElement: (tag) => new FakeElement(tag),
   createTextNode: (data) => new FakeText(data),
 };
