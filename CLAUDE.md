@@ -52,7 +52,7 @@ Follow this order unless the user says otherwise. TDD for all logic; tests never
 - `uv run ruff check .` / `uv run ruff format .` — lint/format; both must be clean before committing.
 - `uv run mypy src` — strict type check of `src/`; must be clean before committing (CI enforces it).
 - `uv run jobscout fetch|jobs|searches|repair-descriptions|upgrade-db|serve` — CLI. `search`, `match`, `matches` and `jobs` take `--search ID` (default: the latest search); `upgrade-db` converts a pre-saved-searches database after backing it up. `serve` runs uvicorn on `jobscout.api.app:app`.
-- API: `GET/POST /searches`, `GET/DELETE /searches/{id}`, `POST /searches/{id}/answers|refinements|reread|run|rank`, `GET /searches/{id}/runs/{run_id}`, `GET /searches/{id}/matches`, `PATCH /matches/{id}`, `GET /my-jobs`, `GET /jobs`, `GET /status`, `PUT /me/locale` (these replaced `/preferences`, `/search` and `GET /matches`).
+- API: `GET/POST /searches`, `GET/DELETE /searches/{id}`, `POST /searches/{id}/answers|refinements|reread|run|rank`, `GET /searches/{id}/runs/{run_id}`, `GET /searches/{id}/matches` (scored matches, plus `unscored`: the fetched jobs with no score, by stored similarity), `PATCH /matches/{id}`, `GET /my-jobs`, `GET /jobs`, `GET /status`, `PUT /me/locale` (these replaced `/preferences`, `/search` and `GET /matches`).
 - `GET /runs` — run history (ingest, match, digest, search). The scheduler runs inside `serve` and is off by default (`SCHEDULER_ENABLED=true` turns it on); `POST /searches/{id}/run` runs regardless.
 - `uv run jobscout match|matches` — run the matching graph / list scored matches (needs a provider key).
 - `uv run jobscout search` — one search in the foreground: profile terms → every source → scoring, then the ranking (needs a provider key).

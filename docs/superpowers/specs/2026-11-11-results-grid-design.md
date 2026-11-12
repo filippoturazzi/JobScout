@@ -1,6 +1,6 @@
 # Results grid: best three, a paged grid, and the unscored jobs
 
-Date: 2026-11-11. Status: awaiting the user's approval.
+Date: 2026-11-11. Status: implemented (plan `docs/superpowers/plans/2026-11-11-results-grid.md`).
 
 ## Why
 
