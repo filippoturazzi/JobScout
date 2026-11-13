@@ -3,6 +3,8 @@ import { api } from "./api.js";
 
 export const state = { status: null, searches: [] };
 const listeners = new Set();
+// Searches deleted with Undo still on offer: the server has them until the toast goes.
+const hidden = new Set();
 
 function notify() {
   listeners.forEach((fn) => fn(state));
@@ -22,9 +24,24 @@ export async function refreshStatus({ silent = false } = {}) {
 
 // silent: update the list without notifying; the caller redraws what needs it (the sidebar).
 export async function refreshSearches({ silent = false } = {}) {
-  state.searches = await api.get("/searches");
+  state.searches = withoutHidden(await api.get("/searches"), hidden);
   if (!silent) notify();
   return state.searches;
+}
+
+// The list minus the searches waiting to be deleted. Pure.
+export function withoutHidden(searches, ids) {
+  return (searches || []).filter((s) => !ids.has(s.id));
+}
+
+export function hideSearch(id) {
+  hidden.add(id);
+  state.searches = withoutHidden(state.searches, hidden);
+  notify();
+}
+
+export function unhideSearch(id) {
+  hidden.delete(id);
 }
 
 // Whether something runs, by /status or by the sidebar's own markers (a run that just ended

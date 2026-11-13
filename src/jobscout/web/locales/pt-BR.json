@@ -6,7 +6,7 @@
   "settings": "Configurações",
   "delete": "Excluir",
   "delete_confirm": "Excluir esta busca?",
-  "delete_confirm_body": "“{title}” e as vagas encontradas nela serão removidas. Não dá para desfazer.",
+  "delete_confirm_body": "“{title}” e as vagas encontradas nela serão removidas.",
   "cancel": "Cancelar",
   "search_running": "Em andamento",
   "delete_failed": "Não foi possível excluir esta busca. Tente de novo.",
@@ -200,5 +200,13 @@
   "col_status": "Status",
   "col_search": "Busca",
   "col_date": "Data",
-  "status_new": "Nova"
+  "status_new": "Nova",
+  "search_deleted": "Conversa excluída",
+  "toast_saved": "Vaga salva",
+  "toast_applied": "Marcada como candidatada",
+  "toast_dismissed": "Vaga dispensada",
+  "toast_unsaved": "Removida das salvas",
+  "toast_unapplied": "Candidatura desmarcada",
+  "toast_undismissed": "Vaga de volta",
+  "toast_updated": "Vaga atualizada"
 }

@@ -6,6 +6,7 @@ import { applyTheme, watchSystemTheme } from "./js/theme.js";
 import { currentRoute, onRoute } from "./js/router.js";
 import { refreshSearches, refreshStatus, runningMismatch, shouldWatch, state, subscribe } from "./js/store.js";
 import { renderSidebar } from "./js/sidebar.js";
+import { initToasts } from "./js/toast.js";
 import { renderHome } from "./js/views/home.js";
 import { renderSettings } from "./js/views/settings.js";
 import { isPollingRun, leaveSearch, renderSearch } from "./js/views/search.js";
@@ -20,7 +21,9 @@ async function start() {
   const sidebar = h("aside", { class: "app-sidebar", id: "sidebar" });
   const main = h("main", { class: "app-main" });
   const menuButton = h("button", { class: "js-btn js-btn--ghost app-menu", type: "button", "aria-controls": "sidebar", "aria-expanded": "false", "aria-label": t("menu") }, icon("menu", 20));
-  const shell = h("div", { class: "app-shell" }, sidebar, h("div", { class: "app-content" }, menuButton, main));
+  const toasts = h("div", { class: "toast-host", role: "status", "aria-live": "polite" });
+  const shell = h("div", { class: "app-shell" }, sidebar, h("div", { class: "app-content" }, menuButton, main), toasts);
+  initToasts(toasts);
   menuButton.addEventListener("click", () => {
     const open = !shell.classList.contains("is-menu-open");
     shell.classList.toggle("is-menu-open", open);
@@ -28,7 +31,7 @@ async function start() {
   });
   mount(root, shell);
 
-  const drawSidebar = () => renderSidebar(sidebar, state, currentRoute(), () => render());
+  const drawSidebar = () => renderSidebar(sidebar, state, currentRoute());
 
   // While a search runs, the sidebar's running marker follows /status, whichever view is open:
   // a silent poll every 2 s, a silent re-read of the list when the two disagree, and a redraw

@@ -34,7 +34,7 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 
 /* Shell: sidebar | main. The page itself never scrolls: the sidebar, the main area and the
    detail panel each scroll on their own, so every scrollbar sits on the edge of its region. */
-.app-shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); height: 100vh; height: 100dvh; }
+.app-shell { --shell-side: var(--sidebar-width); display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); height: 100vh; height: 100dvh; }
 .app-sidebar {
   position: sticky;
   top: 0;
@@ -100,7 +100,6 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .sb-row:hover .sb-del, .sb-row:focus-within .sb-del { opacity: 1; }
 /* No hover on a touch screen: the delete button is always there. */
 @media (hover: none) { .sb-del { opacity: 1; } }
-.sb-error { flex-basis: 100%; padding: var(--space-1) var(--space-3) var(--space-2); color: var(--danger); }
 .sb-foot { display: grid; gap: var(--space-0-5); }
 .sb-link { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--ink-muted); }
 .sb-link:hover { color: var(--ink); background: var(--surface); }
@@ -133,6 +132,7 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 /* Below 800 px: one column, the sidebar behind the menu button, the detail panel full-screen */
 @media (max-width: 800px) {
   .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .toast-host { left: 50%; }
   .app-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; width: var(--sidebar-width); transform: translateX(-100%); visibility: hidden; }
   .is-menu-open .app-sidebar { transform: none; visibility: visible; box-shadow: var(--shadow-overlay); }
   .app-menu { display: inline-flex; }
@@ -376,8 +376,6 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .dt-actions .js-btn:disabled, .dt-head .js-btn:disabled { cursor: not-allowed; opacity: 0.5; }
 .dt-toggle--save[aria-pressed="true"] { background: var(--warn-subtle); color: var(--warn); }
 .dt-toggle--dismiss[aria-pressed="true"] { background: var(--surface-raised); color: var(--ink); }
-.dt-notice { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface); }
-.dt-notice__text { color: var(--ink); flex: 1; min-width: 0; }
 .dt-error { color: var(--danger); }
 
 /* My jobs: tabs with counts and an accent underline, the search filter on the right, and the
@@ -468,3 +466,13 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
   .app-content:has(> .app-main.has-detail) { margin-right: 0; }
   .app-detail { z-index: 20; }
 }
+
+/* Toast: one at a time, at the bottom centre of the main area (js/toast.js). */
+.toast-host { position: fixed; bottom: var(--space-6); left: calc(var(--shell-side) + (100vw - var(--shell-side)) / 2); transform: translateX(-50%); z-index: 20; max-width: calc(100vw - var(--space-8)); }
+.toast { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3-5); border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--surface-raised); box-shadow: var(--shadow-overlay); }
+.toast__icon { display: inline-flex; color: var(--success); }
+.toast--error .toast__icon { color: var(--danger); }
+.toast__text { color: var(--ink); min-width: 0; }
+.toast__action { color: var(--accent-text); min-height: 0; padding: var(--space-1) var(--space-2); }
+.toast__action:hover { color: var(--accent-text); background: var(--accent-subtle); }
+.toast__close { color: var(--ink-subtle); }

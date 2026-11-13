@@ -6,24 +6,21 @@ import { dayGroup } from "./format.js";
 import { t } from "./i18n.js";
 import { api } from "./api.js";
 import { go } from "./router.js";
-import { refreshSearches } from "./store.js";
+import { hideSearch, refreshSearches, unhideSearch } from "./store.js";
+import { showToast } from "./toast.js";
 
 export const REPO_URL = "https://github.com/filippoturazzi/JobScout";
-
-// The search whose delete was refused (a run is going, or the request failed).
-let errorFor = null; // { id, key }
 
 // "Delete this search?" asks in a modal dialog centred on the page. It lives on <body>, not in
 // the sidebar, so re-rendering the sidebar never tears it down while it is open.
 let dialog = null;
 
-function confirmDelete(s, route, rerender) {
-  errorFor = null;
+function confirmDelete(s, route) {
   if (dialog) dialog.remove();
   const close = () => dialog.close();
   const confirm = h(
     "button",
-    { class: "js-btn js-btn--danger cd-delete", type: "button", onclick: () => remove(s.id, route, rerender, confirm) },
+    { class: "js-btn js-btn--danger cd-delete", type: "button", onclick: () => remove(s, route) },
     t("delete"),
   );
   dialog = h(
@@ -65,7 +62,7 @@ function navLink(href, name, iconName, route, routeName) {
   );
 }
 
-function searchRow(s, route, rerender) {
+function searchRow(s, route) {
   const current = route.name === "search" && route.id === s.id;
   return h(
     "li",
@@ -83,27 +80,57 @@ function searchRow(s, route, rerender) {
         type: "button",
         "aria-label": `${t("delete")}: ${s.title}`,
         title: t("delete"),
-        onclick: () => confirmDelete(s, route, rerender),
+        onclick: () => confirmDelete(s, route),
       },
       icon("trash", 14),
     ),
-    errorFor && errorFor.id === s.id ? h("p", { class: "text-body-sm sb-error", role: "alert" }, t(errorFor.key)) : null,
   );
 }
 
-async function remove(id, route, rerender, button) {
-  button.disabled = true;
+// Deletes that wait for their toast to go: the search is hidden at once, the DELETE is sent
+// when the toast expires (or the page is left), and Undo brings the search back.
+const pending = new Set();
+
+async function sendDelete(id) {
+  if (!pending.delete(id)) return;
   try {
     await api.del(`/searches/${id}`);
-    if (dialog) dialog.close();
-    errorFor = null;
-    if (route.name === "search" && route.id === id) go("/");
-    await refreshSearches();
+    unhideSearch(id);
   } catch (e) {
-    if (dialog) dialog.close();
-    errorFor = { id, key: e && e.code === "search_busy" ? "search_busy" : "delete_failed" };
-    rerender();
+    unhideSearch(id);
+    showToast({ message: t(e && e.code === "search_busy" ? "search_busy" : "delete_failed"), kind: "error" });
+    await refreshSearches().catch(() => {});
   }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    for (const id of pending) fetch(`/searches/${id}`, { method: "DELETE", keepalive: true });
+    pending.clear();
+  });
+}
+
+function remove(s, route) {
+  if (dialog) dialog.close();
+  if (s.running) {
+    showToast({ message: t("search_busy"), kind: "error" });
+    return;
+  }
+  pending.add(s.id);
+  if (route.name === "search" && route.id === s.id) go("/");
+  hideSearch(s.id);
+  showToast({
+    message: t("search_deleted"),
+    onExpire: () => sendDelete(s.id),
+    action: {
+      label: t("undo"),
+      run: () => {
+        pending.delete(s.id);
+        unhideSearch(s.id);
+        refreshSearches().catch(() => {});
+      },
+    },
+  });
 }
 
 const GROUPS = ["today", "week", "older"];
@@ -114,7 +141,7 @@ export function groupSearches(searches, now = new Date()) {
   return GROUPS.map((name) => ({ name, items: sorted.filter((s) => dayGroup(s.last_used_at, now) === name) })).filter((g) => g.items.length);
 }
 
-export function renderSidebar(root, state, route, rerender) {
+export function renderSidebar(root, state, route) {
   const groups = groupSearches(state.searches);
   mount(
     root,
@@ -140,7 +167,7 @@ export function renderSidebar(root, state, route, rerender) {
               "section",
               { class: "sb-group" },
               h("h2", { class: "text-meta sb-heading" }, t(`group_${g.name}`)),
-              h("ul", { class: "sb-list" }, g.items.map((s) => searchRow(s, route, rerender))),
+              h("ul", { class: "sb-list" }, g.items.map((s) => searchRow(s, route))),
             ),
           )
         : [h("h2", { class: "text-meta sb-heading" }, t("searches")), h("p", { class: "text-body-sm sb-empty" }, t("searches_empty"))],

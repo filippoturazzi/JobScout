@@ -1,11 +1,13 @@
 // The job detail panel (screen 07), shared by a search's results and My jobs.
 // It sends the verdict itself (PATCH /matches/{id}); the caller decides what the change means
 // for its own listing and may answer with a notice ("it no longer shows here").
-// Every verdict can be taken back: a pressed button sends "new", and a notice offers Undo.
+// Every verdict can be taken back: a pressed button sends "new", and its toast offers Undo,
+// which still works after the panel has closed.
 import { h, mount } from "./dom.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
 import { api } from "./api.js";
+import { showToast } from "./toast.js";
 import { safeUrl, scoreLabel, scoreLevel, sourceName } from "./format.js";
 import { companyInitial, jobTags, postedAgo } from "./jobcard.js";
 
@@ -44,15 +46,20 @@ export function undoStatus(before) {
   return USER_STATUSES.has(before) ? before : "new";
 }
 
+// The toast's message when the caller has no notice of its own: the verdict set, or the one
+// taken back when the button sent "new".
+export function verdictMessage(before, after) {
+  if (USER_STATUSES.has(after)) return `toast_${after}`;
+  return USER_STATUSES.has(before) ? `toast_un${before}` : "toast_updated";
+}
+
 // Returns { update(match, {focus}), close(restoreFocus = true), id, match }.
 export function openDetail(host, match, opts = {}) {
   const opener = document.activeElement;
   let current = match;
-  let notice = null;
   let error = null;
   let pending = false;
   let closed = false;
-  let undoTo = null;
 
   // Escape closes the panel from inside it, or from anywhere but a field being typed in.
   function onKey(event) {
@@ -64,6 +71,21 @@ export function openDetail(host, match, opts = {}) {
     close();
   }
 
+  // Undo from the toast: the panel may have closed or moved to another job meanwhile, so it
+  // only redraws when it still shows this one.
+  async function undo(matchId, status) {
+    try {
+      const restored = await api.patch(`/matches/${matchId}`, { status });
+      if (opts.onVerdict) opts.onVerdict(restored);
+      if (!closed && current.id === restored.id) {
+        current = restored;
+        draw("none");
+      }
+    } catch (e) {
+      showToast({ message: t("request_failed"), kind: "error" });
+    }
+  }
+
   async function verdict(status, action) {
     if (pending || current.status === status) return;
     const before = current.status;
@@ -72,17 +94,19 @@ export function openDetail(host, match, opts = {}) {
     draw(action);
     try {
       const updated = await api.patch(`/matches/${current.id}`, { status });
-      if (closed) return;
-      current = updated;
-      notice = opts.onVerdict ? opts.onVerdict(updated) || null : null;
-      // Undo is offered with the notice, which is when the job has left the caller's list.
-      undoTo = notice && action !== "undo" ? undoStatus(before) : null;
+      if (!closed) current = updated;
+      const notice = opts.onVerdict ? opts.onVerdict(updated) || null : null;
+      const back = undoStatus(before);
+      showToast({
+        message: notice || t(verdictMessage(before, updated.status)),
+        action: { label: t("undo"), run: () => undo(updated.id, back) },
+      });
     } catch (e) {
       if (closed) return;
       error = t("request_failed");
     }
     pending = false;
-    draw(notice ? (undoTo ? "undo" : "notice-close") : action);
+    if (!closed) draw(action);
   }
 
   // An icon-only verdict toggle: pressed when the verdict is on, a click takes it back.
@@ -181,22 +205,6 @@ export function openDetail(host, match, opts = {}) {
       h(
         "div",
         { class: "dt-foot" },
-        notice
-          ? h(
-              "div",
-              { class: "dt-notice", role: "status" },
-              h("p", { class: "text-body-sm dt-notice__text" }, notice),
-              undoTo
-                ? h(
-                    "button",
-                    { class: "js-btn js-btn--secondary", type: "button", disabled: pending, "data-action": "undo", onclick: () => verdict(undoTo, "undo") },
-                    icon("rotate-ccw", 16),
-                    t("undo"),
-                  )
-                : null,
-              h("button", { class: "js-btn js-btn--ghost", type: "button", "data-action": "notice-close", onclick: () => close() }, t("close")),
-            )
-          : null,
         error ? h("p", { class: "text-body-sm dt-error", role: "alert" }, error) : null,
         h(
           "div",
@@ -243,9 +251,7 @@ export function openDetail(host, match, opts = {}) {
         const active = document.activeElement;
         if (active && host.contains(active)) keep = active.getAttribute("data-action") || null;
       } else {
-        notice = null;
         error = null;
-        undoTo = null;
       }
       current = next;
       draw(focus ? null : keep);

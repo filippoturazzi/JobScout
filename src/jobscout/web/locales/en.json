@@ -6,7 +6,7 @@
   "settings": "Settings",
   "delete": "Delete",
   "delete_confirm": "Delete this search?",
-  "delete_confirm_body": "“{title}” and its matches will be removed. This cannot be undone.",
+  "delete_confirm_body": "“{title}” and its matches will be removed.",
   "cancel": "Cancel",
   "search_running": "Running",
   "delete_failed": "Could not delete this search. Try again.",
@@ -200,5 +200,13 @@
   "col_status": "Status",
   "col_search": "Search",
   "col_date": "Posted",
-  "status_new": "New"
+  "status_new": "New",
+  "search_deleted": "Search deleted",
+  "toast_saved": "Job saved",
+  "toast_applied": "Marked as applied",
+  "toast_dismissed": "Job dismissed",
+  "toast_unsaved": "Removed from saved",
+  "toast_unapplied": "No longer marked as applied",
+  "toast_undismissed": "No longer dismissed",
+  "toast_updated": "Job updated"
 }

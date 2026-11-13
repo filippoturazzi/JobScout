@@ -94,6 +94,7 @@ Fonte da verdade visual: `design/jobscoutv2.pen` (na raiz do repositório), boar
 - **Linha de Minhas vagas** — `jobRow()` / `.jr`: Vaga · Aderência · Fonte · Status · Busca · Data; em telas estreitas fica Vaga · Aderência · Data.
 - **Composer** — `form.js-pref.composer`: raio `xl`, sem borda própria no textarea; na home é multilinha com o Send embaixo à direita; na conversa é uma linha só.
 - **Highlight** — `js-highlight`: onde uma busca começa ("Nova busca" na sidebar). Em 2.0 é só superfície + borda, sem tracejado.
+- **Toast** — `showToast()` de `js/toast.js` (`.toast` em `app.css`): um por vez, embaixo no centro da área principal, some em 6s (pausa com hover/foco). Toda mudança de status de vaga mostra um com "Desfazer"; excluir conversa também (o DELETE só sai quando o toast some).
 - **Logo** — `a.js-logo`: `logoMark()` de `js/icons.js` (SVG inline em `currentColor`, pintado com `--accent-text`) + o texto `jobscout`.
 
 ## Marca

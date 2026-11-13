@@ -48,3 +48,13 @@ test("an unscored job's panel does not speak of a fit score", () => {
   openDetail(host, asMatch(unscoredItem));
   assert.ok(!host.textContent.includes(t("fit_score")));
 });
+
+test("a verdict's toast names what it set, or what it took back", async () => {
+  const { verdictMessage } = await import("../../src/jobscout/web/js/detail.js");
+  assert.equal(verdictMessage("new", "saved"), "toast_saved");
+  assert.equal(verdictMessage("saved", "applied"), "toast_applied");
+  assert.equal(verdictMessage("new", "dismissed"), "toast_dismissed");
+  assert.equal(verdictMessage("saved", "new"), "toast_unsaved");
+  assert.equal(verdictMessage("dismissed", "new"), "toast_undismissed");
+  assert.equal(verdictMessage("stale", "new"), "toast_updated");
+});
