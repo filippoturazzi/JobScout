@@ -8,6 +8,7 @@ import { api } from "../api.js";
 import { refreshStatus } from "../store.js";
 import { sourceName } from "../format.js";
 import { withCode } from "./common.js";
+import { currentChoice, setTheme } from "../theme.js";
 
 function row(label, value) {
   return h("div", { class: "set-row" }, h("span", { class: "text-body set-label" }, label), value);
@@ -46,10 +47,6 @@ function segmented(label, options, current, onPick) {
       ),
     ),
   );
-}
-
-function currentTheme() {
-  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }
 
 function sourceRow(s) {
@@ -105,12 +102,7 @@ export function renderSettings(root, ctx) {
   const sources = section(t("sources"), t("sources_desc"), (status.sources || []).map(sourceRow), note(t("sources_note"), ["SOURCES", ".env"]));
 
   function pickTheme(value) {
-    try {
-      localStorage.setItem("jobscout.theme", value);
-    } catch (e) {
-      // Storage can be blocked; the theme still applies for this visit.
-    }
-    document.documentElement.dataset.theme = value;
+    setTheme(value);
     ctx.rerender();
   }
 
@@ -133,7 +125,7 @@ export function renderSettings(root, ctx) {
     [
     row(
       t("theme"),
-      segmented(t("theme"), [{ value: "dark", label: t("theme_dark") }, { value: "light", label: t("theme_light") }], currentTheme(), pickTheme),
+      segmented(t("theme"), [{ value: "dark", label: t("theme_dark") }, { value: "light", label: t("theme_light") }, { value: "system", label: t("theme_system") }], currentChoice(), pickTheme),
     ),
     row(
       t("language"),

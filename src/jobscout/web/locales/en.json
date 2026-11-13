@@ -43,6 +43,7 @@
   "theme": "Theme",
   "theme_dark": "Dark",
   "theme_light": "Light",
+  "theme_system": "System",
   "language": "Language",
   "gotit": "Got it: {what}.",
   "gotit_asking": "Got it: {what}. A few quick questions.",

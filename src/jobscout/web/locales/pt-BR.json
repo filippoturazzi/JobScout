@@ -43,6 +43,7 @@
   "theme": "Tema",
   "theme_dark": "Escuro",
   "theme_light": "Claro",
+  "theme_system": "Sistema",
   "language": "Idioma",
   "gotit": "Entendi: {what}.",
   "gotit_asking": "Entendi: {what}. Algumas perguntas rápidas.",

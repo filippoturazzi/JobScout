@@ -12,9 +12,10 @@
 <link rel="stylesheet" href="/static/design/components.css">
 <link rel="stylesheet" href="/static/app.css">
 <script>
-  // Before first paint, so the page never flashes the wrong theme. Dark is the default.
+  // Before first paint, so the page never flashes the wrong theme. Dark is the default; js/theme.js holds the same rule.
   try {
     var saved = localStorage.getItem("jobscout.theme");
+    if (saved === "system") saved = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
     if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
   } catch (e) {}
 </script>

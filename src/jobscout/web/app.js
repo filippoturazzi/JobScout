@@ -2,6 +2,7 @@
 import { h, mount } from "./js/dom.js";
 import { icon } from "./js/icons.js";
 import { loadLocale, t } from "./js/i18n.js";
+import { applyTheme, watchSystemTheme } from "./js/theme.js";
 import { currentRoute, onRoute } from "./js/router.js";
 import { refreshSearches, refreshStatus, runningMismatch, shouldWatch, state, subscribe } from "./js/store.js";
 import { renderSidebar } from "./js/sidebar.js";
@@ -10,21 +11,11 @@ import { renderSettings } from "./js/views/settings.js";
 import { isPollingRun, leaveSearch, renderSearch } from "./js/views/search.js";
 import { leaveMyJobs, renderMyJobs } from "./js/views/myjobs.js";
 
-function applyTheme() {
-  let theme = "dark";
-  try {
-    const saved = localStorage.getItem("jobscout.theme");
-    if (saved === "light" || saved === "dark") theme = saved;
-  } catch (e) {
-    // Storage can be blocked; dark is the default.
-  }
-  document.documentElement.dataset.theme = theme;
-}
-
 const WATCH_MS = 2000;
 
 async function start() {
   applyTheme();
+  watchSystemTheme();
   const root = document.getElementById("app");
   const sidebar = h("aside", { class: "app-sidebar", id: "sidebar" });
   const main = h("main", { class: "app-main" });
