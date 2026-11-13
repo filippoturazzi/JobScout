@@ -11,6 +11,7 @@ from jobscout.models.base import utcnow
 from jobscout.pipeline.ingest import upsert_jobs
 from jobscout.pipeline.matching import run_match
 from jobscout.pipeline.run import (
+    MyJobsQuery,
     count_waiting,
     list_jobs,
     list_matches,
@@ -356,7 +357,7 @@ def test_my_jobs_never_lists_a_match_whose_search_is_gone(session):
     result = list_my_jobs(session, search.user_id)
 
     assert [i.job.id for i in result.items] == [kept.id]
-    assert result.counts == {"all": 1, "saved": 0, "applied": 0}
+    assert result.counts == {"all": 1, "saved": 0, "applied": 0, "dismissed": 0}
 
 
 def test_my_jobs_names_searches_by_most_recently_used_first(session):
@@ -404,11 +405,14 @@ def test_my_jobs_tabs_and_counts(session):
     _scored(session, search, plain, 60)
 
     everything = list_my_jobs(session, search.user_id)
-    assert everything.counts == {"all": 3, "saved": 1, "applied": 1}
+    assert everything.counts == {"all": 3, "saved": 1, "applied": 1, "dismissed": 1}
     assert [i.job.id for i in everything.items] == [saved.id, applied.id, plain.id]
     assert [i.job.id for i in list_my_jobs(session, search.user_id, "saved").items] == [saved.id]
     assert [i.job.id for i in list_my_jobs(session, search.user_id, "applied").items] == [
         applied.id
+    ]
+    assert [i.job.id for i in list_my_jobs(session, search.user_id, "dismissed").items] == [
+        dismissed.id
     ]
 
 
@@ -423,7 +427,7 @@ def test_my_jobs_filters_by_search(session):
     result = list_my_jobs(session, a.user_id, search_id=a.id)
 
     assert [i.job.id for i in result.items] == [only_a.id, both.id]
-    assert result.counts == {"all": 2, "saved": 0, "applied": 0}
+    assert result.counts == {"all": 2, "saved": 0, "applied": 0, "dismissed": 0}
     assert sorted(result.items[1].searches) == [(a.id, "A"), (b.id, "B")]
 
 
@@ -599,3 +603,60 @@ def test_list_unscored_does_not_embed(session):
 
     session.refresh(jobs["a"])
     assert jobs["a"].embedding is None
+
+
+def _shaped(session, external_id, **fields) -> Job:
+    job = _job(session, external_id)
+    for name, value in fields.items():
+        setattr(job, name, value)
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def test_my_jobs_query_filters_items_and_counts(session):
+    search = make_search(session)
+    now = utcnow()
+    remote = _shaped(session, "r", source="indeed", posted_at=now - timedelta(hours=2))
+    hybrid = _shaped(
+        session, "h", source="linkedin", remote=False, title="Híbrido Dev", posted_at=now
+    )
+    old = _shaped(session, "o", source="indeed", posted_at=now - timedelta(days=40))
+    _scored(session, search, remote, 80, "saved")
+    _scored(session, search, hybrid, 55)
+    _scored(session, search, old, 30)
+
+    def ids(query, tab="all"):
+        return [i.job.id for i in list_my_jobs(session, search.user_id, tab, query=query).items]
+
+    assert ids(MyJobsQuery(min_score=50)) == [remote.id, hybrid.id]
+    assert ids(MyJobsQuery(work_modes=frozenset({"hybrid"}))) == [hybrid.id]
+    assert ids(MyJobsQuery(sources=frozenset({"indeed"}))) == [remote.id, old.id]
+    assert ids(MyJobsQuery(since=timedelta(days=7))) == [remote.id, hybrid.id]
+    assert ids(MyJobsQuery(text="hibrido")) == [hybrid.id]
+    assert ids(MyJobsQuery(text="ACME O")) == [old.id]
+    result = list_my_jobs(session, search.user_id, query=MyJobsQuery(sources=frozenset({"indeed"})))
+    assert result.counts == {"all": 2, "saved": 1, "applied": 0, "dismissed": 0}
+    assert result.total == 2
+
+
+def test_my_jobs_sorts_by_recency_or_company_and_pages(session):
+    search = make_search(session)
+    now = utcnow()
+    a = _shaped(session, "a", company="Zeta", posted_at=now - timedelta(days=3))
+    b = _shaped(session, "b", company="alfa", posted_at=None)
+    c = _shaped(session, "c", company="Beta", posted_at=now)
+    for job, score in ((a, 90), (b, 80), (c, 70)):
+        _scored(session, search, job, score)
+
+    def ids(**kw):
+        return [i.job.id for i in list_my_jobs(session, search.user_id, **kw).items]
+
+    assert ids() == [a.id, b.id, c.id]
+    # A job with no posting date counts from when it was first seen (T0, long ago).
+    assert ids(query=MyJobsQuery(sort="recent")) == [c.id, a.id, b.id]
+    assert ids(query=MyJobsQuery(sort="company")) == [b.id, c.id, a.id]
+    page = list_my_jobs(session, search.user_id, offset=1, limit=1)
+    assert [i.job.id for i in page.items] == [b.id]
+    assert page.total == 3

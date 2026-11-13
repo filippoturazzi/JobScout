@@ -2,7 +2,8 @@
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import case
@@ -20,12 +21,14 @@ from jobscout.models import (
     Search,
     UserPreferences,
 )
-from jobscout.pipeline.filters import filter_jobs, job_matches_preferences
+from jobscout.models.base import utcnow
+from jobscout.pipeline.filters import filter_jobs, job_matches_preferences, work_mode_of
 from jobscout.pipeline.ingest import IngestResult, ingest
 from jobscout.pipeline.matching import MatchRun, select_candidates
 from jobscout.pipeline.users import MATCHING_RELEVANT_FIELDS, get_preferences, update_preferences
 from jobscout.sources.base import JobSource, SearchQuery
 from jobscout.sources.registry import build_sources
+from jobscout.sources.text import fold
 
 if TYPE_CHECKING:
     from jobscout.matching.graph import GraphDeps
@@ -190,7 +193,52 @@ def list_unscored(session: Session, search_id: int, limit: int = 500) -> list[Un
     return items[:limit]
 
 
-MyJobTab = Literal["all", "saved", "applied"]
+MyJobTab = Literal["all", "saved", "applied", "dismissed"]
+MyJobSort = Literal["score", "recent", "company"]
+
+
+@dataclass(frozen=True)
+class MyJobsQuery:
+    """What My jobs narrows the list to, and how it orders it. The default keeps everything."""
+
+    min_score: int = 0
+    work_modes: frozenset[str] = field(default_factory=frozenset)
+    sources: frozenset[str] = field(default_factory=frozenset)
+    since: timedelta | None = None
+    """Posted within this long; a job with no posting date counts from when it was first seen."""
+    text: str = ""
+    """Found in the title or the company, accents and case ignored."""
+    sort: MyJobSort = "score"
+
+
+def _posted(job: Job) -> datetime:
+    return job.posted_at or job.first_seen_at
+
+
+def _keeps(query: MyJobsQuery, now: datetime) -> Callable[[Match, Job], bool]:
+    text = fold(query.text)
+
+    def keep(match: Match, job: Job) -> bool:
+        if query.min_score and (match.score is None or match.score < query.min_score):
+            return False
+        if query.work_modes and work_mode_of(job) not in query.work_modes:
+            return False
+        if query.sources and job.source not in query.sources:
+            return False
+        if query.since is not None and _posted(job) < now - query.since:
+            return False
+        return not text or text in fold(f"{job.title} {job.company}")
+
+    return keep
+
+
+def _ordered(rows: list[tuple[Match, Job]], sort: MyJobSort) -> list[tuple[Match, Job]]:
+    """Rows come best score first; the other orders are stable over that one."""
+    if sort == "recent":
+        return sorted(rows, key=lambda row: _posted(row[1]), reverse=True)
+    if sort == "company":
+        return sorted(rows, key=lambda row: (fold(row[1].company), fold(row[1].title)))
+    return rows
 
 
 @dataclass
@@ -205,6 +253,9 @@ class MyJob:
 class MyJobs:
     items: list[MyJob]
     counts: dict[MyJobTab, int]
+    """Per tab, after the query's filters."""
+    total: int = 0
+    """The jobs in the asked tab after the filters; `items` is the asked page of them."""
 
 
 def _best_per_job(
@@ -243,12 +294,21 @@ def list_my_jobs(
     tab: MyJobTab = "all",
     search_id: int | None = None,
     limit: int = 200,
+    *,
+    query: MyJobsQuery | None = None,
+    offset: int = 0,
+    now: datetime | None = None,
 ) -> MyJobs:
     """Every job the user's searches found, once each, at its best score."""
-    tabs: tuple[MyJobTab, ...] = ("all", "saved", "applied")
-    rows = {t: _best_per_job(session, user_id, t, search_id) for t in tabs}
+    query = query or MyJobsQuery()
+    keep = _keeps(query, now or utcnow())
+    tabs: tuple[MyJobTab, ...] = ("all", "saved", "applied", "dismissed")
+    rows = {
+        t: [(m, j) for m, j in _best_per_job(session, user_id, t, search_id) if keep(m, j)]
+        for t in tabs
+    }
     counts: dict[MyJobTab, int] = {t: len(rows[t]) for t in tabs}
-    shown = rows[tab][:limit]
+    shown = _ordered(rows[tab], query.sort)[offset : offset + limit]
 
     job_ids = [job.id for _, job in shown if job.id is not None]
     found_by: dict[int, list[tuple[int, str]]] = {}
@@ -267,7 +327,7 @@ def list_my_jobs(
             if found_id is not None:
                 found_by.setdefault(job_id, []).append((found_id, title))
     items = [MyJob(match, job, found_by.get(match.job_id, [])) for match, job in shown]
-    return MyJobs(items=items, counts=counts)
+    return MyJobs(items=items, counts=counts, total=counts[tab])
 
 
 def set_match_status(

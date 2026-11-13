@@ -166,6 +166,7 @@ class MyJobRead(BaseModel):
 class MyJobsRead(BaseModel):
     items: list[MyJobRead]
     counts: dict[str, int]
+    total: int
 
 
 class StatusRead(BaseModel):
