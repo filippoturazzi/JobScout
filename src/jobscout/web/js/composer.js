@@ -16,11 +16,17 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
     "aria-label": placeholder,
     disabled: locked,
   });
-  const label = h("span", {}, submitLabel);
+  // The submit is the round, icon-only Send; its words stay for screen readers and the tooltip.
+  const label = h("span", { class: "sr-only" }, submitLabel);
   const button = h(
     "button",
-    { class: `js-btn ${primary ? "js-btn--primary" : "js-btn--secondary"}`, type: "submit", disabled: isDisabled || locked },
-    submitIcon ? icon(submitIcon) : null,
+    {
+      class: `js-btn js-send${primary ? "" : " js-send--quiet"}`,
+      type: "submit",
+      title: submitLabel,
+      disabled: isDisabled || locked,
+    },
+    icon(submitIcon || "arrow-up", 18),
     label,
   );
   const el = h(
@@ -71,6 +77,7 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
     },
     setSubmitLabel: (s) => {
       label.textContent = s;
+      button.setAttribute("title", s);
     },
   };
 }

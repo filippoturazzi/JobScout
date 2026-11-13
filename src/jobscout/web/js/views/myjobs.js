@@ -8,7 +8,7 @@ import { t } from "../i18n.js";
 import { api } from "../api.js";
 import { go, MY_JOBS_TABS, myJobsPath } from "../router.js";
 import { createGuard } from "../guard.js";
-import { jobCard } from "../jobcard.js";
+import { jobRow, jobRowHeader } from "../jobcard.js";
 import { openDetail } from "../detail.js";
 
 const guard = createGuard();
@@ -64,7 +64,7 @@ export async function renderMyJobs(root, ctx, route) {
     h(
       "select",
       {
-        class: "js-btn js-btn--secondary mj-select",
+        class: "js-btn js-btn--secondary mj-select text-body-sm",
         "aria-label": t("filter_by_search"),
         onchange: (event) => {
           const value = Number(event.target.value);
@@ -119,10 +119,11 @@ export async function renderMyJobs(root, ctx, route) {
     }
     mount(
       listHost,
+      jobRowHeader(),
       h(
         "div",
-        { class: "run-cards", role: "listbox", "aria-label": t("my_jobs") },
-        data.items.map((item) => jobCard(item.match, { selected: item.match.id === selectedId, onOpen: openMatch, searches: item.searches })),
+        { class: "mj-rows", role: "listbox", "aria-label": t("my_jobs") },
+        data.items.map((item) => jobRow(item.match, { selected: item.match.id === selectedId, onOpen: openMatch, searches: item.searches })),
       ),
     );
   }
@@ -182,7 +183,8 @@ export async function renderMyJobs(root, ctx, route) {
   }
 
   draw();
-  mount(root, h("div", { class: "app-column app-column--wide" }, title, h("div", { class: "mj-bar" }, tabsHost, filter), listHost), detailHost);
+  const sub = h("p", { class: "text-body-sm mj-sub" }, t("my_jobs_sub", { n: data.counts.all }));
+  mount(root, h("div", { class: "app-column app-column--wide" }, title, sub, h("div", { class: "mj-bar" }, tabsHost, filter), listHost), detailHost);
   if (focusTab) {
     focusTab = false;
     const selected = tabsHost.querySelector('[aria-selected="true"]');

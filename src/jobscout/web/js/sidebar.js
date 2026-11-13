@@ -1,10 +1,14 @@
-// The sidebar: logo, new search, the searches list, My jobs, Settings.
+// The sidebar: logo, new search, the searches list grouped by day, My jobs, Settings, and the
+// "running locally" footer with the repository link.
 import { h, mount } from "./dom.js";
-import { icon } from "./icons.js";
+import { icon, logoMark } from "./icons.js";
+import { dayGroup } from "./format.js";
 import { t } from "./i18n.js";
 import { api } from "./api.js";
 import { go } from "./router.js";
 import { refreshSearches } from "./store.js";
+
+export const REPO_URL = "https://github.com/filippoturazzi/JobScout";
 
 // The search whose delete was refused (a run is going, or the request failed).
 let errorFor = null; // { id, key }
@@ -19,8 +23,7 @@ function confirmDelete(s, route, rerender) {
   const close = () => dialog.close();
   const confirm = h(
     "button",
-    { class: "js-btn js-btn--secondary cd-delete", type: "button", onclick: () => remove(s.id, route, rerender, confirm) },
-    icon("trash"),
+    { class: "js-btn js-btn--danger cd-delete", type: "button", onclick: () => remove(s.id, route, rerender, confirm) },
     t("delete"),
   );
   dialog = h(
@@ -33,16 +36,18 @@ function confirmDelete(s, route, rerender) {
       onclick: (e) => { if (e.target === dialog) close(); },
       onclose: () => { dialog.remove(); dialog = null; },
     },
+    h("span", { class: "cd-icon" }, icon("trash", 18)),
     h("h2", { class: "text-h2 cd-title", id: "cd-title" }, t("delete_confirm")),
     h(
       "p",
-      { class: "text-body cd-body", id: "cd-body" },
+      { class: "text-body-sm cd-body", id: "cd-body" },
       t("delete_confirm_body", { title: s.title }),
     ),
     h(
       "div",
       { class: "cd-actions" },
-      h("button", { class: "js-btn js-btn--ghost", type: "button", autofocus: true, onclick: close }, t("cancel")),
+      // Cancel takes the focus first, so Enter never deletes by accident.
+      h("button", { class: "js-btn js-btn--secondary", type: "button", autofocus: true, onclick: close }, t("cancel")),
       confirm,
     ),
   );
@@ -54,7 +59,7 @@ function navLink(href, name, iconName, route, routeName) {
   const current = route.name === routeName;
   return h(
     "a",
-    { class: "js-btn js-btn--ghost sb-link", href, "aria-current": current ? "page" : null },
+    { class: "sb-link text-body-sm", href, "aria-current": current ? "page" : null },
     icon(iconName),
     t(name),
   );
@@ -67,19 +72,20 @@ function searchRow(s, route, rerender) {
     { class: "sb-row" },
     h(
       "a",
-      { class: "sb-item text-body", href: `#/search/${s.id}`, "aria-current": current ? "page" : null },
+      { class: "sb-item text-body-sm", href: `#/search/${s.id}`, "aria-current": current ? "page" : null },
       h("span", { class: "sb-item__title" }, s.title),
       s.running ? [icon("loader"), h("span", { class: "sr-only" }, t("search_running"))] : null,
     ),
     h(
       "button",
       {
-        class: "js-btn js-btn--ghost sb-del",
+        class: "js-btn js-btn--ghost js-icon-btn js-icon-btn--sm sb-del",
         type: "button",
         "aria-label": `${t("delete")}: ${s.title}`,
+        title: t("delete"),
         onclick: () => confirmDelete(s, route, rerender),
       },
-      icon("trash"),
+      icon("trash", 14),
     ),
     errorFor && errorFor.id === s.id ? h("p", { class: "text-body-sm sb-error", role: "alert" }, t(errorFor.key)) : null,
   );
@@ -100,36 +106,60 @@ async function remove(id, route, rerender, button) {
   }
 }
 
+const GROUPS = ["today", "week", "older"];
+
+// The searches, most recent first, split into Today / This week / Older (empty groups dropped).
+export function groupSearches(searches, now = new Date()) {
+  const sorted = [...searches].sort((a, b) => String(b.last_used_at).localeCompare(String(a.last_used_at)));
+  return GROUPS.map((name) => ({ name, items: sorted.filter((s) => dayGroup(s.last_used_at, now) === name) })).filter((g) => g.items.length);
+}
+
 export function renderSidebar(root, state, route, rerender) {
-  const searches = [...state.searches].sort((a, b) => String(b.last_used_at).localeCompare(String(a.last_used_at)));
+  const groups = groupSearches(state.searches);
   mount(
     root,
     h(
       "a",
       { class: "js-logo sb-logo", href: "#/", "aria-label": "jobscout" },
-      h("img", { src: "/static/design/logos/jobscout-mark.svg", alt: "" }),
-      "jobscout",
+      logoMark(26),
+      h("span", { "aria-hidden": "true" }, "jobscout"),
     ),
     // New search always carries the highlight; on the home screen it is also where you are.
     h(
       "a",
-      { class: "js-btn js-btn--secondary sb-new js-highlight", href: "#/", "aria-current": route.name === "home" ? "page" : null },
-      icon("plus"),
+      { class: "js-btn js-btn--secondary sb-new js-highlight text-body-sm", href: "#/", "aria-current": route.name === "home" ? "page" : null },
+      icon("square-pen"),
       t("new_search"),
     ),
     h(
       "nav",
       { class: "sb-searches", "aria-label": t("searches") },
-      h("h2", { class: "text-meta sb-heading" }, t("searches")),
-      searches.length
-        ? h("ul", { class: "sb-list" }, searches.map((s) => searchRow(s, route, rerender)))
-        : h("p", { class: "text-body-sm sb-empty" }, t("searches_empty")),
+      groups.length
+        ? groups.map((g) =>
+            h(
+              "section",
+              { class: "sb-group" },
+              h("h2", { class: "text-meta sb-heading" }, t(`group_${g.name}`)),
+              h("ul", { class: "sb-list" }, g.items.map((s) => searchRow(s, route, rerender))),
+            ),
+          )
+        : [h("h2", { class: "text-meta sb-heading" }, t("searches")), h("p", { class: "text-body-sm sb-empty" }, t("searches_empty"))],
     ),
     h(
       "div",
       { class: "sb-foot" },
       navLink("#/my-jobs", "my_jobs", "bookmark", route, "my-jobs"),
       navLink("#/settings", "settings", "settings", route, "settings"),
+      h(
+        "div",
+        { class: "sb-local" },
+        h("span", { class: "text-meta sb-local__status" }, h("span", { class: "sb-local__dot", "aria-hidden": "true" }), t("running_locally")),
+        h(
+          "a",
+          { class: "js-btn js-btn--ghost js-icon-btn js-icon-btn--sm", href: REPO_URL, target: "_blank", rel: "noopener noreferrer", "aria-label": t("github_repo"), title: t("github_repo") },
+          icon("github", 16),
+        ),
+      ),
     ),
   );
 }

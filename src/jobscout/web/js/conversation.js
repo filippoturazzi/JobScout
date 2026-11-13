@@ -19,7 +19,7 @@ export function gotitText(what, asking) {
 }
 
 export function appLine(...content) {
-  return h("div", { class: "conv-app" }, h("span", { class: "conv-app__icon" }, icon("search", 24)), h("div", { class: "conv-app__body" }, ...content));
+  return h("div", { class: "conv-app" }, h("span", { class: "conv-app__icon", title: t("assistant") }, icon("sparkles", 14)), h("div", { class: "conv-app__body" }, ...content));
 }
 
 function userBubble(text) {

@@ -6,8 +6,8 @@ import { h, mount } from "./dom.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
 import { api } from "./api.js";
-import { safeUrl, scoreLabel } from "./format.js";
-import { companyLine, jobTags, postedAgo } from "./jobcard.js";
+import { safeUrl, scoreLabel, scoreLevel, sourceName } from "./format.js";
+import { companyInitial, jobTags, postedAgo } from "./jobcard.js";
 
 function section(title, items, iconName) {
   if (!items || items.length === 0) return null;
@@ -85,64 +85,97 @@ export function openDetail(host, match, opts = {}) {
     draw(notice ? (undoTo ? "undo" : "notice-close") : action);
   }
 
+  // An icon-only verdict toggle: pressed when the verdict is on, a click takes it back.
+  function toggle(action, verdictName, on, iconOn, iconOff, labelOn, labelOff) {
+    const label = t(on ? labelOn : labelOff);
+    return h(
+      "button",
+      {
+        class: `js-btn js-btn--ghost js-icon-btn dt-toggle dt-toggle--${action}`,
+        type: "button",
+        disabled: pending,
+        "aria-pressed": on ? "true" : "false",
+        "aria-label": label,
+        title: label,
+        "data-action": action,
+        onclick: () => verdict(nextStatus(current.status, verdictName), action),
+      },
+      icon(on ? iconOn : iconOff, 18),
+    );
+  }
+
+  // Ten segments, lit up to the score.
+  function meter(score) {
+    const lit = Math.round(Math.max(0, Math.min(100, score)) / 10);
+    return h(
+      "div",
+      { class: "dt-meter", role: "img", "aria-label": t("fit_meter", { n: Math.round(score) }) },
+      Array.from({ length: 10 }, (_, i) => h("span", { class: `dt-meter__seg${i < lit ? " is-on" : ""}` })),
+    );
+  }
+
   function draw(focusAction) {
     const job = current.job;
     const score = scoreLabel(current.score);
+    const level = scoreLevel(current.score);
     const ago = postedAgo(job);
     const url = safeUrl(job.url);
     const status = current.status;
-    const saved = status === "saved";
-    const applied = status === "applied";
-    const dismissed = status === "dismissed";
     // A job with no score has no match to give a verdict on: the panel only shows it.
     const verdicts = current.id !== null && current.id !== undefined;
     const title = h("h1", { class: "text-h1 dt-title", tabindex: "-1" }, job.title);
-    const actions = [];
-    if (url) {
-      actions.push(
-        h(
-          "a",
-          { class: "js-btn js-btn--primary dt-open", href: url, target: "_blank", rel: "noopener noreferrer", "data-action": "open" },
-          t("open_posting"),
-          icon("external-link", 16),
-        ),
-      );
-    }
-    if (verdicts) actions.push(
-      h(
-        "button",
-        // A pressed verdict button takes the verdict back on the next click.
-        {
-          class: "js-btn js-btn--secondary dt-toggle",
-          type: "button",
-          disabled: pending,
-          "aria-pressed": saved ? "true" : "false",
-          "data-action": "save",
-          onclick: () => verdict(nextStatus(status, "saved"), "save"),
-        },
-        icon(saved ? "bookmark-filled" : "bookmark", 16),
-        t(saved ? "saved" : "save"),
-      ),
-    );
+    const where = [job.location, ago].filter(Boolean).join(" · ");
     mount(
       host,
       h(
         "div",
         { class: "dt-body" },
-        h("div", { class: "dt-head" }, title, h("button", { class: "js-btn js-btn--ghost dt-close", type: "button", "aria-label": t("close"), onclick: () => close() }, icon("x", 20))),
-        job.company || job.location ? h("p", { class: "text-body-sm dt-company" }, companyLine(job)) : null,
-        jobTags(job),
-        score || ago
+        h(
+          "div",
+          { class: "dt-head" },
+          h("span", { class: "text-meta dt-eyebrow" }, t("job_detail")),
+          h(
+            "div",
+            { class: "dt-head__actions" },
+            verdicts ? toggle("save", "saved", status === "saved", "bookmark-check", "bookmark", "saved", "save") : null,
+            h("button", { class: "js-btn js-btn--ghost js-icon-btn dt-close", type: "button", "aria-label": t("close"), title: t("close"), onclick: () => close() }, icon("x", 18)),
+          ),
+        ),
+        job.company || where
           ? h(
               "div",
-              { class: "dt-score" },
-              score ? h("span", { class: "js-tag js-tag--match" }, score) : null,
-              h("span", { class: "text-meta dt-score__label" }, [score ? t("fit_score") : null, ago].filter(Boolean).join(" · ")),
+              { class: "dt-company" },
+              h("span", { class: "js-card__logo dt-logo", "aria-hidden": "true" }, companyInitial(job)),
+              h(
+                "div",
+                { class: "dt-company__text" },
+                job.company ? h("p", { class: "text-label dt-company__name" }, job.company) : null,
+                where ? h("p", { class: "text-body-sm dt-company__where" }, where) : null,
+              ),
             )
           : null,
-        current.reasoning ? h("p", { class: "text-body dt-reasoning" }, current.reasoning) : null,
-        section(t("matches_heading"), current.matched_skills, "check"),
-        section(t("missing"), current.missing_skills, "minus"),
+        title,
+        jobTags(job),
+        score
+          ? h(
+              "section",
+              { class: "dt-score" },
+              h(
+                "div",
+                { class: "dt-score__row" },
+                h("span", { class: "text-body-sm dt-score__label" }, t("fit_score")),
+                h("span", { class: "js-tag js-tag--match dt-score__num", "data-level": level }, score),
+              ),
+              meter(current.score),
+              current.reasoning ? h("p", { class: "text-body-sm dt-reasoning" }, current.reasoning) : null,
+            )
+          : null,
+        h(
+          "div",
+          { class: "dt-lists" },
+          section(t("matches_heading"), current.matched_skills, "check"),
+          section(t("missing"), current.missing_skills, "minus"),
+        ),
         section(t("watch_out"), current.red_flags, "alert-triangle"),
       ),
       h(
@@ -165,39 +198,20 @@ export function openDetail(host, match, opts = {}) {
             )
           : null,
         error ? h("p", { class: "text-body-sm dt-error", role: "alert" }, error) : null,
-        h("div", { class: "dt-actions" }, actions),
-        verdicts
-          ? h(
+        h(
           "div",
-          { class: "dt-actions dt-actions--quiet" },
-          h(
-            "button",
-            {
-              class: "js-btn js-btn--ghost dt-toggle",
-              type: "button",
-              disabled: pending,
-              "aria-pressed": applied ? "true" : "false",
-              "data-action": "applied",
-              onclick: () => verdict(nextStatus(status, "applied"), "applied"),
-            },
-            icon("check-circle", 16),
-            t(applied ? "applied" : "mark_applied"),
-          ),
-          h(
-            "button",
-            {
-              class: "js-btn js-btn--ghost dt-toggle",
-              type: "button",
-              disabled: pending,
-              "aria-pressed": dismissed ? "true" : "false",
-              "data-action": "dismiss",
-              onclick: () => verdict(nextStatus(status, "dismissed"), "dismiss"),
-            },
-            icon("eye-off", 16),
-            t(dismissed ? "dismissed" : "dismiss"),
-          ),
-        )
-          : null,
+          { class: "dt-actions" },
+          url
+            ? h(
+                "a",
+                { class: "js-btn js-btn--primary dt-open", href: url, target: "_blank", rel: "noopener noreferrer", "data-action": "open" },
+                job.source ? t("apply_on", { source: sourceName(job.source) }) : t("open_posting"),
+                icon("arrow-up-right", 16),
+              )
+            : null,
+          verdicts ? toggle("applied", "applied", status === "applied", "check-circle", "check-circle", "applied", "mark_applied") : null,
+          verdicts ? toggle("dismiss", "dismissed", status === "dismissed", "eye-off", "eye-off", "dismissed", "dismiss") : null,
+        ),
       ),
     );
     if (focusAction === "none") return;
