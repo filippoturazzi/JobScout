@@ -208,5 +208,10 @@
   "toast_unsaved": "Removed from saved",
   "toast_unapplied": "No longer marked as applied",
   "toast_undismissed": "No longer dismissed",
-  "toast_updated": "Job updated"
+  "toast_updated": "Job updated",
+  "n_jobs": "{n} jobs",
+  "local_version": "Local · v{version}",
+  "search_palette": "Search",
+  "collapse_sidebar": "Collapse sidebar",
+  "expand_sidebar": "Expand sidebar"
 }

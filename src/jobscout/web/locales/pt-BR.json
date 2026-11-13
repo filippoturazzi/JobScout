@@ -208,5 +208,10 @@
   "toast_unsaved": "Removida das salvas",
   "toast_unapplied": "Candidatura desmarcada",
   "toast_undismissed": "Vaga de volta",
-  "toast_updated": "Vaga atualizada"
+  "toast_updated": "Vaga atualizada",
+  "n_jobs": "{n} vagas",
+  "local_version": "Local · v{version}",
+  "search_palette": "Buscar",
+  "collapse_sidebar": "Recolher sidebar",
+  "expand_sidebar": "Expandir sidebar"
 }

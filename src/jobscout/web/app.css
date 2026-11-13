@@ -67,7 +67,9 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 }
 
 /* Sidebar */
-.sb-logo { padding: var(--space-2) var(--space-2) var(--space-1); }
+.sb-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-1) 0 var(--space-1) var(--space-1-5); }
+.sb-top__actions { display: flex; gap: var(--space-0-5); }
+.sb-top__actions .js-btn, .sb-rail__top > .js-btn:not(.sb-rail__new), .sb-rail__link { color: var(--ink-muted); }
 .sb-new { justify-content: flex-start; font-weight: var(--text-label-weight); color: var(--ink); padding: var(--space-2) var(--space-3); }
 .sb-new:hover { background: var(--surface-raised); }
 .sb-new[aria-current="page"] { border-color: var(--border-strong); }
@@ -95,11 +97,25 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .sb-row:hover .sb-item, .sb-item[aria-current="page"] { color: var(--ink); }
 .sb-item .spin, .sb-item svg { color: var(--accent-text); flex: none; }
 .sb-item__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-del { opacity: 0; color: var(--ink-subtle); }
+.sb-item .sb-count { color: var(--ink-subtle); }
+/* On hover (or keyboard focus) the count gives its place to the delete button. */
+.sb-row:hover .sb-count, .sb-row:focus-within .sb-count { display: none; }
+.sb-del { display: none; color: var(--ink-subtle); }
 .sb-del:hover { color: var(--danger); background: var(--danger-subtle); }
-.sb-row:hover .sb-del, .sb-row:focus-within .sb-del { opacity: 1; }
+.sb-row:hover .sb-del, .sb-row:focus-within .sb-del { display: inline-flex; }
 /* No hover on a touch screen: the delete button is always there. */
-@media (hover: none) { .sb-del { opacity: 1; } }
+@media (hover: none) { .sb-del { display: inline-flex; } .sb-item .sb-count { display: none; } }
+
+/* Folded (Ctrl B): a rail of icon buttons. */
+.app-shell.is-collapsed { --shell-side: var(--rail-width); grid-template-columns: var(--rail-width) minmax(0, 1fr); }
+.is-collapsed .app-sidebar { align-items: center; justify-content: space-between; padding: var(--space-3-5) 0; }
+.sb-rail__top, .sb-rail__bottom { display: flex; flex-direction: column; align-items: center; gap: var(--space-2-5); }
+.sb-rail__bottom { gap: var(--space-1-5); }
+.sb-rail__logo { padding: var(--space-1) 0; }
+.sb-rail__new { color: var(--ink); }
+.sb-rail__link:hover { color: var(--ink); }
+.sb-rail__link[aria-current="page"] { background: var(--surface); color: var(--accent-text); }
+.sb-rail__bottom .sb-local__dot { margin-top: var(--space-2); }
 .sb-foot { display: grid; gap: var(--space-0-5); }
 .sb-link { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--ink-muted); }
 .sb-link:hover { color: var(--ink); background: var(--surface); }

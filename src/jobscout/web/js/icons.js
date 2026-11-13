@@ -70,6 +70,18 @@ const SHAPES = {
     path("M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z") +
     path("M22 10v6") + path("M6 12.5V16a6 3 0 0 0 12 0v-3.5"),
   globe: circle(12, 12, 10) + path("M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20") + path("M2 12h20"),
+  "panel-left": '<rect width="18" height="18" x="3" y="3" rx="2"/>' + path("M9 3v18"),
+  "message-square": path("M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"),
+  "corner-down-left": path("M20 4v7a4 4 0 0 1-4 4H4") + path("m9 10-5 5 5 5"),
+  ellipsis: circle(12, 12, 1) + circle(19, 12, 1) + circle(5, 12, 1),
+  download: path("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4") + path("m7 10 5 5 5-5") + path("M12 15V3"),
+  paperclip: path("m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"),
+  "file-text":
+    path("M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z") + path("M14 2v4a2 2 0 0 0 2 2h4") +
+    path("M10 9H8") + path("M16 13H8") + path("M16 17H8"),
+  "list-filter": path("M3 6h18") + path("M7 12h10") + path("M10 18h4"),
+  "arrow-down-up": path("m3 16 4 4 4-4") + path("M7 20V4") + path("m21 8-4-4-4 4") + path("M17 4v16"),
+  square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   "circle-dashed":
     path("M10.1 2.182a10 10 0 0 1 3.8 0") + path("M13.9 21.818a10 10 0 0 1-3.8 0") + path("M17.609 3.721a10 10 0 0 1 2.69 2.7") +
     path("M2.182 13.9a10 10 0 0 1 0-3.8") + path("M20.279 17.609a10 10 0 0 1-2.7 2.69") + path("M21.818 10.1a10 10 0 0 1 0 3.8") +

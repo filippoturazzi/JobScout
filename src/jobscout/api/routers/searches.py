@@ -96,12 +96,14 @@ def read_searches(
     user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> list[SearchListItem]:
     running = _running(request)
+    counts = svc.match_counts(session, user_id)
     return [
         SearchListItem(
             id=s.id,
             title=s.title,
             last_used_at=s.last_used_at,
             running=running is not None and running[0] == s.id,
+            match_count=counts.get(s.id, 0),
         )
         for s in svc.list_searches(session, user_id)
         if s.id is not None

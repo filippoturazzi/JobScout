@@ -67,7 +67,7 @@ def test_list_searches_names_the_running_one(client, chat, fake_scheduler):
     fake_scheduler.running = (first, 1)
     listed = client.get("/searches").json()
     assert {item["id"]: item["running"] for item in listed} == {first: True, second: False}
-    assert set(listed[0]) == {"id", "title", "last_used_at", "running"}
+    assert set(listed[0]) == {"id", "title", "last_used_at", "running", "match_count"}
 
 
 def test_answering_moves_to_the_next_question(client, chat):
@@ -446,3 +446,39 @@ def test_job_read_carries_the_work_mode(client, session):
     session.commit()
     modes = {j["external_id"]: j["work_mode"] for j in client.get("/jobs?all=true").json()}
     assert modes == {remote.external_id: "remote", "h": "hybrid"}
+
+
+def test_list_searches_counts_the_scored_jobs_not_dismissed(client, session):
+    from jobscout.models import Job, Match
+    from jobscout.pipeline.users import get_or_create_default_user
+    from tests.helpers import make_search
+
+    user = get_or_create_default_user(session)
+    search, other = make_search(session, title="A"), make_search(session, title="B")
+    rows = [(None, "low"), (80, "new"), (70, "saved"), (60, "dismissed")]
+    for n, (score, status) in enumerate(rows):
+        job = Job(
+            source="t",
+            external_id=str(n),
+            title="T",
+            company="C",
+            description="d",
+            url=f"https://x/{n}",
+            content_hash=str(n),
+        )
+        session.add(job)
+        session.commit()
+        session.add(
+            Match(
+                job_id=job.id,
+                user_id=user.id,
+                search_id=search.id,
+                similarity=0.5,
+                score=score,
+                status=status,
+            )
+        )
+    session.commit()
+    counts = {item["title"]: item["match_count"] for item in client.get("/searches").json()}
+    assert counts == {"A": 2, "B": 0}
+    assert other.id is not None

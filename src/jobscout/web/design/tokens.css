@@ -77,7 +77,8 @@
   --radius-lg: 14px;  /* Cards de vaga e de configuração. */
   --radius-xl: 22px;  /* Compositor. */
   --radius-pill: 999px;  /* Botão de enviar, avatar, chips de sugestão. */
-  --sidebar-width: 264px;
+  --sidebar-width: 264px;  /* Sidebar aberta. */
+  --rail-width: 64px;  /* Sidebar recolhida (Ctrl B): trilho de botões só-ícone. */
   --detail-width: 440px;
   --icon-btn: 36px;  /* Lado do botão só-ícone e do quadrado da empresa. */
   --icon-btn-sm: 32px;  /* Botão só-ícone compacto, quadrado da fonte. */

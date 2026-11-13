@@ -1,5 +1,6 @@
-// The sidebar: logo, new search, the searches list grouped by day, My jobs, Settings, and the
-// "running locally" footer with the repository link.
+// The sidebar: logo with the search and fold buttons, new search, the searches list grouped by
+// day (each with its job count), My jobs, Settings, and the "Local · version" footer with the
+// repository link. Folded, it is a 64 px rail of icon buttons (Ctrl B, kept in localStorage).
 import { h, mount } from "./dom.js";
 import { icon, logoMark } from "./icons.js";
 import { dayGroup } from "./format.js";
@@ -71,7 +72,9 @@ function searchRow(s, route) {
       "a",
       { class: "sb-item text-body-sm", href: `#/search/${s.id}`, "aria-current": current ? "page" : null },
       h("span", { class: "sb-item__title" }, s.title),
-      s.running ? [icon("loader"), h("span", { class: "sr-only" }, t("search_running"))] : null,
+      s.running
+        ? [icon("loader"), h("span", { class: "sr-only" }, t("search_running"))]
+        : h("span", { class: "text-meta sb-count", "aria-label": t("n_jobs", { n: s.match_count || 0 }) }, s.match_count || 0),
     ),
     h(
       "button",
@@ -141,15 +144,75 @@ export function groupSearches(searches, now = new Date()) {
   return GROUPS.map((name) => ({ name, items: sorted.filter((s) => dayGroup(s.last_used_at, now) === name) })).filter((g) => g.items.length);
 }
 
-export function renderSidebar(root, state, route) {
-  const groups = groupSearches(state.searches);
+function iconButton(label, iconName, onclick, extra = {}) {
+  return h(
+    "button",
+    { class: "js-btn js-btn--ghost js-icon-btn js-icon-btn--sm", type: "button", "aria-label": label, title: label, onclick, ...extra },
+    icon(iconName, 18),
+  );
+}
+
+function repoLink() {
+  return h(
+    "a",
+    { class: "js-btn js-btn--ghost js-icon-btn js-icon-btn--sm", href: REPO_URL, target: "_blank", rel: "noopener noreferrer", "aria-label": t("github_repo"), title: t("github_repo") },
+    icon("github", 16),
+  );
+}
+
+// The folded sidebar: logo, unfold, new search and search on top; My jobs and Settings below.
+function renderRail(root, route, actions) {
+  const railLink = (href, label, iconName, current) =>
+    h("a", { class: "js-btn js-btn--ghost js-icon-btn sb-rail__link", href, "aria-label": label, title: label, "aria-current": current ? "page" : null }, icon(iconName, 18));
   mount(
     root,
     h(
-      "a",
-      { class: "js-logo sb-logo", href: "#/", "aria-label": "jobscout" },
-      logoMark(26),
-      h("span", { "aria-hidden": "true" }, "jobscout"),
+      "div",
+      { class: "sb-rail__top" },
+      h("a", { class: "js-logo sb-rail__logo", href: "#/", "aria-label": "jobscout" }, logoMark(26)),
+      iconButton(t("expand_sidebar"), "panel-left", actions.toggle, { "aria-expanded": "false", "aria-controls": "sidebar" }),
+      h(
+        "a",
+        { class: "js-btn js-btn--secondary js-icon-btn js-highlight sb-rail__new", href: "#/", "aria-label": t("new_search"), title: t("new_search"), "aria-current": route.name === "home" ? "page" : null },
+        icon("square-pen", 18),
+      ),
+      iconButton(t("search_palette"), "search", actions.search),
+    ),
+    h(
+      "div",
+      { class: "sb-rail__bottom" },
+      railLink("#/my-jobs", t("my_jobs"), "bookmark", route.name === "my-jobs"),
+      railLink("#/settings", t("settings"), "settings", route.name === "settings"),
+      h("span", { class: "sb-local__dot", role: "img", "aria-label": t("running_locally"), title: t("running_locally") }),
+    ),
+  );
+}
+
+// actions: { toggle(), search() }; collapsed: draw the rail instead.
+export function renderSidebar(root, state, route, { collapsed = false, actions = {} } = {}) {
+  if (collapsed) {
+    renderRail(root, route, actions);
+    return;
+  }
+  const groups = groupSearches(state.searches);
+  const version = state.status && state.status.version;
+  mount(
+    root,
+    h(
+      "div",
+      { class: "sb-top" },
+      h(
+        "a",
+        { class: "js-logo sb-logo", href: "#/", "aria-label": "jobscout" },
+        logoMark(26),
+        h("span", { "aria-hidden": "true" }, "jobscout"),
+      ),
+      h(
+        "div",
+        { class: "sb-top__actions" },
+        iconButton(t("search_palette"), "search", actions.search),
+        iconButton(t("collapse_sidebar"), "panel-left", actions.toggle, { "aria-expanded": "true", "aria-controls": "sidebar", class: "js-btn js-btn--ghost js-icon-btn js-icon-btn--sm sb-fold" }),
+      ),
     ),
     // New search always carries the highlight; on the home screen it is also where you are.
     h(
@@ -180,12 +243,13 @@ export function renderSidebar(root, state, route) {
       h(
         "div",
         { class: "sb-local" },
-        h("span", { class: "text-meta sb-local__status" }, h("span", { class: "sb-local__dot", "aria-hidden": "true" }), t("running_locally")),
         h(
-          "a",
-          { class: "js-btn js-btn--ghost js-icon-btn js-icon-btn--sm", href: REPO_URL, target: "_blank", rel: "noopener noreferrer", "aria-label": t("github_repo"), title: t("github_repo") },
-          icon("github", 16),
+          "span",
+          { class: "text-meta sb-local__status" },
+          h("span", { class: "sb-local__dot", "aria-hidden": "true" }),
+          version ? t("local_version", { version }) : t("running_locally"),
         ),
+        repoLink(),
       ),
     ),
   );

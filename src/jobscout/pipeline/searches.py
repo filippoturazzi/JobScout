@@ -1,7 +1,7 @@
 """Saved searches: one profile (its preferences) and one conversation each, per user."""
 
 from langchain_core.language_models import BaseChatModel
-from sqlmodel import Session, col, delete, desc, select
+from sqlmodel import Session, col, delete, desc, func, select
 
 from jobscout.config import Settings
 from jobscout.matching.llm import resolve_chat
@@ -42,6 +42,20 @@ def list_searches(session: Session, user_id: int) -> list[Search]:
         .order_by(desc(col(Search.last_used_at)), desc(col(Search.id)))
     )
     return list(session.exec(statement).all())
+
+
+def match_counts(session: Session, user_id: int) -> dict[int, int]:
+    """Per search, the jobs it scored that the user has not dismissed (the sidebar's count)."""
+    rows = session.exec(
+        select(Match.search_id, func.count())
+        .where(
+            col(Match.user_id) == user_id,
+            col(Match.score).is_not(None),
+            col(Match.status) != "dismissed",
+        )
+        .group_by(col(Match.search_id))
+    ).all()
+    return {search_id: count for search_id, count in rows}
 
 
 def latest_search(session: Session, user_id: int) -> Search | None:

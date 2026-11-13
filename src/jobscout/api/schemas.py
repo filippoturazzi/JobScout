@@ -103,6 +103,7 @@ class SearchListItem(BaseModel):
     title: str
     last_used_at: datetime
     running: bool
+    match_count: int
 
 
 class SearchCreate(BaseModel):
@@ -176,6 +177,7 @@ class StatusRead(BaseModel):
     sources: list[SourceStatus]
     running_search_id: int | None
     locale: str
+    version: str
 
 
 class LocaleBody(BaseModel):
