@@ -8,6 +8,7 @@ import { refreshSearches, refreshStatus, runningMismatch, shouldWatch, state, su
 import { renderSidebar } from "./js/sidebar.js";
 import { initToasts } from "./js/toast.js";
 import { listenForShortcuts } from "./js/shortcuts.js";
+import { togglePalette } from "./js/palette.js";
 import { renderHome } from "./js/views/home.js";
 import { renderSettings } from "./js/views/settings.js";
 import { isPollingRun, leaveSearch, renderSearch } from "./js/views/search.js";
@@ -47,8 +48,9 @@ async function start() {
   const isFolded = () => folded && !narrow.matches;
   const drawSidebar = () => {
     shell.classList.toggle("is-collapsed", isFolded());
-    renderSidebar(sidebar, state, currentRoute(), { collapsed: isFolded(), actions: { toggle: toggleSidebar } });
+    renderSidebar(sidebar, state, currentRoute(), { collapsed: isFolded(), actions: { toggle: toggleSidebar, search: palette } });
   };
+  const palette = () => togglePalette(() => state.searches);
   function toggleSidebar() {
     if (narrow.matches) {
       setMenuOpen(!shell.classList.contains("is-menu-open"));
@@ -75,7 +77,7 @@ async function start() {
       if (box) box.focus();
     }, 0);
   }
-  listenForShortcuts({ sidebar: toggleSidebar, new: newSearch });
+  listenForShortcuts({ palette, sidebar: toggleSidebar, new: newSearch });
 
   // While a search runs, the sidebar's running marker follows /status, whichever view is open:
   // a silent poll every 2 s, a silent re-read of the list when the two disagree, and a redraw

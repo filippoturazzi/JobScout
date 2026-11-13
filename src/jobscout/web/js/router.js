@@ -1,14 +1,18 @@
-// Hash routes: #/ (home), #/search/<id>, #/my-jobs[?tab=saved|applied&search=<id>], #/settings.
+// Hash routes: #/ (home), #/search/<id>, #/my-jobs[?tab=saved|applied&search=<id>&open=<match>],
+// #/settings. open: a match whose panel opens once the list is in (the palette's saved jobs).
 // Unknown routes are home.
 
 export const MY_JOBS_TABS = ["all", "saved", "applied"];
 
+function positive(raw) {
+  const n = raw !== null && /^\d+$/.test(raw) ? Number(raw) : 0;
+  return n > 0 ? n : null;
+}
+
 function myJobsRoute(query) {
   const params = new URLSearchParams(query);
   const tab = params.get("tab");
-  const raw = params.get("search");
-  const id = raw !== null && /^\d+$/.test(raw) ? Number(raw) : 0;
-  return { name: "my-jobs", tab: MY_JOBS_TABS.includes(tab) ? tab : "all", search: id > 0 ? id : null };
+  return { name: "my-jobs", tab: MY_JOBS_TABS.includes(tab) ? tab : "all", search: positive(params.get("search")), open: positive(params.get("open")) };
 }
 
 // The path (without "#") for My jobs, writing only what differs from the defaults.

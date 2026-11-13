@@ -11,17 +11,17 @@ test("the plain routes parse, unknown ones are home", () => {
 });
 
 test("my jobs defaults to the All tab with no search filter", () => {
-  assert.deepEqual(parseRoute("#/my-jobs"), { name: "my-jobs", tab: "all", search: null });
+  assert.deepEqual(parseRoute("#/my-jobs"), { name: "my-jobs", tab: "all", search: null, open: null });
 });
 
 test("my jobs reads the tab and the search from the query", () => {
-  assert.deepEqual(parseRoute("#/my-jobs?tab=saved&search=2"), { name: "my-jobs", tab: "saved", search: 2 });
-  assert.deepEqual(parseRoute("#/my-jobs?tab=applied"), { name: "my-jobs", tab: "applied", search: null });
+  assert.deepEqual(parseRoute("#/my-jobs?tab=saved&search=2"), { name: "my-jobs", tab: "saved", search: 2, open: null });
+  assert.deepEqual(parseRoute("#/my-jobs?tab=applied"), { name: "my-jobs", tab: "applied", search: null, open: null });
 });
 
 test("my jobs ignores a bad tab or search", () => {
-  assert.deepEqual(parseRoute("#/my-jobs?tab=bogus&search=abc"), { name: "my-jobs", tab: "all", search: null });
-  assert.deepEqual(parseRoute("#/my-jobs?search=0"), { name: "my-jobs", tab: "all", search: null });
+  assert.deepEqual(parseRoute("#/my-jobs?tab=bogus&search=abc"), { name: "my-jobs", tab: "all", search: null, open: null });
+  assert.deepEqual(parseRoute("#/my-jobs?search=0"), { name: "my-jobs", tab: "all", search: null, open: null });
 });
 
 test("myJobsPath writes only what differs from the default", () => {
@@ -29,4 +29,9 @@ test("myJobsPath writes only what differs from the default", () => {
   assert.equal(myJobsPath("saved", null), "/my-jobs?tab=saved");
   assert.equal(myJobsPath("saved", 2), "/my-jobs?tab=saved&search=2");
   assert.equal(myJobsPath("all", 2), "/my-jobs?search=2");
+});
+
+test("my-jobs carries a match to open", () => {
+  assert.equal(parseRoute("#/my-jobs?tab=saved&open=7").open, 7);
+  assert.equal(parseRoute("#/my-jobs?open=x").open, null);
 });

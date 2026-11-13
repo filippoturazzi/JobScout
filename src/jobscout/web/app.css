@@ -145,6 +145,36 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .cd-delete:hover { filter: brightness(1.08); }
 .cd-delete:disabled { cursor: progress; opacity: 0.5; }
 
+/* Search palette (Ctrl K): a modal list under a search field, near the top of the page. */
+.pal {
+  box-sizing: border-box;
+  width: calc(100% - var(--space-8));
+  max-width: calc(var(--space-12) * 12.5);
+  margin: 12vh auto auto;
+  padding: 0;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+}
+.pal::backdrop { background: var(--overlay); }
+.pal-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-4-5); border-bottom: 1px solid var(--border); color: var(--ink-subtle); }
+.pal-input { flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: var(--ink); font-size: var(--text-h2-size); }
+.pal-input::placeholder { color: var(--ink-subtle); }
+.pal-input:focus-visible { outline: none; }
+.pal-kbd { padding: 0 var(--space-1-5); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--ink-subtle); }
+.pal-list { display: grid; gap: var(--space-0-5); max-height: 50vh; overflow-y: auto; padding: var(--space-2); }
+.pal-group { padding: var(--space-2) var(--space-2) var(--space-1); color: var(--ink-subtle); text-transform: uppercase; letter-spacing: 0.08em; }
+.pal-item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2-5); border-radius: var(--radius-md); color: var(--ink-muted); text-decoration: none; }
+.pal-item[aria-selected="true"] { background: var(--surface-raised); color: var(--ink); }
+.pal-item__icon { display: inline-flex; color: var(--ink-subtle); }
+.pal-item__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-item__meta { color: var(--ink-subtle); }
+.pal-item__enter { display: inline-flex; width: var(--space-3-5); color: var(--ink-subtle); }
+.pal-empty { padding: var(--space-6) var(--space-3); text-align: center; color: var(--ink-subtle); }
+.pal-foot { display: flex; gap: var(--space-4); padding: var(--space-2-5) var(--space-4-5); border-top: 1px solid var(--border); color: var(--ink-subtle); }
+
 /* Below 800 px: one column, the sidebar behind the menu button, the detail panel full-screen */
 @media (max-width: 800px) {
   .app-shell { grid-template-columns: minmax(0, 1fr); }

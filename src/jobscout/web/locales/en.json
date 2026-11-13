@@ -213,5 +213,12 @@
   "local_version": "Local · v{version}",
   "search_palette": "Search",
   "collapse_sidebar": "Collapse sidebar",
-  "expand_sidebar": "Expand sidebar"
+  "expand_sidebar": "Expand sidebar",
+  "palette_placeholder": "Search searches and saved jobs",
+  "palette_searches": "Searches",
+  "palette_saved": "Saved jobs",
+  "palette_empty": "Nothing matches.",
+  "palette_nav": "navigate",
+  "palette_open": "open",
+  "palette_toggle": "toggle"
 }

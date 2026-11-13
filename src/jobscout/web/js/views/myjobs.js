@@ -185,6 +185,12 @@ export async function renderMyJobs(root, ctx, route) {
   draw();
   const sub = h("p", { class: "text-body-sm mj-sub" }, t("my_jobs_sub", { n: data.counts.all }));
   mount(root, h("div", { class: "app-column app-column--wide" }, title, sub, h("div", { class: "mj-bar" }, tabsHost, filter), listHost), detailHost);
+  // The palette sent us to a saved job: open it, and drop open= so a redraw does not reopen it.
+  if (route.open) {
+    history.replaceState(null, "", "#" + myJobsPath(tab, search));
+    const item = data.items.find((i) => i.match.id === route.open);
+    if (item) openMatch(item.match);
+  }
   if (focusTab) {
     focusTab = false;
     const selected = tabsHost.querySelector('[aria-selected="true"]');

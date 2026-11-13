@@ -213,5 +213,12 @@
   "local_version": "Local · v{version}",
   "search_palette": "Buscar",
   "collapse_sidebar": "Recolher sidebar",
-  "expand_sidebar": "Expandir sidebar"
+  "expand_sidebar": "Expandir sidebar",
+  "palette_placeholder": "Buscar conversas e vagas salvas",
+  "palette_searches": "Conversas",
+  "palette_saved": "Vagas salvas",
+  "palette_empty": "Nada encontrado.",
+  "palette_nav": "navegar",
+  "palette_open": "abrir",
+  "palette_toggle": "alternar"
 }
