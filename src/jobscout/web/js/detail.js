@@ -53,6 +53,31 @@ export function verdictMessage(before, after) {
   return USER_STATUSES.has(before) ? `toast_un${before}` : "toast_updated";
 }
 
+// Sends a verdict and shows its toast, whose Undo sends the earlier status back. onChange
+// (changed, { undo }) hears both and may answer the toast's message (a notice). Throws when the
+// verdict's request fails; a failed Undo says so in a toast of its own.
+export async function sendVerdict(match, status, onChange) {
+  const before = match.status;
+  const updated = await api.patch(`/matches/${match.id}`, { status });
+  const notice = onChange ? onChange(updated) || null : null;
+  const back = undoStatus(before);
+  showToast({
+    message: notice || t(verdictMessage(before, updated.status)),
+    action: {
+      label: t("undo"),
+      run: async () => {
+        try {
+          const restored = await api.patch(`/matches/${updated.id}`, { status: back });
+          if (onChange) onChange(restored, { undo: true });
+        } catch (e) {
+          showToast({ message: t("request_failed"), kind: "error" });
+        }
+      },
+    },
+  });
+  return updated;
+}
+
 // Returns { update(match, {focus}), close(restoreFocus = true), id, match }.
 export function openDetail(host, match, opts = {}) {
   const opener = document.activeElement;
@@ -71,36 +96,23 @@ export function openDetail(host, match, opts = {}) {
     close();
   }
 
-  // Undo from the toast: the panel may have closed or moved to another job meanwhile, so it
-  // only redraws when it still shows this one.
-  async function undo(matchId, status) {
-    try {
-      const restored = await api.patch(`/matches/${matchId}`, { status });
-      if (opts.onVerdict) opts.onVerdict(restored);
-      if (!closed && current.id === restored.id) {
-        current = restored;
-        draw("none");
-      }
-    } catch (e) {
-      showToast({ message: t("request_failed"), kind: "error" });
+  // Each change, the verdict's and its Undo's. Undo may come after the panel closed or moved
+  // to another job, so the panel only follows a change to the job it still shows.
+  function onChange(changed, { undo = false } = {}) {
+    if (!closed && current.id === changed.id) {
+      current = changed;
+      if (undo) draw("none");
     }
+    return opts.onVerdict ? opts.onVerdict(changed) : null;
   }
 
   async function verdict(status, action) {
     if (pending || current.status === status) return;
-    const before = current.status;
     pending = true;
     error = null;
     draw(action);
     try {
-      const updated = await api.patch(`/matches/${current.id}`, { status });
-      if (!closed) current = updated;
-      const notice = opts.onVerdict ? opts.onVerdict(updated) || null : null;
-      const back = undoStatus(before);
-      showToast({
-        message: notice || t(verdictMessage(before, updated.status)),
-        action: { label: t("undo"), run: () => undo(updated.id, back) },
-      });
+      await sendVerdict(current, status, onChange);
     } catch (e) {
       if (closed) return;
       error = t("request_failed");

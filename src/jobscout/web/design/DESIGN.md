@@ -91,7 +91,9 @@ Fonte da verdade visual: `design/jobscoutv2.pen` (na raiz do repositório), boar
 - **Send** — `js-send`: círculo menta com `arrow-up`; desabilitado em `--surface-raised`. O texto do envio fica em `.sr-only`.
 - **Tag** — `js-tag`: mono, caixa normal, fundo `--surface-raised`. **Score** — `js-tag js-tag--match` + `data-level`: ponto + número.
 - **JobCard** — `article.js-card`: linha de topo (quadrado com a inicial da empresa `js-card__logo`, empresa e local, score) → título → tags e data. Selecionado = borda menta.
-- **Linha de Minhas vagas** — `jobRow()` / `.jr`: Vaga · Aderência · Fonte · Status · Busca · Data; em telas estreitas fica Vaga · Aderência · Data.
+- **Linha de Minhas vagas** — `jobRow()` / `.jr`: Vaga · Aderência · Fonte · Status · Busca · Data; em telas estreitas fica Vaga · Aderência · Data. No hover a data dá lugar a Salvar e Abrir original.
+- **Popover e Menu** — `togglePopover()` / `toggleMenu()` de `js/popover.js` (`.pop`, `.pop-menu`, `.pop-item`): abre sob o botão (o pai precisa de `position: relative`), um por vez; clique fora ou Esc fecha e devolve o foco. Menu: ↑↓, Enter; item destrutivo com `--danger`.
+- **Filtros de Minhas vagas** — popover `.mj-filters` (aderência mínima, modelo, fonte, publicada), aplicado ao vivo; filtros ativos viram chips `.mj-applied__chip` abaixo das abas. Todo o estado fica na URL (`router.js`).
 - **Composer** — `form.js-pref.composer`: raio `xl`, sem borda própria no textarea; na home é multilinha com o Send embaixo à direita; na conversa é uma linha só.
 - **Highlight** — `js-highlight`: onde uma busca começa ("Nova busca" na sidebar). Em 2.0 é só superfície + borda, sem tracejado.
 - **Toast** — `showToast()` de `js/toast.js` (`.toast` em `app.css`): um por vez, embaixo no centro da área principal, some em 6s (pausa com hover/foco). Toda mudança de status de vaga mostra um com "Desfazer"; excluir conversa também (o DELETE só sai quando o toast some).

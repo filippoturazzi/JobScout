@@ -82,6 +82,11 @@ const SHAPES = {
   "list-filter": path("M3 6h18") + path("M7 12h10") + path("M10 18h4"),
   "arrow-down-up": path("m3 16 4 4 4-4") + path("M7 20V4") + path("m21 8-4-4-4 4") + path("M17 4v16"),
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
+  "arrow-down-wide-narrow": path("m3 16 4 4 4-4") + path("M7 20V4") + path("M11 4h10") + path("M11 8h7") + path("M11 12h4"),
+  "sliders-horizontal":
+    '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/>' +
+    '<line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/>' +
+    '<line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
   "circle-dashed":
     path("M10.1 2.182a10 10 0 0 1 3.8 0") + path("M13.9 21.818a10 10 0 0 1-3.8 0") + path("M17.609 3.721a10 10 0 0 1 2.69 2.7") +
     path("M2.182 13.9a10 10 0 0 1 0-3.8") + path("M20.279 17.609a10 10 0 0 1-2.7 2.69") + path("M21.818 10.1a10 10 0 0 1 0 3.8") +

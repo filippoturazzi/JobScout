@@ -426,15 +426,64 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 
 /* My jobs: tabs with counts and an accent underline, the search filter on the right, and the
    jobs as table rows (the same JobCard, laid out as a row). */
+.mj-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 .mj-sub { color: var(--ink-subtle); margin-top: var(--space-1-5); }
+.mj-actions { display: flex; align-items: center; gap: var(--space-2); }
+.mj-actions .js-icon-btn { color: var(--ink-muted); }
+.mj-pop { position: relative; display: inline-flex; }
+.mj-badge { position: absolute; top: calc(var(--space-1-5) * -1); right: calc(var(--space-1-5) * -1); min-width: var(--space-4); padding: 0 var(--space-1); border-radius: var(--radius-pill); background: var(--brand); color: var(--on-brand); text-align: center; pointer-events: none; }
+.mj-find { display: inline-flex; align-items: center; gap: var(--space-2); height: var(--icon-btn); box-sizing: border-box; padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-md); color: var(--ink-subtle); }
+.mj-find__input { width: calc(var(--space-12) * 4); border: 0; padding: 0; background: transparent; color: var(--ink); font-family: inherit; }
+.mj-find__input:focus-visible { outline: none; }
+.mj-find:focus-within { outline: 2px solid var(--focus); outline-offset: var(--space-0-5); }
 .mj-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-top: var(--space-8); border-bottom: 1px solid var(--border); }
+.mj-applied { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.mj-applied[hidden] { display: none; }
+.mj-applied__chip { display: inline-flex; align-items: center; gap: var(--space-1-5); padding: var(--space-1) var(--space-2-5); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); cursor: pointer; font-family: inherit; }
+.mj-applied__chip svg { color: var(--ink-subtle); }
+.mj-applied__chip:hover { border-color: var(--border-strong); }
+.mj-clear { min-height: 0; padding: var(--space-1) var(--space-2); color: var(--ink-muted); }
+.mj-clear:disabled { opacity: 0.5; cursor: default; }
+
+/* Popovers and menus (js/popover.js), opened under their button. */
+.pop { position: absolute; top: calc(100% + var(--space-2)); z-index: 15; box-sizing: border-box; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-overlay); }
+.pop--end { right: 0; }
+.pop--start { left: 0; }
+.pop-menu { display: grid; gap: var(--space-0-5); min-width: calc(var(--space-12) * 4); padding: var(--space-1-5); }
+.pop-item { display: flex; align-items: center; gap: var(--space-2-5); padding: var(--space-2) var(--space-2-5); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink); cursor: pointer; font-family: inherit; text-align: left; }
+.pop-item svg { color: var(--ink-subtle); flex: none; }
+.pop-item:hover, .pop-item:focus-visible { background: var(--surface-raised); outline: none; }
+.pop-item__label { flex: 1; }
+.pop-item__check svg { color: var(--accent-text); }
+.pop-item--danger, .pop-item--danger svg { color: var(--danger); }
+.pop-menu hr { border: 0; border-top: 1px solid var(--border); margin: var(--space-1) 0; }
+
+/* The filters popover */
+.mj-filters { width: calc(var(--space-12) * 7.5); }
+.mj-filters__head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+.mj-filters__body { display: grid; gap: var(--space-4-5); padding: var(--space-4); }
+.mj-field { display: grid; gap: var(--space-2); }
+.mj-field__label { color: var(--ink-subtle); text-transform: uppercase; letter-spacing: 0.08em; }
+.mj-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.mj-chips { display: flex; flex-wrap: wrap; gap: var(--space-1-5); }
+.mj-chip { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-pill); background: transparent; color: var(--ink-muted); cursor: pointer; font-family: inherit; }
+.mj-chip:hover { color: var(--ink); border-color: var(--border-strong); }
+.mj-chip[aria-pressed="true"] { background: var(--accent-subtle); border-color: var(--accent-text); color: var(--accent-text); }
+.mj-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: var(--space-0-5); }
+.mj-filters__foot { padding: var(--space-3) var(--space-4) var(--space-4); border-top: 1px solid var(--border); }
+.mj-see { width: 100%; }
+.mj-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) 0; }
+.mj-pager__text { color: var(--ink-subtle); }
+.mj-pager__btns { display: flex; gap: var(--space-1-5); }
+.mj-pager__btns .js-btn:disabled { opacity: 0.4; cursor: default; }
+.mj-empty__icon { display: grid; place-items: center; width: var(--tile-lg); height: var(--tile-lg); border-radius: var(--radius-md); background: var(--surface); color: var(--ink-subtle); margin-bottom: var(--space-2); }
 .mj-tabs { display: flex; gap: var(--space-7); }
 .mj-tab { display: inline-flex; align-items: baseline; gap: var(--space-2); padding: 0 0 var(--space-3); margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-subtle); cursor: pointer; font-family: inherit; }
 .mj-tab:hover { color: var(--ink); }
 .mj-tab[aria-selected="true"] { color: var(--ink); font-weight: var(--text-label-weight); border-bottom-color: var(--brand); }
 .mj-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: var(--space-0-5); }
 .mj-count { color: var(--ink-subtle); }
-.mj-filter { position: relative; display: inline-flex; align-items: center; margin-bottom: var(--space-2); }
+.mj-filter { position: relative; display: inline-flex; align-items: center; }
 .mj-select { appearance: none; -webkit-appearance: none; padding-right: var(--space-8); font-family: inherit; max-width: 100%; border-color: var(--border); color: var(--ink-muted); background: transparent; }
 .mj-filter > svg { position: absolute; right: var(--space-3); pointer-events: none; color: var(--ink-subtle); }
 .mj-select:hover { border-color: var(--border-strong); color: var(--ink); }
@@ -475,7 +524,7 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .mj-panel { container-type: inline-size; }
 .jr {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) calc(var(--space-8) * 3) calc(var(--space-8) * 3.25) calc(var(--space-12) * 2.5) calc(var(--space-8) * 5) var(--space-12);
+  grid-template-columns: minmax(0, 1fr) calc(var(--space-8) * 3) calc(var(--space-8) * 3.25) calc(var(--space-12) * 2.5) calc(var(--space-8) * 5) calc(var(--space-12) * 1.5);
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
@@ -497,7 +546,14 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .jr__status--saved .jr__dot { background: var(--warn); }
 .jr__status--applied .jr__dot { background: var(--success); }
 .jr__search { color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr__end { display: flex; justify-content: flex-end; align-items: center; min-height: var(--icon-btn-sm); }
 .jr__date { color: var(--ink-subtle); text-align: right; }
+/* Hover (or focus in the row) swaps the date for Save and Open original. */
+.jr__actions { display: none; gap: var(--space-0-5); }
+.jr:hover .jr__actions, .jr:focus-within .jr__actions { display: flex; }
+.jr:hover .jr__date, .jr:focus-within .jr__date { display: none; }
+.jr__save[aria-pressed="true"] { color: var(--warn); }
+@media (hover: none) { .jr__actions { display: none !important; } .jr__date { display: inline !important; } }
 .jr--head .jr__date { text-align: right; }
 /* Narrower (the detail panel is open, or a small screen): keep job, fit and date. */
 @container (max-width: 800px) {

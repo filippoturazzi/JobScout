@@ -3,7 +3,7 @@
 import { h } from "./dom.js";
 import { icon } from "./icons.js";
 import { currentLocale, t } from "./i18n.js";
-import { salary, scoreLabel, scoreLevel, sourceName, timeAgo } from "./format.js";
+import { safeUrl, salary, scoreLabel, scoreLevel, sourceName, timeAgo } from "./format.js";
 
 export function workMode(job) {
   return job.work_mode || (job.remote ? "remote" : null);
@@ -103,11 +103,40 @@ export function jobRowHeader() {
 }
 
 // My jobs' row: the same job as the card, laid out in the table's columns.
-// opts: { selected, onOpen(match), searches: [{id, title}] }
-export function jobRow(match, { selected = false, onOpen, searches = null } = {}) {
+// opts: { selected, onOpen(match), searches: [{id, title}], onSave(match) }
+// With onSave, hovering the row (or focusing in it) swaps the date for Save and Open original.
+export function jobRow(match, { selected = false, onOpen, searches = null, onSave = null } = {}) {
   const job = match.job;
   const score = scoreLabel(match.score);
-  const status = match.status === "saved" || match.status === "applied" ? match.status : "new";
+  const status = ["saved", "applied", "dismissed"].includes(match.status) ? match.status : "new";
+  const url = safeUrl(job.url);
+  const saved = match.status === "saved";
+  const stop = (event) => event.stopPropagation();
+  const actions = onSave
+    ? h(
+        "div",
+        { class: "jr__actions", onclick: stop, onkeydown: stop },
+        h(
+          "button",
+          {
+            class: `js-btn js-btn--ghost js-icon-btn js-icon-btn--sm jr__save`,
+            type: "button",
+            "aria-pressed": saved ? "true" : "false",
+            "aria-label": `${t(saved ? "saved" : "save")}: ${job.title}`,
+            title: t(saved ? "saved" : "save"),
+            onclick: () => onSave(match),
+          },
+          icon(saved ? "bookmark-check" : "bookmark", 16),
+        ),
+        url
+          ? h(
+              "a",
+              { class: "js-btn js-btn--ghost js-icon-btn js-icon-btn--sm", href: url, target: "_blank", rel: "noopener noreferrer", "aria-label": `${t("open_posting")}: ${job.title}`, title: t("open_posting") },
+              icon("external-link", 16),
+            )
+          : null,
+      )
+    : null;
   const where = [job.company, job.location, salary(job, currentLocale())].filter(Boolean).join(" · ");
   const open = () => {
     if (onOpen) onOpen(match);
@@ -138,6 +167,6 @@ export function jobRow(match, { selected = false, onOpen, searches = null } = {}
     h("div", { class: "jr__source" }, h("span", { class: "js-tag" }, sourceName(job.source))),
     h("div", { class: `text-body-sm jr__status jr__status--${status}` }, h("span", { class: "jr__dot", "aria-hidden": "true" }), t(status === "new" ? "status_new" : status)),
     h("div", { class: "text-body-sm jr__search" }, searches && searches.length ? searches.map((s) => s.title).join(", ") : ""),
-    h("div", { class: "js-meta jr__date" }, postedAgo(job) || ""),
+    h("div", { class: "jr__end" }, h("span", { class: "js-meta jr__date" }, postedAgo(job) || ""), actions),
   );
 }
