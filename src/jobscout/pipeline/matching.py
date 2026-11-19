@@ -69,6 +69,8 @@ class MatchRun:
     errors: list[str] = field(default_factory=list)
     error: str | None = None
     previewed: list[tuple[int, float, str]] = field(default_factory=list)
+    # The caller asked to stop: the jobs after the one in hand were left for the next run.
+    stopped: bool = False
 
 
 def select_candidates(
@@ -207,11 +209,13 @@ def run_match(
     deps: GraphDeps | None = None,
     first_seen_after: datetime | None = None,
     on_evaluated: Callable[[int, int], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> MatchRun:
     """Evaluate the best unmatched candidates for one search, bounded by the per-run cap.
 
     ``on_evaluated(done, total)`` is called after each selected job, scored or failed, so a
-    caller can show progress; ``total`` is how many were selected.
+    caller can show progress; ``total`` is how many were selected. ``should_stop`` is asked
+    before each job: once it says yes the rest stay unmatched and ``stopped`` is set.
     """
     result = MatchRun()
     prefs = get_preferences(session, search_id)
@@ -222,6 +226,10 @@ def run_match(
     candidates = select_candidates(session, prefs, search_id, first_seen_after=first_seen_after)
     result.candidates = len(candidates)
     if not candidates:
+        return result
+    if should_stop is not None and should_stop():
+        # Before embedding, which calls the provider once per job not embedded yet.
+        result.stopped = True
         return result
 
     embed = deps.embed if deps is not None else embeddings(settings)
@@ -286,6 +294,9 @@ def run_match(
             on_evaluated(done, len(selected))
 
     for done, (_similarity, job) in enumerate(selected, start=1):
+        if should_stop is not None and should_stop():
+            result.stopped = True
+            break
         assert job.id is not None
         state: MatchState = {
             "job_id": job.id,

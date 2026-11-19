@@ -56,6 +56,10 @@ body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); 
 .js-send { width: var(--icon-btn); height: var(--icon-btn); min-height: 0; padding: 0; border-radius: var(--radius-pill); background: var(--brand); color: var(--on-brand); flex: none; }
 .js-send:hover { background: var(--brand-hover); }
 .js-send:disabled { background: var(--surface-raised); color: var(--ink-subtle); cursor: not-allowed; }
+/* Stop: while a search runs the Send turns into a filled square on ink (spec: SendButton "parar"). */
+.js-send--stop { background: var(--ink); color: var(--bg); }
+.js-send--stop:hover { background: var(--ink-muted); }
+.js-send--stop svg { fill: currentColor; }
 
 /* Logo lockup: the eye (inline SVG, currentColor) + the wordmark. */
 .js-logo { display: inline-flex; align-items: center; gap: var(--space-2); font: 600 var(--text-lg-size)/1 var(--font-sans); letter-spacing: -0.03em; color: var(--ink); }

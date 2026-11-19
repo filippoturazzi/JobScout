@@ -6,6 +6,7 @@ The job functions are plain callables so all logic is testable without a schedul
 
 import logging
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from apscheduler.job import Job as APSJob
@@ -357,7 +358,12 @@ class SearchBusyError(RuntimeError):
 
 
 def search_job(
-    engine: Engine, settings: Settings, search_id: int, run_id: int, fetch: bool = True
+    engine: Engine,
+    settings: Settings,
+    search_id: int,
+    run_id: int,
+    fetch: bool = True,
+    should_stop: Callable[[], bool] | None = None,
 ) -> None:
     """One saved search, filling the Run row the scheduler already opened.
 
@@ -366,7 +372,9 @@ def search_job(
     """
     try:
         with Session(engine) as session:
-            run_search(session, settings, search_id, run_id=run_id, fetch=fetch)
+            run_search(
+                session, settings, search_id, run_id=run_id, fetch=fetch, should_stop=should_stop
+            )
     except Exception:
         log.exception("search job crashed outside its own error handling")
 
@@ -394,6 +402,8 @@ class JobScoutScheduler:
         # would then refuse every later search.
         self._running: tuple[int, int] | None = None
         self._search_lock = threading.Lock()
+        # The user's Stop for the search in flight; cleared when the next one starts.
+        self._stop = threading.Event()
 
     def _run_ingest_tick(self) -> None:
         ingest_job(self._engine, self._settings)
@@ -441,6 +451,7 @@ class JobScoutScheduler:
                 run_id = open_search_run(session, search_id).id
             assert run_id is not None, "a committed run always has an id"
             self._running = (search_id, run_id)
+            self._stop.clear()
         try:
             if not self._scheduler.running:
                 # SCHEDULER_ENABLED=false turns off the periodic jobs, not the user's own
@@ -464,13 +475,29 @@ class JobScoutScheduler:
             raise
         return run_id
 
+    def stop_search(self, search_id: int) -> bool:
+        """Ask the search in flight to stop, if it is this one. It stops at its next term or
+        job and keeps what it has; returns whether there was such a search to ask."""
+        with self._search_lock:
+            if self._running is None or self._running[0] != search_id:
+                return False
+            self._stop.set()
+            return True
+
     def _run_search(self, search_id: int, run_id: int, fetch: bool) -> None:
         try:
             # Held for the whole search, which scores as it goes: a match tick beside it
             # would evaluate the same (job, search) pairs and collide on the unique constraint.
             # A tick that arrives meanwhile is skipped and logged, as for any overlap.
             with self._match_running:
-                search_job(self._engine, self._settings, search_id, run_id, fetch=fetch)
+                search_job(
+                    self._engine,
+                    self._settings,
+                    search_id,
+                    run_id,
+                    fetch=fetch,
+                    should_stop=self._stop.is_set,
+                )
         finally:
             with self._search_lock:
                 self._running = None

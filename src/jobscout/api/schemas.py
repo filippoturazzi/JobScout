@@ -57,7 +57,7 @@ class SearchStarted(BaseModel):
 
 class RunSource(BaseModel):
     name: str
-    state: Literal["waiting", "searching", "done", "failed", "skipped"]
+    state: Literal["waiting", "searching", "done", "failed", "skipped", "stopped"]
     fetched: int
     queries_done: int
     queries_total: int
@@ -108,6 +108,10 @@ class SearchListItem(BaseModel):
 
 class SearchRename(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+
+
+class SearchStopping(BaseModel):
+    stopping: bool  # False: nothing of this search was running to stop
 
 
 class SearchCreate(BaseModel):

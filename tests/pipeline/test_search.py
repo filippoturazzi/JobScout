@@ -957,3 +957,109 @@ def test_an_unexpected_error_in_a_source_marks_it_failed(session, monkeypatch):
     assert entry["state"] == "failed" and "disk full" in str(entry["detail"])
     assert run.ok is False and run.finished_at is not None
     assert run.error == "fake: RuntimeError: disk full"
+
+
+# --------------------------------------------------------------------------- stopping
+
+
+def test_a_stop_while_fetching_asks_no_more_terms_and_scores_nothing(session, monkeypatch):
+    stop = {"now": False}
+
+    class Stopping(_FakeSource):
+        def fetch(self, query: SearchQuery) -> list[RawJob]:
+            jobs = super().fetch(query)
+            stop["now"] = True  # the user presses Stop while this term is in flight
+            return jobs
+
+    fake = Stopping(name="first")
+    later = _FakeSource(name="later")
+    _fake_fetching(fake, monkeypatch)
+    _fake_fetching(later, monkeypatch)
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python", "sql"]))
+
+    result = run_search(
+        session,
+        _settings(sources="first,later"),
+        search.id,
+        deps=_deps(chat),
+        should_stop=lambda: stop["now"],
+    )
+
+    assert len(fake.queries) == 1 and later.queries == []
+    assert chat.evaluation_calls == 0
+    run = _the_run(session)
+    assert run.finished_at is not None and run.ok is True
+    assert run.counters["stopped"] == 1 and run.counters["fetched"] == 1
+    assert [(s["name"], s["state"], s["fetched"]) for s in run.sources] == [
+        ("first", "stopped", 1),
+        ("later", "stopped", 0),
+    ]
+    assert result.stopped is True
+
+
+def test_a_stop_while_scoring_finishes_the_job_in_hand_and_scores_no_more(session, monkeypatch):
+    stop = {"now": False}
+    fake = _FakeSource()
+    _fake_fetching(fake, monkeypatch)
+    search = _search(session)
+    chat = SearchChatModel(
+        _extraction(["python", "sql", "llm"]), on_evaluate=lambda n: stop.update(now=True)
+    )
+
+    run_search(
+        session,
+        _settings(sources=fake.name),
+        search.id,
+        deps=_deps(chat),
+        should_stop=lambda: stop["now"],
+    )
+
+    assert chat.evaluation_calls == 1
+    run = _the_run(session)
+    assert run.ok is True and run.counters["stopped"] == 1
+    assert run.counters["scored"] == 1 and run.counters["remaining"] == 2
+    assert [s["state"] for s in run.sources] == ["done"]
+
+
+def test_a_run_nobody_stopped_carries_no_stopped_counter(session, monkeypatch):
+    fake = _FakeSource()
+    _fake_fetching(fake, monkeypatch)
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python"]))
+
+    run_search(
+        session,
+        _settings(sources=fake.name),
+        search.id,
+        deps=_deps(chat),
+        should_stop=lambda: False,
+    )
+
+    assert "stopped" not in _the_run(session).counters
+
+
+def test_a_stop_after_the_last_term_embeds_nothing(session, monkeypatch):
+    stop = {"now": False}
+
+    class Stopping(_FakeSource):
+        def fetch(self, query: SearchQuery) -> list[RawJob]:
+            stop["now"] = True  # pressed during the only term: nothing left to ask
+            return super().fetch(query)
+
+    _fake_fetching(Stopping(), monkeypatch)
+    search = _search(session)
+    chat = SearchChatModel(_extraction(["python"]))
+
+    run_search(
+        session,
+        _settings(sources="fake"),
+        search.id,
+        deps=_deps(chat),
+        should_stop=lambda: stop["now"],
+    )
+
+    run = _the_run(session)
+    assert run.counters["stopped"] == 1 and run.counters["embedded"] == 0
+    assert chat.evaluation_calls == 0
+    assert [s["state"] for s in run.sources] == ["done"]

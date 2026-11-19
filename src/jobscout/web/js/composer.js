@@ -7,7 +7,10 @@ export function shouldSubmit(text, { disabled } = {}) {
   return !disabled && String(text).trim().length > 0;
 }
 
-export function composer({ placeholder = "", disabled = false, locked = false, multiline = false, submitLabel = "", submitIcon = null, primary = true, highlight = false, onSubmit } = {}) {
+// running: a search is in flight, so the field is locked and the button is Stop (onStop);
+// stopping: the Stop was sent and the button waits, disabled, for the run to end.
+export function composer({ placeholder = "", disabled = false, locked: lockedIn = false, multiline = false, submitLabel = "", submitIcon = null, primary = true, highlight = false, onSubmit, running = false, stopping = false, stopLabel = "", onStop } = {}) {
+  const locked = lockedIn || running;
   let isDisabled = disabled;
   const field = h("textarea", {
     class: "composer__field",
@@ -17,23 +20,38 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
     disabled: locked,
   });
   // The submit is the round, icon-only Send; its words stay for screen readers and the tooltip.
-  const label = h("span", { class: "sr-only" }, submitLabel);
-  const button = h(
-    "button",
-    {
-      class: `js-btn js-send${primary ? "" : " js-send--quiet"}`,
-      type: "submit",
-      title: submitLabel,
-      disabled: isDisabled || locked,
-    },
-    icon(submitIcon || "arrow-up", 18),
-    label,
-  );
+  const label = h("span", { class: "sr-only" }, running ? stopLabel : submitLabel);
+  const button = running
+    ? h(
+        "button",
+        {
+          class: "js-btn js-send js-send--stop",
+          type: "button",
+          title: stopLabel,
+          disabled: stopping,
+          onclick: () => {
+            if (!stopping && onStop) onStop();
+          },
+        },
+        icon("square", 14),
+        label,
+      )
+    : h(
+        "button",
+        {
+          class: `js-btn js-send${primary ? "" : " js-send--quiet"}`,
+          type: "submit",
+          title: submitLabel,
+          disabled: isDisabled || locked,
+        },
+        icon(submitIcon || "arrow-up", 18),
+        label,
+      );
   const el = h(
     "form",
     { class: `js-pref composer${multiline ? " composer--multiline" : ""}${highlight ? " js-highlight" : ""}`, novalidate: true },
     field,
-    h("div", { class: "js-pref__foot composer__foot" }, locked ? icon("lock") : h("span", {}), button),
+    h("div", { class: "js-pref__foot composer__foot" }, locked && !running ? icon("lock") : h("span", {}), button),
   );
 
   function submit() {
@@ -72,6 +90,7 @@ export function composer({ placeholder = "", disabled = false, locked = false, m
     },
     setDisabled: (b) => {
       isDisabled = b;
+      if (running) return; // Stop has its own disabled state, `stopping`
       if (b || locked) button.setAttribute("disabled", "");
       else button.removeAttribute("disabled");
     },

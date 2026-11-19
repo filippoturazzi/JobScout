@@ -22,6 +22,7 @@ from jobscout.api.schemas import (
     SearchRead,
     SearchRename,
     SearchStarted,
+    SearchStopping,
     UnscoredRead,
     WideningRead,
 )
@@ -320,6 +321,21 @@ def rank_search(
     if in_flight is not None:
         return SearchStarted(run_id=in_flight)
     return SearchStarted(run_id=scheduler.start_search(search_id, fetch=False))
+
+
+@router.post("/{search_id}/stop", status_code=202, response_model=SearchStopping)
+def stop_search(
+    search_id: int,
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> SearchStopping:
+    """Ask this search's run to stop at its next term or job, keeping what it has.
+
+    Harmless when it is not running: the run may have ended on its own meanwhile."""
+    scheduler = _scheduler(request)
+    svc.get_search(session, user_id, search_id)
+    return SearchStopping(stopping=scheduler.stop_search(search_id))
 
 
 @router.get("/{search_id}/runs/{run_id}", response_model=RunRead)

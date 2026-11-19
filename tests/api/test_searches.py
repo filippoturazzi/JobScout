@@ -545,3 +545,45 @@ def test_export_a_search_as_csv(client, session):
     assert by_title["Data Engineer"]["status"] == "saved"
     assert by_title["ML Engineer"]["matched_skills"] == "Python; SQL"
     assert client.get("/searches/999/export.csv").status_code == 404
+
+
+def test_stop_asks_the_running_search_to_stop(client, chat, fake_scheduler):
+    created = _create(client).json()
+    fake_scheduler.running = (created["id"], 5)
+    response = client.post(f"/searches/{created['id']}/stop")
+    assert response.status_code == 202
+    assert response.json() == {"stopping": True}
+    assert fake_scheduler.stopped == [created["id"]]
+
+
+def test_stop_when_nothing_runs_is_harmless(client, chat, fake_scheduler):
+    # The run may end between the page drawing Stop and the click reaching the server.
+    created = _create(client).json()
+    response = client.post(f"/searches/{created['id']}/stop")
+    assert response.status_code == 202
+    assert response.json() == {"stopping": False}
+
+
+def test_stop_on_an_unknown_search_is_404(client, chat, fake_scheduler):
+    assert client.post("/searches/999/stop").status_code == 404
+    assert fake_scheduler.stopped == []
+
+
+def test_a_stopped_run_reads_back_with_its_stopped_sources(client, session, chat):
+    created = _create(client).json()
+    source = {
+        "name": "himalayas",
+        "state": "stopped",
+        "fetched": 3,
+        "queries_done": 1,
+        "queries_total": 2,
+        "detail": None,
+        "notes": [],
+    }
+    run = Run(job="search", search_id=created["id"], counters={"stopped": 1}, sources=[source])
+    session.add(run)
+    session.commit()
+    response = client.get(f"/searches/{created['id']}/runs/{run.id}")
+    assert response.status_code == 200
+    assert response.json()["sources"][0]["state"] == "stopped"
+    assert response.json()["counters"]["stopped"] == 1

@@ -1142,8 +1142,9 @@ class _Gate:
         self.started = threading.Event()
         self.calls: list[tuple[int, int, bool]] = []
 
-    def __call__(self, engine, settings, search_id, run_id, fetch=True) -> None:
+    def __call__(self, engine, settings, search_id, run_id, fetch=True, should_stop=None) -> None:
         self.calls.append((search_id, run_id, fetch))
+        self.should_stop = should_stop
         self.started.set()
         self.release.wait(5)
 
@@ -1268,3 +1269,36 @@ def test_digest_job_sends_a_job_found_by_two_searches_once(session, monkeypatch,
     assert run.counters["sent"] == 1
     session.expire_all()
     assert all(m.notified_at is not None for m in session.exec(select(Match)).all())
+
+
+def test_stopping_the_running_search_raises_its_stop_signal(session: Session, gate):
+    search = make_search(session)
+    gate.scheduler.start_search(search.id)
+    assert gate.started.wait(5)
+    assert gate.should_stop() is False
+    assert gate.scheduler.stop_search(search.id) is True
+    assert gate.should_stop() is True
+
+
+def test_stopping_a_search_that_is_not_running_does_nothing(session: Session, gate):
+    first = make_search(session, title="first")
+    second = make_search(session, title="second")
+    assert gate.scheduler.stop_search(first.id) is False
+    gate.scheduler.start_search(first.id)
+    assert gate.started.wait(5)
+    assert gate.scheduler.stop_search(second.id) is False
+    assert gate.should_stop() is False
+
+
+def test_a_new_search_starts_without_the_last_ones_stop(session: Session, gate):
+    first = make_search(session, title="first")
+    second = make_search(session, title="second")
+    gate.scheduler.start_search(first.id)
+    assert gate.started.wait(5)
+    gate.scheduler.stop_search(first.id)
+    gate.release.set()
+    _wait_free(gate.scheduler)
+    gate.started.clear()
+    gate.scheduler.start_search(second.id)
+    assert gate.started.wait(5)
+    assert gate.should_stop() is False
