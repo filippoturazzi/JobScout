@@ -18,6 +18,7 @@ import { cardKey } from "../jobcard.js";
 import { convBar } from "../convbar.js";
 import { confirmDelete } from "../sidebar.js";
 import { showToast } from "../toast.js";
+import { openEditModal } from "../editmodal.js";
 
 const POLL_MS = 2000;
 const guard = createGuard();
@@ -95,7 +96,6 @@ export async function renderSearch(root, ctx, id) {
   if (search.latest_run && runningMismatch(store.status, store.searches)) refreshSearches().catch(() => {});
 
   const ui = {
-    editing: null,
     error: null,
     otherFor: null,
     reading: false,
@@ -312,7 +312,6 @@ export async function renderSearch(root, ctx, id) {
   const handlers = {
     onAnswer: (qid, answer) =>
       mutate(qid, () => api.post(`/searches/${id}/answers`, { question: qid, choice: answer.choice, values: answer.values }), () => {
-        ui.editing = null;
         ui.otherFor = null;
       }),
     onOther: (qid) => {
@@ -320,19 +319,7 @@ export async function renderSearch(root, ctx, id) {
       ui.error = null;
       draw();
     },
-    onEdit: async (qid) => {
-      try {
-        const q = await api.get(`/searches/${id}/questions/${qid}`);
-        if (!guard.isCurrent(mine)) return;
-        ui.editing = q;
-        ui.otherFor = null;
-        ui.error = null;
-      } catch (e) {
-        if (!guard.isCurrent(mine)) return;
-        problem(qid, e);
-      }
-      draw();
-    },
+    onEdit: (qid) => openEdit(qid),
     onReread: () => {
       ui.reading = true;
       draw();
@@ -361,18 +348,63 @@ export async function renderSearch(root, ctx, id) {
     },
   };
 
+  // The summary's pencil: the question in a modal. An edit that opens a new need (hybrid now
+  // needs a city) goes straight on to that question, in the modal too.
+  async function openEdit(qid) {
+    let q;
+    try {
+      q = await api.get(`/searches/${id}/questions/${qid}`);
+    } catch (e) {
+      if (!guard.isCurrent(mine)) return;
+      problem(qid, e);
+      draw();
+      return;
+    }
+    if (!guard.isCurrent(mine)) return;
+    let saved = false;
+    const modal = openEditModal(q, {
+      country: (search.summary || {}).country || null,
+      answer: (search.answers || {})[q.id],
+      summary: search.summary,
+      onSave: async (answer) => {
+        try {
+          const next = await api.post(`/searches/${id}/answers`, { question: q.id, choice: answer.choice, values: answer.values });
+          if (!guard.isCurrent(mine)) return;
+          search = next;
+          saved = true;
+          ui.error = null;
+          modal.close();
+          refreshSearches().catch(() => {});
+        } catch (e) {
+          if (!guard.isCurrent(mine)) return;
+          modal.showError(e instanceof ApiError && e.status === 422 && e.detail ? e.detail : t("request_failed"));
+        }
+      },
+      onClose: () => {
+        if (!guard.isCurrent(mine)) return;
+        if (saved) {
+          draw({ focus: false });
+          if (search.question) {
+            openEdit(search.question.id);
+            return;
+          }
+        }
+        const pencil = root.querySelector(`[data-edit="${q.id}"]`);
+        if (pencil) pencil.focus();
+      },
+    });
+  }
+
   function submitText(text) {
     if (ui.otherFor) {
       const qid = ui.otherFor;
       const choice = qid === "city" ? "city" : "country";
       return mutate(qid, () => api.post(`/searches/${id}/answers`, { question: qid, choice, values: [text] }), () => {
         ui.otherFor = null;
-        ui.editing = null;
         ui.clearComposer = true;
       });
     }
     return mutate("composer", () => api.post(`/searches/${id}/refinements`, { text }), () => {
-      ui.editing = null;
       ui.clearComposer = true;
     });
   }

@@ -50,3 +50,10 @@ test("the modal opens on the current answer", () => {
   assert.equal(typed.text, "Recife");
   assert.equal(initialSelection(level, undefined, {}).option, null);
 });
+
+test("with no answer, the modal opens on what the summary shows", () => {
+  assert.equal(initialSelection(level, undefined, { level: "junior" }).option.choice, "junior");
+  assert.deepEqual(initialSelection(modes, undefined, { work_modes: ["remote"] }).picked, ["remote"]);
+  assert.deepEqual(initialSelection({ id: "skills", multi: true, options: [] }, undefined, { skills: ["python"] }).picked, ["python"]);
+  assert.equal(initialSelection(level, undefined, { level: null }).option, null);
+});

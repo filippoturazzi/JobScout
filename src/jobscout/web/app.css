@@ -148,6 +148,37 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .cd-delete:hover { filter: brightness(1.08); }
 .cd-delete:disabled { cursor: progress; opacity: 0.5; }
 
+/* Summary edit modal: one question, its chips or its field, Cancel and Save. */
+.em {
+  box-sizing: border-box;
+  width: calc(100% - var(--space-8));
+  max-width: calc(var(--space-8) * 15);
+  padding: var(--space-6);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+}
+.em::backdrop { background: var(--overlay); }
+.em-title { color: var(--ink); font-size: var(--text-lg-size); }
+.em-chips { margin-top: var(--space-4); }
+.em-field-row { margin-top: var(--space-4); }
+.em-field-row[hidden] { display: none; }
+.em-field {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--space-2-5) var(--space-3);
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+.em-field:focus-visible { outline: none; border-color: var(--brand); }
+.em-error { margin-top: var(--space-3); }
+.em-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
+
 /* Search palette (Ctrl K): a modal list under a search field, near the top of the page. */
 .pal {
   box-sizing: border-box;
@@ -327,7 +358,6 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .conv-card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin: var(--space-3) calc(var(--space-4) * -1) 0; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); background: var(--bg-sidebar); border-radius: 0 0 var(--radius-lg) var(--radius-lg); flex-wrap: wrap; }
 .conv-sources { color: var(--ink-subtle); }
 .conv-card__foot .js-btn:disabled { cursor: not-allowed; opacity: 0.5; }
-.conv-edit { margin-left: calc(var(--avatar) + var(--space-3-5)); padding: var(--space-4); border: 1px solid var(--brand); border-radius: var(--radius-lg); background: var(--bg); }
 
 /* The one-line composer of the conversation: lock | field | Send in a single row */
 .composer:not(.composer--multiline) { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1-5) var(--space-1-5) var(--space-1-5) var(--space-4); border-radius: var(--radius-xl); }
