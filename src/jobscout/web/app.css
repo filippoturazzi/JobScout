@@ -227,6 +227,8 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .composer--multiline .composer__foot { justify-content: flex-end; }
 .composer--multiline .composer__foot > span:first-child:empty { display: none; }
 .composer__foot { justify-content: space-between; }
+/* While a run is in flight only one of Stop and Send shows (composer.js). */
+.composer__foot .js-send[hidden] { display: none; }
 .js-send--quiet:not(:disabled) { background: var(--brand); }
 
 /* Home: badge, two-line heading, composer and suggestions centred in the main area */

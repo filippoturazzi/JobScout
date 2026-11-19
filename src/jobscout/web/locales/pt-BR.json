@@ -101,7 +101,7 @@
   "stopping": "Parando… o que já chegou fica.",
   "stopped_note": "Você parou esta busca. O que chegou antes de parar está aqui.",
   "stopped_nothing": "Você parou esta busca antes de chegar qualquer vaga.",
-  "composer_running": "Buscando… aperte Esc para parar",
+  "composer_running_refine": "Buscando… digite para refinar, ou Esc para parar",
   "src_stopped": "parada · {n} vagas",
   "ask_applied": "Você se candidatou a esta vaga?",
   "ask_applied_yes": "Sim, me candidatei",

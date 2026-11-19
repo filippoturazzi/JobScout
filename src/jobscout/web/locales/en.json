@@ -101,7 +101,7 @@
   "stopping": "Stopping… what came in so far stays.",
   "stopped_note": "You stopped this search. What came in before the stop is here.",
   "stopped_nothing": "You stopped this search before any jobs came in.",
-  "composer_running": "Searching… press Esc to stop",
+  "composer_running_refine": "Searching… type to refine, or press Esc to stop",
   "src_stopped": "stopped · {n} jobs",
   "ask_applied": "Did you apply for this job?",
   "ask_applied_yes": "Yes, I applied",
