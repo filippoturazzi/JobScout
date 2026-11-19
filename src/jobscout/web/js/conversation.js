@@ -170,7 +170,8 @@ function summaryCard(search, ui, handlers) {
     ["work_modes", t("row_work_mode"), s.work_modes.length ? s.work_modes.map((m) => t(`mode_${m}`)) : [t("dont_mind")], "work_modes"],
     ["location", t("row_location"), [locationRow(s)], locationQuestionId(search)],
   ];
-  if (s.skills.length) rows.push(["skills", t("row_skills"), s.skills, "skills"]);
+  // Always shown: its pencil is how a skill gets added when there is none.
+  rows.push(["skills", t("row_skills"), s.skills.length ? s.skills : [t("dont_mind")], "skills"]);
   const names = (ui.sources || []).map(sourceName);
   return h(
     "div",

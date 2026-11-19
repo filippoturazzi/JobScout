@@ -4,9 +4,10 @@ import { icon } from "./icons.js";
 import { t } from "./i18n.js";
 import { optionLabel, questionText, singleAnswer } from "./conversation.js";
 
-// "text" for the role, "multi" for work mode and skills, "single" for the rest.
+// "text" for the role and the skills (typed, comma-separated), "multi" for work mode, "single"
+// for the rest.
 export function editKind(q) {
-  if (q.id === "role") return "text";
+  if (q.id === "role" || q.id === "skills") return "text";
   return q.multi ? "multi" : "single";
 }
 
@@ -15,6 +16,8 @@ export function answerFor(q, sel) {
   const text = String(sel.text || "").trim();
   switch (editKind(q)) {
     case "text":
+      // Skills: an empty field is an answer too (no skill required).
+      if (q.id === "skills") return { choice: "pick", values: splitSkills(text) };
       return text.split(",").some((part) => part.trim()) ? { choice: "role", values: [text] } : null;
     case "multi":
       if (sel.any) return { choice: "any", values: [] };
@@ -26,18 +29,37 @@ export function answerFor(q, sel) {
   }
 }
 
+// "Python, django ,, python" -> ["Python", "django"]: trimmed, blanks dropped, repeats (any
+// case) kept once.
+function splitSkills(text) {
+  const seen = new Set();
+  const out = [];
+  for (const part of text.split(",")) {
+    const skill = part.trim();
+    if (skill && !seen.has(skill.toLowerCase())) {
+      seen.add(skill.toLowerCase());
+      out.push(skill);
+    }
+  }
+  return out;
+}
+
 // What a row shows when the reading, not a click, decided it.
 function fromSummary(qid, summary) {
   if (qid === "level" && summary.level) return { choice: summary.level, values: [] };
   if (qid === "work_modes" && (summary.work_modes || []).length) return { choice: "pick", values: summary.work_modes };
-  if (qid === "skills" && (summary.skills || []).length) return { choice: "pick", values: summary.skills };
   return null;
 }
 
-// The selection the modal opens on: the stored answer, or the summary's role.
+// The selection the modal opens on: the stored answer, or what the summary shows.
 export function initialSelection(q, answer, summary) {
   const sel = { option: null, picked: [], any: false, text: "" };
   const kind = editKind(q);
+  if (q.id === "skills") {
+    const values = answer && answer.choice === "pick" ? answer.values || [] : (summary && summary.skills) || [];
+    sel.text = values.join(", ");
+    return sel;
+  }
   if (kind === "text") {
     sel.text = ((summary && summary.terms) || []).join(", ");
     return sel;
@@ -75,7 +97,7 @@ export function openEditModal(q, { country, answer, summary, onSave, onClose } =
   const save = h("button", { class: "js-btn js-btn--primary", type: "submit" }, t("save"));
   // While Save is in flight nothing closes the modal: the answer it sends decides what follows.
   const cancel = h("button", { class: "js-btn js-btn--ghost", type: "button", onclick: () => { if (!busy) dialog.close(); } }, t("cancel"));
-  const placeholder = kind === "text" ? t("q_role") : q.id === "city" ? t("type_city") : t("type_country");
+  const placeholder = q.id === "skills" ? t("type_skills") : kind === "text" ? t("q_role") : q.id === "city" ? t("type_city") : t("type_country");
   const field = h("input", { class: "text-body em-field", type: "text", "aria-label": placeholder, placeholder });
   field.value = sel.text;
   field.addEventListener("input", () => {

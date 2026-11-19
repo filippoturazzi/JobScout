@@ -10,10 +10,12 @@ const level = { id: "level", multi: false, options: [{ choice: "intern" }, { cho
 const location = { id: "location", multi: false, options: [{ choice: "country", value: "Brazil" }, { choice: "anywhere" }, { choice: "abroad", value: "Brazil" }, { choice: "other" }] };
 const city = { id: "city", multi: false, options: [{ choice: "anywhere", value: "Brazil" }, { choice: "other" }] };
 
-test("role is typed, work mode and skills are multi, the rest single", () => {
+const skills = { id: "skills", multi: true, options: [{ choice: "skill", value: "python" }] };
+
+test("role and skills are typed, work mode is multi, the rest single", () => {
   assert.equal(editKind(role), "text");
+  assert.equal(editKind(skills), "text");
   assert.equal(editKind(modes), "multi");
-  assert.equal(editKind({ id: "skills", multi: true, options: [] }), "multi");
   assert.equal(editKind(level), "single");
   assert.equal(editKind(city), "single");
 });
@@ -54,7 +56,7 @@ test("the modal opens on the current answer", () => {
 test("with no answer, the modal opens on what the summary shows", () => {
   assert.equal(initialSelection(level, undefined, { level: "junior" }).option.choice, "junior");
   assert.deepEqual(initialSelection(modes, undefined, { work_modes: ["remote"] }).picked, ["remote"]);
-  assert.deepEqual(initialSelection({ id: "skills", multi: true, options: [] }, undefined, { skills: ["python"] }).picked, ["python"]);
+  assert.equal(initialSelection(skills, undefined, { skills: ["python", "sql"] }).text, "python, sql");
   assert.equal(initialSelection(level, undefined, { level: null }).option, null);
 });
 
@@ -84,4 +86,13 @@ test("while Save is in flight the modal cannot be closed", async () => {
   resolve();
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(cancel.getAttribute("disabled"), null);
+});
+
+test("typed skills are split on commas; an empty field clears them", () => {
+  assert.deepEqual(answerFor(skills, sel({ text: " Python, django ,, python, SQL " })), { choice: "pick", values: ["Python", "django", "SQL"] });
+  assert.deepEqual(answerFor(skills, sel({ text: "  " })), { choice: "pick", values: [] });
+});
+
+test("the skills field opens on the answered skills", () => {
+  assert.equal(initialSelection(skills, { choice: "pick", values: ["go", "rust"] }, { skills: ["python"] }).text, "go, rust");
 });

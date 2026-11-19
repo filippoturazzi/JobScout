@@ -85,6 +85,7 @@
   "send": "Send",
   "type_country": "Type a country",
   "type_city": "Type a city",
+  "type_skills": "Skills, separated by commas",
   "summary_intro": "Here's what I'll search for.",
   "row_role": "Role",
   "row_level": "Level",

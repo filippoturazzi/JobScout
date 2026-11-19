@@ -63,7 +63,11 @@ The user picked A.
 - The body depends on the question:
   - **Role**: a text field holding the current role.
   - **Level**: the single-choice chips. A click selects one, and Save sends it.
-  - **Work mode, Skills**: the multi-choice chips, the same as today's `questionBlock`.
+  - **Work mode**: the multi-choice chips, the same as today's `questionBlock`.
+  - **Skills**: a text field, like the role's, holding the current skills separated by commas.
+    Save splits on commas (trimmed, blanks and repeats dropped). An empty field is an answer:
+    no skill required. The Skills row is always in the summary, showing "Don't mind" when
+    empty, so its pencil can add skills back.
   - **Location / Country / City**: the chips. "Other city/country" shows a text field
     inside the modal instead of using the composer.
 - Save posts the answer (`POST /searches/{id}/answers`). A validation error is shown inside

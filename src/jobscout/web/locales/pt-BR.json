@@ -85,6 +85,7 @@
   "send": "Enviar",
   "type_country": "Digite um país",
   "type_city": "Digite uma cidade",
+  "type_skills": "Habilidades, separadas por vírgula",
   "summary_intro": "Aqui está o que vou buscar.",
   "row_role": "Cargo",
   "row_level": "Nível",
