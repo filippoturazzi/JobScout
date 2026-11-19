@@ -57,3 +57,31 @@ test("with no answer, the modal opens on what the summary shows", () => {
   assert.deepEqual(initialSelection({ id: "skills", multi: true, options: [] }, undefined, { skills: ["python"] }).picked, ["python"]);
   assert.equal(initialSelection(level, undefined, { level: null }).option, null);
 });
+
+test("while Save is in flight the modal cannot be closed", async () => {
+  const { fakeDocument, findElement } = await import("./fake-dom.js");
+  globalThis.document = fakeDocument;
+  const proto = Object.getPrototypeOf(fakeDocument.createElement("div"));
+  proto.showModal ||= function () { this.open = true; };
+  proto.close ||= function () { this.open = false; (this.listeners.close || []).forEach((fn) => fn({})); };
+  proto.remove ||= function () {};
+  proto.removeAttribute ||= function (name) { delete this.attributes[name]; };
+  fakeDocument.body ||= fakeDocument.createElement("body");
+  const { openEditModal } = await import("../../src/jobscout/web/js/editmodal.js");
+  let resolve;
+  openEditModal(role, { summary: { terms: ["qa"] }, onSave: () => new Promise((r) => { resolve = r; }) });
+  const dialog = fakeDocument.body.childNodes[fakeDocument.body.childNodes.length - 1];
+  const form = findElement(dialog, (el) => el.tagName === "FORM");
+  const cancel = findElement(dialog, (el) => el.tagName === "BUTTON" && el.getAttribute("type") === "button");
+  form.listeners.submit[0]({ preventDefault() {} });
+  assert.notEqual(cancel.getAttribute("disabled"), null);
+  cancel.listeners.click[0]({});
+  dialog.listeners.click[0]({ target: dialog });
+  let prevented = false;
+  dialog.listeners.cancel[0]({ preventDefault() { prevented = true; } });
+  assert.equal(dialog.open, true);
+  assert.equal(prevented, true);
+  resolve();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(cancel.getAttribute("disabled"), null);
+});

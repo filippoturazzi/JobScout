@@ -456,6 +456,10 @@ def to_preferences(c: Conversation) -> dict[str, object]:
         if s.abroad_from is not None:
             excluded_regions = [s.abroad_from]
     text = full_text(c)
+    if "role" in c.answers:
+        # A role typed in the summary must reach the scoring too, not only the search terms;
+        # it also changes the hash, so the old matches go stale.
+        text += "\n\nTarget role: " + ", ".join(s.terms)
     return {
         "profile_summary": text,
         "profile_hash": profile_hash(text),

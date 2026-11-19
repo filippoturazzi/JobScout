@@ -73,6 +73,8 @@ export function openEditModal(q, { country, answer, summary, onSave, onClose } =
   const title = questionText(q.id, country);
   const error = h("p", { class: "text-body-sm conv-error em-error", role: "alert", hidden: true });
   const save = h("button", { class: "js-btn js-btn--primary", type: "submit" }, t("save"));
+  // While Save is in flight nothing closes the modal: the answer it sends decides what follows.
+  const cancel = h("button", { class: "js-btn js-btn--ghost", type: "button", onclick: () => { if (!busy) dialog.close(); } }, t("cancel"));
   const placeholder = kind === "text" ? t("q_role") : q.id === "city" ? t("type_city") : t("type_country");
   const field = h("input", { class: "text-body em-field", type: "text", "aria-label": placeholder, placeholder });
   field.value = sel.text;
@@ -111,6 +113,8 @@ export function openEditModal(q, { country, answer, summary, onSave, onClose } =
     }
     fieldRow.hidden = !(kind === "text" || (sel.option && sel.option.choice === "other"));
     save.disabled = busy || answerFor(q, sel) === null;
+    if (busy) cancel.setAttribute("disabled", "");
+    else cancel.removeAttribute("disabled");
   }
 
   const form = h(
@@ -120,7 +124,7 @@ export function openEditModal(q, { country, answer, summary, onSave, onClose } =
     chips.length ? h("div", { class: "conv-chips em-chips", role: kind === "multi" ? "group" : "radiogroup", "aria-label": title }, chips.map((c) => c.el)) : null,
     fieldRow,
     error,
-    h("div", { class: "em-actions" }, h("button", { class: "js-btn js-btn--ghost", type: "button", onclick: () => dialog.close() }, t("cancel")), save),
+    h("div", { class: "em-actions" }, cancel, save),
   );
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -140,7 +144,9 @@ export function openEditModal(q, { country, answer, summary, onSave, onClose } =
       class: "em",
       "aria-labelledby": "em-title",
       // A click on the backdrop lands on the dialog itself: treat it as Cancel.
-      onclick: (e) => { if (e.target === dialog) dialog.close(); },
+      onclick: (e) => { if (e.target === dialog && !busy) dialog.close(); },
+      // Escape fires "cancel" first: refused while saving.
+      oncancel: (e) => { if (busy) e.preventDefault(); },
       onclose: () => {
         dialog.remove();
         if (open === controls) open = null;

@@ -587,3 +587,11 @@ def test_a_city_given_with_its_country_in_one_entry_asks_nothing():
     assert pending(c) == []
     s = summary(c)
     assert (s.country, s.city) == ("Brazil", "Brasilia")
+
+
+def test_a_typed_role_reaches_the_profile_that_is_scored():
+    before = to_preferences(everything_stated())
+    c = answer(everything_stated(), "role", Answer(choice="role", values=["data engineer"]))
+    after = to_preferences(c)
+    assert "Target role: data engineer" in after["profile_summary"]
+    assert after["profile_hash"] != before["profile_hash"]

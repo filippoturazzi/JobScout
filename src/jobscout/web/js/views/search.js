@@ -130,8 +130,8 @@ export async function renderSearch(root, ctx, id) {
   // After a refinement or an edit: once the search has run, the results update by themselves.
   function afterChange() {
     const v = view();
-    const step = nextStep({ hasRun: Boolean(ui.run), running: v.state === "running", queued: ui.queued, question: search.question });
-    if (step === "ask") ui.queued = true;
+    const step = nextStep({ hasRun: Boolean(ui.run), running: v.state === "running", stopping: ui.stopping, starting: ui.starting, question: search.question });
+    if (step === "ask" || step === "wait") ui.queued = true;
     else if (step === "stop") {
       ui.queued = true;
       stopRun();
@@ -240,7 +240,8 @@ export async function renderSearch(root, ctx, id) {
 
   // Stop: the run ends at its next term or job, keeping what it has; polling sees it finish.
   async function stopRun() {
-    if (ui.stopping || ui.runState !== "running") return;
+    // view(), not ui.runState: a run that just started has not been drawn yet.
+    if (ui.stopping || view().state !== "running") return;
     ui.stopping = true;
     draw({ focus: false });
     try {
@@ -270,6 +271,8 @@ export async function renderSearch(root, ctx, id) {
       ui.runningId = id;
       ui.ranking = kind === "rank";
       ui.starting = false;
+      // A change came in while this run was being started: it is stale already, stop it.
+      if (ui.queued) afterChange();
       refreshSearches().catch(() => {});
       // Starting confirmed the conversation, which may have retitled the search.
       api
