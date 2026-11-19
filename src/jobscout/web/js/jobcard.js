@@ -19,6 +19,40 @@ export function companyInitial(job) {
   return name ? name.charAt(0).toUpperCase() : "·";
 }
 
+function httpsUrl(url) {
+  if (typeof url !== "string") return null;
+  try {
+    return new URL(url).protocol === "https:" ? url : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// The company's square: its initial, with the board's logo over it once the logo loads. A logo
+// that fails to load hides itself, so the initial is what is left. Decorative: the company's
+// name is always written next to it. No referrer, so the board's CDN never sees our page.
+export function companyLogo(job, extraClass) {
+  const src = httpsUrl(job.company_logo);
+  const img = src
+    ? h("img", {
+        class: "js-card__logo-img",
+        alt: "",
+        loading: "lazy",
+        decoding: "async",
+        referrerpolicy: "no-referrer",
+        onload: () => img.setAttribute("data-loaded", ""),
+        onerror: () => img.setAttribute("hidden", ""),
+        src,
+      })
+    : null;
+  return h(
+    "span",
+    { class: extraClass ? `js-card__logo ${extraClass}` : "js-card__logo", "aria-hidden": "true" },
+    companyInitial(job),
+    img,
+  );
+}
+
 export function postedAgo(job) {
   return timeAgo(job.posted_at || job.first_seen_at, new Date(), t);
 }
@@ -75,7 +109,7 @@ export function jobCard(match, { selected = false, onOpen, searches = null, exce
     h(
       "div",
       { class: "js-card__top" },
-      h("span", { class: "js-card__logo", "aria-hidden": "true" }, companyInitial(job)),
+      companyLogo(job),
       h(
         "div",
         { class: "jc-head" },
@@ -160,7 +194,7 @@ export function jobRow(match, { selected = false, onOpen, searches = null, onSav
     h(
       "div",
       { class: "jr__job" },
-      h("span", { class: "js-card__logo", "aria-hidden": "true" }, companyInitial(job)),
+      companyLogo(job),
       h("div", { class: "jr__text" }, h("h3", { class: "text-label jr__title" }, job.title), where ? h("p", { class: "text-body-sm jr__where" }, where) : null),
     ),
     h("div", { class: "jr__fit" }, score ? h("span", { class: "js-tag js-tag--match", "data-level": scoreLevel(match.score) }, score) : null),

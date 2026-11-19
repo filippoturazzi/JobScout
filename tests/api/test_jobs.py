@@ -50,3 +50,13 @@ def test_list_jobs_applies_preferences(client, session):
 
     r = client.get("/jobs", params={"limit": 1, "all": "true"})
     assert len(r.json()) == 1
+
+
+def test_a_job_carries_its_company_logo_from_the_board_payload(client, session):
+    with_logo = raw("a", "AI Engineer")
+    with_logo.raw = {"company_logo": "https://media.licdn.com/logo.png"}
+    upsert_jobs(session, [with_logo, raw("b", "Data Analyst")], now=T0)
+
+    body = {j["external_id"]: j for j in client.get("/jobs", params={"all": "true"}).json()}
+    assert body["a"]["company_logo"] == "https://media.licdn.com/logo.png"
+    assert body["b"]["company_logo"] is None

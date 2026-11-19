@@ -61,6 +61,7 @@ Fonte da verdade visual: `design/jobscoutv2.pen` (na raiz do repositório), boar
 | `--danger` / `--danger-subtle` | `#f08080` | `#b42318` | Erros e exclusão |
 | `--success` | `#7fd6a8` | `#1d7a4e` | Candidatada, chave encontrada, fonte ativa |
 | `--info` | `#9aa6f5` | `#3f51c9` | Avisos neutros |
+| `--logo-bg` | `#ffffff` | `#ffffff` | Fundo da logo da empresa (logos são feitas para fundo claro) |
 
 - **Score:** ≥ 65% → menta · 45–64% → âmbar (`--warn`) · < 45% → neutro. Use `scoreLevel()` de `js/format.js` e `data-level` no `.js-tag--match`.
 - Status sempre com palavra ou ícone junto, nunca só a cor.
@@ -90,7 +91,7 @@ Fonte da verdade visual: `design/jobscoutv2.pen` (na raiz do repositório), boar
 - **IconButton** — `js-btn js-btn--ghost js-icon-btn` (36×36; `--sm` 32×32; `--outline` com borda). Ligado/desligado com `aria-pressed`. Sempre `aria-label` + `title`.
 - **Send** — `js-send`: círculo menta com `arrow-up`; desabilitado em `--surface-raised`. O texto do envio fica em `.sr-only`.
 - **Tag** — `js-tag`: mono, caixa normal, fundo `--surface-raised`. **Score** — `js-tag js-tag--match` + `data-level`: ponto + número.
-- **JobCard** — `article.js-card`: linha de topo (quadrado com a inicial da empresa `js-card__logo`, empresa e local, score) → título → tags e data. Selecionado = borda menta.
+- **JobCard** — `article.js-card`: linha de topo (quadrado da empresa `js-card__logo`: a logo da vaga quando a fonte manda uma, senão a inicial; empresa e local, score) → título → tags e data. Selecionado = borda menta.
 - **Linha de Minhas vagas** — `jobRow()` / `.jr`: Vaga · Aderência · Fonte · Status · Busca · Data; em telas estreitas fica Vaga · Aderência · Data. No hover a data dá lugar a Salvar e Abrir original.
 - **Popover e Menu** — `togglePopover()` / `toggleMenu()` de `js/popover.js` (`.pop`, `.pop-menu`, `.pop-item`): abre sob o botão (o pai precisa de `position: relative`), um por vez; clique fora ou Esc fecha e devolve o foco. Menu: ↑↓, Enter; item destrutivo com `--danger`.
 - **Filtros de Minhas vagas** — popover `.mj-filters` (aderência mínima, modelo, fonte, publicada), aplicado ao vivo; filtros ativos viram chips `.mj-applied__chip` abaixo das abas. Todo o estado fica na URL (`router.js`).

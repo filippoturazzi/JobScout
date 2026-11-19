@@ -28,6 +28,8 @@ class JobRead(BaseModel):
     last_seen_at: datetime
     is_active: bool
     work_mode: Literal["remote", "hybrid", "onsite"] | None = None
+    # An https URL from the board's payload, or None: the page then shows the initial.
+    company_logo: str | None = None
 
 
 class MatchRead(BaseModel):
