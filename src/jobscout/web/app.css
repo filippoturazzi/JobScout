@@ -280,6 +280,15 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .app-main:has(.conv) { justify-content: space-between; padding-bottom: 0; }
 .conv { display: grid; gap: var(--space-8); align-content: start; padding-bottom: var(--space-6); }
 .conv > * { scroll-margin-bottom: calc(var(--space-8) * 3); }
+/* The top bar: sticks under the top edge while the conversation scrolls. */
+.conv-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: var(--space-3); margin-top: calc(-1 * var(--space-8)); padding: var(--space-3) 0; background: var(--bg); border-bottom: 1px solid var(--border); }
+.conv-bar__slot { display: flex; flex: 0 1 auto; min-width: 0; }
+.conv-bar__slot:has(.conv-bar__input) { flex: 1; }
+.conv-bar__title { flex: 0 1 auto; min-width: 0; margin: 0; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-bar__input { flex: 1; min-width: 0; margin: 0; padding: var(--space-1) var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); font-family: inherit; }
+.conv-bar__input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.conv-bar__count { flex: none; color: var(--ink-subtle); }
+.conv-bar__menu { position: relative; flex: none; margin-left: auto; }
 .conv-app { display: flex; align-items: flex-start; gap: var(--space-3-5); }
 .conv-app__icon { display: grid; place-items: center; flex: none; width: var(--avatar); height: var(--avatar); border-radius: var(--radius-pill); background: var(--accent-subtle); color: var(--accent-text); }
 .conv-app__body { flex: 1; min-width: 0; display: grid; gap: var(--space-4); padding-top: var(--space-1); }

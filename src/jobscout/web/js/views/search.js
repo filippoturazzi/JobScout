@@ -15,6 +15,9 @@ import { freshFor, matchChanged, runView, shouldKeepPolling, withVerdict } from 
 import { runSection } from "../results.js";
 import { openDetail } from "../detail.js";
 import { cardKey } from "../jobcard.js";
+import { convBar } from "../convbar.js";
+import { confirmDelete } from "../sidebar.js";
+import { showToast } from "../toast.js";
 
 const POLL_MS = 2000;
 const guard = createGuard();
@@ -330,6 +333,34 @@ export async function renderSearch(root, ctx, id) {
     });
   }
 
+  // --- The top bar: title, job count, and Rename · Export CSV · Delete --------------------
+
+  const jobCount = () => (ui.matches && ui.matches.found) || 0;
+  const bar = convBar(search, jobCount(), {
+    onRename: async (title) => {
+      try {
+        const next = await api.patch(`/searches/${id}`, { title });
+        if (!guard.isCurrent(mine)) return;
+        search = next;
+        bar.update(search, jobCount());
+        refreshSearches().catch(() => {});
+      } catch (e) {
+        if (guard.isCurrent(mine)) showToast({ message: t("rename_failed"), kind: "error" });
+        throw e;
+      }
+    },
+    onExport: () => {
+      const link = h("a", { href: `/searches/${id}/export.csv`, download: "" });
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    },
+    onDelete: () => {
+      const listed = store.searches.find((s) => s.id === id);
+      confirmDelete({ id, title: search.title, running: listed ? listed.running : ui.runningId === id }, { name: "search", id });
+    },
+  });
+
   let box = null;
   let runHost = null;
 
@@ -354,7 +385,8 @@ export async function renderSearch(root, ctx, id) {
     if (kept) box.setText(kept);
     const entries = buildTranscript(search, t);
     runHost = h("div", { class: "run" }, runSection(v, search, ui, handlers));
-    const column = h("div", { class: `app-column conv${ui.wide ? " app-column--wide" : ""}` }, renderEntries(entries, search, ui, handlers), runHost);
+    bar.update(search, jobCount());
+    const column = h("div", { class: `app-column conv${ui.wide ? " app-column--wide" : ""}` }, bar.el, renderEntries(entries, search, ui, handlers), runHost);
     const composerError = ui.error && ui.error.qid === "composer" ? ui.error.text : null;
     mount(
       root,
@@ -378,6 +410,7 @@ export async function renderSearch(root, ctx, id) {
 
   // Redraws the run area alone, so polling never touches the composer or the open panel.
   function drawRun() {
+    bar.update(search, jobCount());
     const v = view();
     if (!runHost || v.state !== ui.runState || isWide(v) !== ui.wide) {
       draw({ focus: false });

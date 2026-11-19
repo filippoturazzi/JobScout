@@ -16,7 +16,7 @@ export const REPO_URL = "https://github.com/filippoturazzi/JobScout";
 // the sidebar, so re-rendering the sidebar never tears it down while it is open.
 let dialog = null;
 
-function confirmDelete(s, route) {
+export function confirmDelete(s, route) {
   if (dialog) dialog.remove();
   const close = () => dialog.close();
   const confirm = h(
