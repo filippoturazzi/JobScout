@@ -73,14 +73,16 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .sb-new { justify-content: flex-start; font-weight: var(--text-label-weight); color: var(--ink); padding: var(--space-2) var(--space-3); }
 .sb-new:hover { background: var(--surface-raised); }
 .sb-new[aria-current="page"] { border-color: var(--border-strong); }
-.sb-searches { flex: 1; min-height: 0; display: grid; align-content: start; gap: var(--space-4); }
-.sb-group { display: grid; gap: var(--space-1); }
+/* minmax(0, 1fr): an auto grid column would grow to a long title's full width and push the
+   sidebar into a horizontal scroll; this one stays the sidebar's width and the title ellipsizes. */
+.sb-searches { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--space-4); }
+.sb-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
 .sb-heading { color: var(--ink-subtle); padding: 0 var(--space-3); }
 .sb-empty { color: var(--ink-subtle); padding: 0 var(--space-3); }
-.sb-list { display: grid; gap: var(--space-0-5); }
-/* Wraps so a refused delete's .sb-error (flex-basis 100%) drops below the title instead of
-   squeezing it to nothing. */
-.sb-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; border-radius: var(--radius-md); padding-right: var(--space-1); }
+.sb-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-0-5); }
+/* The trailing slot (count, spinner) is exactly the delete button's box, and the button sits
+   over it: on hover only visibility changes, so nothing in the row moves. */
+.sb-row { position: relative; display: flex; align-items: center; border-radius: var(--radius-md); }
 .sb-row:hover, .sb-row:focus-within { background: var(--surface); }
 .sb-row:has(.sb-item[aria-current="page"]) { background: var(--surface); }
 .sb-item {
@@ -90,21 +92,22 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-1) var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   color: var(--ink-muted);
 }
 .sb-row:hover .sb-item, .sb-item[aria-current="page"] { color: var(--ink); }
-.sb-item .spin, .sb-item svg { color: var(--accent-text); flex: none; }
-.sb-item__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-item .sb-count { color: var(--ink-subtle); }
+.sb-item svg { color: var(--accent-text); flex: none; width: var(--icon-btn-sm); }
+/* min-width 0 lets a long title shrink to its ellipsis instead of widening the sidebar. */
+.sb-item__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-item .sb-count { flex: none; width: var(--icon-btn-sm); text-align: center; color: var(--ink-subtle); }
 /* On hover (or keyboard focus) the count gives its place to the delete button. */
-.sb-row:hover .sb-count, .sb-row:focus-within .sb-count { display: none; }
-.sb-del { display: none; color: var(--ink-subtle); }
+.sb-row:hover .sb-item > :not(.sb-item__title), .sb-row:focus-within .sb-item > :not(.sb-item__title) { visibility: hidden; }
+.sb-del { position: absolute; top: 50%; right: var(--space-1); transform: translateY(-50%); visibility: hidden; color: var(--ink-subtle); }
 .sb-del:hover { color: var(--danger); background: var(--danger-subtle); }
-.sb-row:hover .sb-del, .sb-row:focus-within .sb-del { display: inline-flex; }
+.sb-row:hover .sb-del, .sb-row:focus-within .sb-del { visibility: visible; }
 /* No hover on a touch screen: the delete button is always there. */
-@media (hover: none) { .sb-del { display: inline-flex; } .sb-item .sb-count { display: none; } }
+@media (hover: none) { .sb-del { visibility: visible; } .sb-item > :not(.sb-item__title) { visibility: hidden; } }
 
 /* Folded (Ctrl B): a rail of icon buttons. */
 .app-shell.is-collapsed { --shell-side: var(--rail-width); grid-template-columns: var(--rail-width) minmax(0, 1fr); }
