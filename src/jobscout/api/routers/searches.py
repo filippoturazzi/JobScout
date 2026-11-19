@@ -275,7 +275,8 @@ def refine_search(
     user_id: Annotated[int, Depends(get_current_user_id)],
     chat: Annotated[BaseChatModel, Depends(get_chat_model)],
 ) -> SearchRead:
-    """Add text and read it all again. Never runs the search."""
+    """Add text and read it all again. Never runs the search: after the first search, the page
+    runs it next (stopping one in flight first)."""
     return _read(session, svc.refine(session, user_id, search_id, payload.text, chat))
 
 

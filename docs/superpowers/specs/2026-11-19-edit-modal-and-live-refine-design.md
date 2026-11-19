@@ -94,9 +94,14 @@ refinement and reading it again.
   a new run with everything asked so far. A run in progress is never doubled.
 - **Old results while it runs**: they stay, dimmed, under a line "Updating…". Cards are
   replaced as new scores arrive, as a running search does today.
-- *My call:* do this in one backend call (`POST /searches/{id}/refinements` and `/answers`
-  take `run: true`, or one new endpoint) so the page cannot leave a confirmed summary without
-  a run. The builder chooses which.
+- **As built:** the page chains the existing endpoints (answers or refinements, then `stop`
+  while a run is in flight, then `run` once nothing is pending). The first draft of this spec
+  called for one backend call, but `run` is refused while this search runs and the stop is
+  asynchronous, so a single call would have needed a restart queue in the scheduler. The page
+  already polls until the run ends, so it starts the next run then. If that start fails, the
+  usual `request_failed` toast shows and "Search again" stays under the results.
+- A run waiting on a question scrolls that question into view, since it sits above the
+  results.
 
 ### Where a refinement appears
 

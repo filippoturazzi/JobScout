@@ -117,7 +117,9 @@ model names are placeholder data: today's providers are those `matching/llm.py` 
 5. The run shows `05-search-running`, then the results replace it as they arrive.
 6. Text typed in the composer after the summary or the results is a refinement: it is appended
    to the paragraph, the paragraph is read again, and the summary is shown again with the new
-   values. Refining never starts a search by itself.
+   values. Refining never starts a search by itself. *(Amended on 2026-11-19 by
+   `2026-11-19-edit-modal-and-live-refine-design.md`: after the first search, a refinement or
+   an edit runs the search again by itself, and the summary's edit opens a modal.)*
    - **A clicked answer always wins.** The new reading fills only what the user has not
      answered or edited, and never clears an answer.
    - If the new reading creates a need that was not there (it now mentions hybrid, so a city
