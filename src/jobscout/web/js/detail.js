@@ -79,12 +79,27 @@ export async function sendVerdict(match, status, onChange) {
 }
 
 // Returns { update(match, {focus}), close(restoreFocus = true), id, match }.
+// opts: { onVerdict(match), onClose(), focusTarget (window: where the user comes back) }.
 export function openDetail(host, match, opts = {}) {
   const opener = document.activeElement;
   let current = match;
   let error = null;
   let pending = false;
   let closed = false;
+  // "Did you apply?": Apply opens the posting in a new tab; when the user comes back to this
+  // window the panel asks, once, about the job it still shows.
+  const focusTarget = opts.focusTarget !== undefined ? opts.focusTarget : typeof window !== "undefined" ? window : null;
+  let askFor = null; // the match id Apply was pressed on, until the user comes back
+  let asking = false;
+
+  function onReturn() {
+    if (closed || askFor === null) return;
+    const id = askFor;
+    askFor = null;
+    if (id !== current.id || current.status === "applied") return;
+    asking = true;
+    draw("ask-yes");
+  }
 
   // Escape closes the panel from inside it, or from anywhere but a field being typed in.
   function onKey(event) {
@@ -218,13 +233,61 @@ export function openDetail(host, match, opts = {}) {
         "div",
         { class: "dt-foot" },
         error ? h("p", { class: "text-body-sm dt-error", role: "alert" }, error) : null,
+        asking && verdicts && status !== "applied"
+          ? h(
+              "div",
+              { class: "dt-ask", role: "group", "aria-labelledby": "dt-ask-q" },
+              h("p", { class: "text-body-sm dt-ask__q", id: "dt-ask-q" }, t("ask_applied")),
+              h(
+                "div",
+                { class: "dt-ask__actions" },
+                h(
+                  "button",
+                  {
+                    class: "js-btn js-btn--secondary",
+                    type: "button",
+                    "data-action": "ask-yes",
+                    onclick: () => {
+                      asking = false;
+                      verdict("applied", "applied");
+                    },
+                  },
+                  icon("check", 16),
+                  t("ask_applied_yes"),
+                ),
+                h(
+                  "button",
+                  {
+                    class: "js-btn js-btn--ghost",
+                    type: "button",
+                    "data-action": "ask-no",
+                    onclick: () => {
+                      asking = false;
+                      draw("open");
+                    },
+                  },
+                  t("ask_applied_no"),
+                ),
+              ),
+            )
+          : null,
         h(
           "div",
           { class: "dt-actions" },
           url
             ? h(
                 "a",
-                { class: "js-btn js-btn--primary dt-open", href: url, target: "_blank", rel: "noopener noreferrer", "data-action": "open" },
+                {
+                  class: "js-btn js-btn--primary dt-open",
+                  href: url,
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  "data-action": "open",
+                  onclick: () => {
+                    asking = false;
+                    askFor = verdicts && status !== "applied" ? current.id : null;
+                  },
+                },
                 job.source ? t("apply_on", { source: sourceName(job.source) }) : t("open_posting"),
                 icon("arrow-up-right", 16),
               )
@@ -244,6 +307,7 @@ export function openDetail(host, match, opts = {}) {
     if (closed) return;
     closed = true;
     document.removeEventListener("keydown", onKey);
+    if (focusTarget) focusTarget.removeEventListener("focus", onReturn);
     host.hidden = true;
     mount(host);
     if (opts.onClose) opts.onClose();
@@ -251,6 +315,7 @@ export function openDetail(host, match, opts = {}) {
   }
 
   document.addEventListener("keydown", onKey);
+  if (focusTarget) focusTarget.addEventListener("focus", onReturn);
   host.hidden = false;
   draw(null);
 
@@ -264,6 +329,10 @@ export function openDetail(host, match, opts = {}) {
         if (active && host.contains(active)) keep = active.getAttribute("data-action") || null;
       } else {
         error = null;
+      }
+      if (next.id !== current.id) {
+        askFor = null;
+        asking = false;
       }
       current = next;
       draw(focus ? null : keep);
