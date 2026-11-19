@@ -9,7 +9,7 @@ import { t } from "./i18n.js";
 import { api } from "./api.js";
 import { showToast } from "./toast.js";
 import { safeUrl, scoreLabel, scoreLevel, sourceName } from "./format.js";
-import { companyInitial, jobTags, postedAgo } from "./jobcard.js";
+import { companyLogo, jobTags, postedAgo } from "./jobcard.js";
 
 function section(title, items, iconName) {
   if (!items || items.length === 0) return null;
@@ -196,7 +196,7 @@ export function openDetail(host, match, opts = {}) {
           ? h(
               "div",
               { class: "dt-company" },
-              h("span", { class: "js-card__logo dt-logo", "aria-hidden": "true" }, companyInitial(job)),
+              companyLogo(job, "dt-logo"),
               h(
                 "div",
                 { class: "dt-company__text" },

@@ -23,6 +23,7 @@
   --danger: #f08080;  /* Erros e ações destrutivas. Sempre com texto. */
   --danger-subtle: rgb(240 128 128 / 0.1);  /* Fundo do ícone no modal de exclusão, hover da lixeira. */
   --info: #9aa6f5;  /* Avisos neutros e a tag Remoto. */
+  --logo-bg: #ffffff;  /* Fundo da logo da empresa: branco nos dois temas, porque logos são desenhadas para fundo claro. */
   --overlay: rgb(14 14 16 / 0.7);  /* Fundo escurecido atrás de modais. */
   --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.4);  /* Só em overlays: menus, modais, toasts. */
 }
@@ -50,6 +51,7 @@
   --danger: #b42318;
   --danger-subtle: rgb(180 35 24 / 0.08);
   --info: #3f51c9;
+  --logo-bg: #ffffff;
   --overlay: rgb(24 24 26 / 0.35);
   --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.12);
 }
