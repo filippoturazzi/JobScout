@@ -2,42 +2,82 @@
 import { h, mount } from "./js/dom.js";
 import { icon } from "./js/icons.js";
 import { loadLocale, t } from "./js/i18n.js";
-import { currentRoute, onRoute } from "./js/router.js";
+import { applyTheme, watchSystemTheme } from "./js/theme.js";
+import { currentRoute, go, onRoute } from "./js/router.js";
 import { refreshSearches, refreshStatus, runningMismatch, shouldWatch, state, subscribe } from "./js/store.js";
 import { renderSidebar } from "./js/sidebar.js";
+import { initToasts } from "./js/toast.js";
+import { listenForShortcuts } from "./js/shortcuts.js";
+import { togglePalette } from "./js/palette.js";
 import { renderHome } from "./js/views/home.js";
 import { renderSettings } from "./js/views/settings.js";
 import { isPollingRun, leaveSearch, renderSearch } from "./js/views/search.js";
 import { leaveMyJobs, renderMyJobs } from "./js/views/myjobs.js";
 
-function applyTheme() {
-  let theme = "dark";
-  try {
-    const saved = localStorage.getItem("jobscout.theme");
-    if (saved === "light" || saved === "dark") theme = saved;
-  } catch (e) {
-    // Storage can be blocked; dark is the default.
-  }
-  document.documentElement.dataset.theme = theme;
-}
-
 const WATCH_MS = 2000;
+const SIDEBAR_KEY = "jobscout.sidebar";
+
+function readFolded() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "collapsed";
+  } catch (e) {
+    return false;
+  }
+}
 
 async function start() {
   applyTheme();
+  watchSystemTheme();
   const root = document.getElementById("app");
   const sidebar = h("aside", { class: "app-sidebar", id: "sidebar" });
   const main = h("main", { class: "app-main" });
   const menuButton = h("button", { class: "js-btn js-btn--ghost app-menu", type: "button", "aria-controls": "sidebar", "aria-expanded": "false", "aria-label": t("menu") }, icon("menu", 20));
-  const shell = h("div", { class: "app-shell" }, sidebar, h("div", { class: "app-content" }, menuButton, main));
-  menuButton.addEventListener("click", () => {
-    const open = !shell.classList.contains("is-menu-open");
+  const toasts = h("div", { class: "toast-host", role: "status", "aria-live": "polite" });
+  const shell = h("div", { class: "app-shell" }, sidebar, h("div", { class: "app-content" }, menuButton, main), toasts);
+  initToasts(toasts);
+  function setMenuOpen(open) {
     shell.classList.toggle("is-menu-open", open);
     menuButton.setAttribute("aria-expanded", String(open));
-  });
+  }
+  menuButton.addEventListener("click", () => setMenuOpen(!shell.classList.contains("is-menu-open")));
   mount(root, shell);
 
-  const drawSidebar = () => renderSidebar(sidebar, state, currentRoute(), () => render());
+  // Folding is for wide screens; below 800 px the sidebar is a drawer and its fold button closes it.
+  const narrow = matchMedia("(max-width: 800px)");
+  let folded = readFolded();
+  const isFolded = () => folded && !narrow.matches;
+  const drawSidebar = () => {
+    shell.classList.toggle("is-collapsed", isFolded());
+    renderSidebar(sidebar, state, currentRoute(), { collapsed: isFolded(), actions: { toggle: toggleSidebar, search: palette } });
+  };
+  const palette = () => togglePalette(() => state.searches);
+  function toggleSidebar() {
+    if (narrow.matches) {
+      setMenuOpen(!shell.classList.contains("is-menu-open"));
+      if (!shell.classList.contains("is-menu-open")) menuButton.focus();
+      return;
+    }
+    folded = !folded;
+    try {
+      localStorage.setItem(SIDEBAR_KEY, folded ? "collapsed" : "open");
+    } catch (e) {
+      // Storage can be blocked; the sidebar still folds for this visit.
+    }
+    drawSidebar();
+    const fold = sidebar.querySelector('[aria-controls="sidebar"]');
+    if (fold) fold.focus();
+  }
+  narrow.addEventListener("change", () => drawSidebar());
+
+  // A new search from anywhere: home, with the composer ready to type in.
+  function newSearch() {
+    if (currentRoute().name !== "home") go("/");
+    setTimeout(() => {
+      const box = main.querySelector("textarea");
+      if (box) box.focus();
+    }, 0);
+  }
+  listenForShortcuts({ palette, sidebar: toggleSidebar, new: newSearch });
 
   // While a search runs, the sidebar's running marker follows /status, whichever view is open:
   // a silent poll every 2 s, a silent re-read of the list when the two disagree, and a redraw
@@ -80,8 +120,7 @@ async function start() {
       else if (route.name === "search") renderSearch(main, ctx, route.id);
       else renderMyJobs(main, ctx, route);
     }
-    shell.classList.remove("is-menu-open");
-    menuButton.setAttribute("aria-expanded", "false");
+    setMenuOpen(false);
     watch();
   }
 

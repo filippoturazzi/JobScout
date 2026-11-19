@@ -47,3 +47,25 @@ test("scoreLabel and sourceName", () => {
   assert.equal(sourceName("linkedin"), "LinkedIn");
   assert.equal(sourceName("himalayas"), "Himalayas");
 });
+
+test("scoreLevel: high from 65, mid from 45, low below, none without a score", async () => {
+  const { scoreLevel } = await import("../../src/jobscout/web/js/format.js");
+  assert.equal(scoreLevel(92), "high");
+  assert.equal(scoreLevel(65), "high");
+  assert.equal(scoreLevel(64.6), "high");
+  assert.equal(scoreLevel(55), "mid");
+  assert.equal(scoreLevel(45), "mid");
+  assert.equal(scoreLevel(44), "low");
+  assert.equal(scoreLevel(null), null);
+});
+
+test("dayGroup: the searches list groups by the local day of the last use", async () => {
+  const { dayGroup } = await import("../../src/jobscout/web/js/format.js");
+  const now = new Date(2026, 10, 12, 15, 0); // local time
+  const iso = (d) => d.toISOString().replace("Z", ""); // the API's naive UTC
+  assert.equal(dayGroup(iso(new Date(2026, 10, 12, 0, 5)), now), "today");
+  assert.equal(dayGroup(iso(new Date(2026, 10, 11, 23, 0)), now), "week");
+  assert.equal(dayGroup(iso(new Date(2026, 10, 6, 9, 0)), now), "week");
+  assert.equal(dayGroup(iso(new Date(2026, 10, 5, 9, 0)), now), "older");
+  assert.equal(dayGroup("garbage", now), "older");
+});

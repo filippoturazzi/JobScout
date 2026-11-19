@@ -409,6 +409,11 @@ def test_title_reads_level_and_role():
     assert title(conv(terms=["ml ops engineer"])) == "ML Ops Engineer"
 
 
+def test_a_name_given_by_the_user_wins_over_the_reading():
+    named = everything_stated().model_copy(update={"name": "My dream job"})
+    assert title(named) == "My dream job"
+
+
 def test_title_falls_back_to_the_paragraph():
     long = Conversation(
         paragraph="Looking for something interesting in data with a friendly team please"

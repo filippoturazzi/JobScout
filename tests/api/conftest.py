@@ -52,9 +52,14 @@ class FakeScheduler:
         self._engine = engine
         self.running: tuple[int, int] | None = None
         self.started: list[tuple[int, bool]] = []
+        self.stopped: list[int] = []
 
     def running_search(self) -> tuple[int, int] | None:
         return self.running
+
+    def stop_search(self, search_id: int) -> bool:
+        self.stopped.append(search_id)
+        return self.running is not None and self.running[0] == search_id
 
     def start_search(self, search_id: int, fetch: bool = True) -> int:
         self.started.append((search_id, fetch))

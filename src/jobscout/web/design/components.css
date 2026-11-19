@@ -1,48 +1,71 @@
-/* Jobscout — componentes base (classes js-*). Requer tokens.css carregado antes e as fontes do Google Fonts (ver DESIGN.md). */
+/* Jobscout — componentes base (classes js-*). Requer tokens.css carregado antes e as fontes Geist / Geist Mono (ver DESIGN.md). */
 
-body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); margin: 0; -webkit-font-smoothing: antialiased; }
 .js-pad { padding: var(--space-4); }
 .js-row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
-.js-meta { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .02em; color: var(--ink-muted); }
+.js-meta { font-family: var(--font-mono); font-size: var(--text-meta-size); line-height: var(--text-meta-line); font-weight: var(--text-meta-weight); letter-spacing: .02em; color: var(--ink-subtle); }
 
-/* Button */
-.js-btn { font: 600 13px/16px var(--font-sans); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); }
-.js-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* Button: text buttons are for the few actions that need words (apply, confirm, cancel). */
+.js-btn { font: var(--text-label-weight) var(--text-label-size)/var(--text-label-line) var(--font-sans); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); min-height: var(--icon-btn); box-sizing: border-box; border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); color: var(--ink); background: transparent; transition: background-color .12s, color .12s, border-color .12s; }
+.js-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: var(--space-0-5); }
 .js-btn--primary { background: var(--brand); color: var(--on-brand); }
 .js-btn--primary:hover { background: var(--brand-hover); }
-.js-btn--secondary { background: var(--surface-raised); color: var(--ink); border-color: var(--border-strong); }
+.js-btn--secondary { background: transparent; color: var(--ink); border-color: var(--border-strong); }
+.js-btn--secondary:hover { background: var(--surface-raised); }
 .js-btn--ghost { background: transparent; color: var(--ink-muted); }
 .js-btn--ghost:hover { color: var(--ink); background: var(--surface-raised); }
+.js-btn--danger { background: var(--danger); color: var(--on-brand); }
 
-/* Tag */
-.js-tag { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .02em; text-transform: uppercase; padding: 2px var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--ink-muted); background: var(--surface); display: inline-flex; align-items: center; gap: var(--space-1); }
-.js-tag--match { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; border-radius: var(--radius-pill); padding: 2px var(--space-3); }
+/* IconButton: a square, icon-only button. Always give it an aria-label (and a title). */
+.js-icon-btn { width: var(--icon-btn); height: var(--icon-btn); min-height: 0; padding: 0; flex: none; }
+.js-icon-btn--sm { width: calc(var(--icon-btn) - var(--space-1)); height: calc(var(--icon-btn) - var(--space-1)); }
+.js-icon-btn--outline { border-color: var(--border); }
+.js-icon-btn[aria-pressed="true"] { background: var(--accent-subtle); color: var(--accent-text); }
+
+/* Tag: data in mono, normal case, on a quiet fill. */
+.js-tag { font-family: var(--font-mono); font-size: var(--text-meta-size); line-height: var(--text-meta-line); font-weight: var(--text-meta-weight); letter-spacing: .02em; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); border: 0; color: var(--ink-muted); background: var(--surface-raised); display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+/* Score: a dot and the number, coloured by level (data-level="high|mid|low"). */
+.js-tag--match { background: var(--accent-subtle); color: var(--accent-text); gap: var(--space-1-5); }
+.js-tag--match::before { content: ""; width: var(--dot); height: var(--dot); border-radius: var(--radius-pill); background: currentColor; }
+.js-tag--match[data-level="mid"] { background: var(--warn-subtle); color: var(--warn); }
+.js-tag--match[data-level="low"] { background: var(--surface-raised); color: var(--ink-muted); }
 .js-tag--remote { color: var(--info); }
-.js-tag--success { color: var(--success); }
+.js-tag--success { color: var(--success); background: var(--accent-subtle); }
 
 /* JobCard */
-.js-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: grid; gap: var(--space-3); cursor: pointer; }
-.js-card:hover { background: var(--surface-raised); }
-.js-card[aria-selected="true"] { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
-.js-card__top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
-.js-card__title { font: 600 18px/24px var(--font-display); letter-spacing: -0.01em; margin: 0; color: var(--ink); }
-.js-card__company { font-size: 13px; line-height: 18px; color: var(--ink-muted); margin: var(--space-1) 0 0; }
-.js-card__tags { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.js-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4-5); display: grid; gap: var(--space-3); cursor: pointer; transition: border-color .12s; }
+.js-card:hover { border-color: var(--border-strong); }
+.js-card:focus-visible { outline: 2px solid var(--focus); outline-offset: var(--space-0-5); }
+.js-card[aria-selected="true"] { border-color: var(--brand); }
+.js-card__top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.js-card__logo { flex: none; width: var(--icon-btn); height: var(--icon-btn); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink-muted); display: grid; place-items: center; font: 600 var(--text-md-size)/1 var(--font-sans); text-transform: uppercase; }
+.js-card__title { font: var(--text-h2-weight) var(--text-h2-size)/var(--text-h2-line) var(--font-display); letter-spacing: -0.01em; margin: 0; color: var(--ink); }
+.js-card__company { font-size: var(--text-body-sm-size); line-height: var(--text-body-sm-line); color: var(--ink-subtle); margin: 0; }
+.js-card__tags { display: flex; flex-wrap: wrap; gap: var(--space-1-5); }
 
-/* PreferenceInput */
-.js-pref { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: grid; gap: var(--space-3); }
-.js-pref label { font: 600 13px/16px var(--font-sans); color: var(--ink); }
-.js-pref textarea { font: 400 15px/22px var(--font-sans); color: var(--ink); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-3); min-height: 96px; resize: vertical; }
-.js-pref textarea::placeholder { color: var(--ink-muted); }
-.js-pref textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* PreferenceInput / Composer card */
+.js-pref { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: var(--space-4); display: grid; gap: var(--space-3); }
+.js-pref label { font: var(--text-label-weight) var(--text-label-size)/var(--text-label-line) var(--font-sans); color: var(--ink); }
+.js-pref textarea { font: var(--text-body-weight) var(--text-body-size)/var(--text-body-line) var(--font-sans); color: var(--ink); background: transparent; border: 0; padding: 0; min-height: calc(var(--space-8) * 3); resize: none; }
+.js-pref textarea::placeholder { color: var(--ink-subtle); }
+.js-pref textarea:focus-visible { outline: none; }
+.js-pref:focus-within { border-color: var(--border-strong); }
 .js-pref__foot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
 
-/* Logo lockup */
-.js-logo { display: inline-flex; align-items: center; gap: var(--space-2); font: 700 28px/1 var(--font-display); letter-spacing: -0.03em; color: var(--ink); }
-.js-logo img { height: 36px; width: 36px; }
+/* Send: the round, icon-only submit of the composer. */
+.js-send { width: var(--icon-btn); height: var(--icon-btn); min-height: 0; padding: 0; border-radius: var(--radius-pill); background: var(--brand); color: var(--on-brand); flex: none; }
+.js-send:hover { background: var(--brand-hover); }
+.js-send:disabled { background: var(--surface-raised); color: var(--ink-subtle); cursor: not-allowed; }
+/* Stop: while a search runs the Send turns into a filled square on ink (spec: SendButton "parar"). */
+.js-send--stop { background: var(--ink); color: var(--bg); }
+.js-send--stop:hover { background: var(--ink-muted); }
+.js-send--stop svg { fill: currentColor; }
 
-/* Highlight: a dashed Scout Orange border on whatever already has one. Marks where a search
-   starts: New search in the menu and the home screen's paragraph. Selected wins: solid.
-   Last in the file on purpose: it must override the base components above. */
-.js-highlight { border-style: dashed; border-color: var(--brand); }
-.js-highlight[aria-selected="true"] { border-style: solid; }
+/* Logo lockup: the eye (inline SVG, currentColor) + the wordmark. */
+.js-logo { display: inline-flex; align-items: center; gap: var(--space-2); font: 600 var(--text-lg-size)/1 var(--font-sans); letter-spacing: -0.03em; color: var(--ink); }
+.js-logo svg { color: var(--accent-text); }
+
+/* Highlight: where a search starts (New search, the home composer). In Grafite & Menta it is a
+   filled surface with a border, never a coloured dash. Selected wins. */
+.js-highlight { background: var(--surface); border-color: var(--border); }
+.js-highlight[aria-selected="true"] { border-color: var(--brand); }

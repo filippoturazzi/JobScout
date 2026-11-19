@@ -68,10 +68,13 @@ class SearchResult:
     errors: list[str] = field(default_factory=list)
     # Per-source progress as `Run.sources` stores it; the page draws one line from each.
     sources: list[dict[str, object]] = field(default_factory=list)
+    # The user stopped the run: what it had fetched and scored stays, the rest is not done.
+    stopped: bool = False
 
     @property
     def counters(self) -> dict[str, int]:
-        return {
+        # "stopped" only when it happened, so a normal run's counters are what they were.
+        return ({"stopped": 1} if self.stopped else {}) | {
             "fetched": self.fetched,
             "sources_ok": self.sources_ok,
             "sources_failed": self.sources_failed,
@@ -220,8 +223,13 @@ def _fetch(
     result: SearchResult,
     publish: Callable[[], None],
     report: Callable[[SearchProgress], None],
+    should_stop: Callable[[], bool],
 ) -> None:
-    """Search every source, one term per call, isolating each failure from the rest."""
+    """Search every source, one term per call, isolating each failure from the rest.
+
+    A stop is honoured between terms: the source in hand and every source after it end as
+    "stopped", keeping what they fetched.
+    """
     seen: set[int] = set()
     modes = {mode.lower() for mode in prefs.work_modes}
 
@@ -263,6 +271,9 @@ def _fetch(
         try:
             # A failure breaks the loop, so the answered queries are the first `number + 1`.
             for number, query in enumerate(queries):
+                if should_stop():
+                    result.stopped = True
+                    break
                 (outcome,) = ingest(session, batch, query)
                 report(
                     SearchProgress(
@@ -302,8 +313,13 @@ def _fetch(
         # these two counters only decide whether the run as a whole got anywhere.
         if answered:
             result.sources_ok += 1
-        else:
+        elif not result.stopped:
             result.sources_failed += 1
+        if result.stopped:
+            for later in range(index, len(result.sources)):
+                update_entry(later, state="stopped")
+            publish()
+            break
         update_entry(
             index,
             state="done" if answered else "failed",
@@ -335,6 +351,7 @@ def run_search(
     run_id: int | None = None,
     on_progress: Callable[[SearchProgress], None] | None = None,
     fetch: bool = True,
+    should_stop: Callable[[], bool] | None = None,
 ) -> SearchResult:
     """Fetch for one search from every registered source, then score what is pending.
 
@@ -345,8 +362,13 @@ def run_search(
     ``run_id`` names a row ``open_search_run`` already wrote; without one, a row is opened
     here. Never raises: it is run in the background and the only way an operator or the
     page learns what happened is the Run row, so every failure is recorded there instead.
+
+    ``should_stop`` is the user's Stop: asked before each term and before each job scored.
+    Once it says yes the run asks no more terms and scores nothing more, keeps what it has,
+    and finishes ok with ``counters["stopped"]``. A term or a job already in hand finishes.
     """
     result = SearchResult()
+    stop_asked = should_stop if should_stop is not None else (lambda: False)
     existing = session.get(Run, run_id) if run_id is not None else None
     run = existing if existing is not None else open_search_run(session, search_id)
     result.run_id = run.id
@@ -390,12 +412,33 @@ def run_search(
     report(SearchProgress(stage="terms", terms=list(result.terms)))
     if fetch:
         try:
-            _fetch(session, search_id, sources, result.terms, prefs, result, publish, report)
+            _fetch(
+                session,
+                search_id,
+                sources,
+                result.terms,
+                prefs,
+                result,
+                publish,
+                report,
+                stop_asked,
+            )
         except Exception:
             # Not a source refusing (that is an outcome, handled inside): something broke
             # around it. `_fetch` already marked the source failed and named the error.
             log.exception("the search %s stopped while fetching", search_id)
             _finish(session, run, result, ok=False)
+            return result
+        if result.stopped:
+            # Stopped while fetching: what came in is listed with no score, for "Rank the rest".
+            try:
+                result.candidates = result.remaining = len(
+                    select_candidates(session, prefs, search_id)
+                )
+            except Exception:
+                session.rollback()
+                log.exception("could not count what the stopped search %s left", search_id)
+            _finish(session, run, result, ok=True)
             return result
 
     try:
@@ -422,6 +465,7 @@ def run_search(
             search_id,
             deps=deps,
             on_evaluated=evaluated,
+            should_stop=stop_asked,
         )
         if scored.error is not None:
             raise ValueError(scored.error)
@@ -435,6 +479,7 @@ def run_search(
         # counters come from a subset of the same candidate list.
         result.remaining = scored.candidates - scored.evaluated - scored.skipped_low
         result.errors.extend(scored.errors)
+        result.stopped = scored.stopped
     except Exception as exc:
         session.rollback()
         log.exception("scoring failed during the search %s", search_id)

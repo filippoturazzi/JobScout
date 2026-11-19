@@ -58,3 +58,9 @@ def test_status_follows_the_llm_key_and_needs_the_embedding_key(client, monkeypa
     monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test")
     get_settings.cache_clear()
     assert client.get("/status").json()["llm_key_found"] is True
+
+
+def test_status_reports_the_version(client):
+    from jobscout import __version__
+
+    assert client.get("/status").json()["version"] == __version__

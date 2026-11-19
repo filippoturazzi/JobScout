@@ -67,7 +67,7 @@ def test_list_searches_names_the_running_one(client, chat, fake_scheduler):
     fake_scheduler.running = (first, 1)
     listed = client.get("/searches").json()
     assert {item["id"]: item["running"] for item in listed} == {first: True, second: False}
-    assert set(listed[0]) == {"id", "title", "last_used_at", "running"}
+    assert set(listed[0]) == {"id", "title", "last_used_at", "running", "match_count"}
 
 
 def test_answering_moves_to_the_next_question(client, chat):
@@ -446,3 +446,144 @@ def test_job_read_carries_the_work_mode(client, session):
     session.commit()
     modes = {j["external_id"]: j["work_mode"] for j in client.get("/jobs?all=true").json()}
     assert modes == {remote.external_id: "remote", "h": "hybrid"}
+
+
+def test_list_searches_counts_the_scored_jobs_not_dismissed(client, session):
+    from jobscout.models import Job, Match
+    from jobscout.pipeline.users import get_or_create_default_user
+    from tests.helpers import make_search
+
+    user = get_or_create_default_user(session)
+    search, other = make_search(session, title="A"), make_search(session, title="B")
+    rows = [(None, "low"), (80, "new"), (70, "saved"), (60, "dismissed")]
+    for n, (score, status) in enumerate(rows):
+        job = Job(
+            source="t",
+            external_id=str(n),
+            title="T",
+            company="C",
+            description="d",
+            url=f"https://x/{n}",
+            content_hash=str(n),
+        )
+        session.add(job)
+        session.commit()
+        session.add(
+            Match(
+                job_id=job.id,
+                user_id=user.id,
+                search_id=search.id,
+                similarity=0.5,
+                score=score,
+                status=status,
+            )
+        )
+    session.commit()
+    counts = {item["title"]: item["match_count"] for item in client.get("/searches").json()}
+    assert counts == {"A": 2, "B": 0}
+    assert other.id is not None
+
+
+def test_rename_a_search(client, chat):
+    created = _create(client).json()
+    response = client.patch(f"/searches/{created['id']}", json={"title": "Remote ML"})
+    assert response.status_code == 200
+    assert response.json()["title"] == "Remote ML"
+    assert client.get("/searches").json()[0]["title"] == "Remote ML"
+    assert client.patch(f"/searches/{created['id']}", json={"title": " "}).status_code == 422
+    assert client.patch("/searches/999", json={"title": "x"}).status_code == 404
+
+
+def test_export_a_search_as_csv(client, session):
+    import csv
+    import io
+
+    from jobscout.models import Job, Match
+    from jobscout.pipeline.users import get_or_create_default_user
+    from tests.helpers import make_search
+
+    user = get_or_create_default_user(session)
+    search = make_search(session, title="Dados · remoto")
+    other = make_search(session, title="Other")
+    rows = [("Data Engineer", "=HYPERLINK(evil)", 60, "saved"), ("ML Engineer", "Acme", 90, "new")]
+    for n, (title, company, score, status) in enumerate(rows):
+        job = Job(
+            source="indeed",
+            external_id=str(n),
+            title=title,
+            company=company,
+            description="d",
+            remote=True,
+            url=f"https://x/{n}",
+            content_hash=str(n),
+        )
+        session.add(job)
+        session.commit()
+        session.add(
+            Match(
+                job_id=job.id,
+                user_id=user.id,
+                search_id=search.id,
+                similarity=0.5,
+                score=score,
+                status=status,
+                matched_skills=["Python", "SQL"],
+            )
+        )
+    session.add(Match(job_id=job.id, user_id=user.id, search_id=other.id, similarity=0.5, score=10))
+    session.commit()
+
+    response = client.get(f"/searches/{search.id}/export.csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert 'filename="jobscout-dados-remoto.csv"' in response.headers["content-disposition"]
+    table = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+    assert table[0][:4] == ["title", "company", "location", "work_mode"]
+    assert [row[0] for row in table[1:]] == ["ML Engineer", "Data Engineer"]
+    by_title = {row[0]: dict(zip(table[0], row, strict=True)) for row in table[1:]}
+    assert by_title["Data Engineer"]["company"] == "'=HYPERLINK(evil)"
+    assert by_title["Data Engineer"]["status"] == "saved"
+    assert by_title["ML Engineer"]["matched_skills"] == "Python; SQL"
+    assert client.get("/searches/999/export.csv").status_code == 404
+
+
+def test_stop_asks_the_running_search_to_stop(client, chat, fake_scheduler):
+    created = _create(client).json()
+    fake_scheduler.running = (created["id"], 5)
+    response = client.post(f"/searches/{created['id']}/stop")
+    assert response.status_code == 202
+    assert response.json() == {"stopping": True}
+    assert fake_scheduler.stopped == [created["id"]]
+
+
+def test_stop_when_nothing_runs_is_harmless(client, chat, fake_scheduler):
+    # The run may end between the page drawing Stop and the click reaching the server.
+    created = _create(client).json()
+    response = client.post(f"/searches/{created['id']}/stop")
+    assert response.status_code == 202
+    assert response.json() == {"stopping": False}
+
+
+def test_stop_on_an_unknown_search_is_404(client, chat, fake_scheduler):
+    assert client.post("/searches/999/stop").status_code == 404
+    assert fake_scheduler.stopped == []
+
+
+def test_a_stopped_run_reads_back_with_its_stopped_sources(client, session, chat):
+    created = _create(client).json()
+    source = {
+        "name": "himalayas",
+        "state": "stopped",
+        "fetched": 3,
+        "queries_done": 1,
+        "queries_total": 2,
+        "detail": None,
+        "notes": [],
+    }
+    run = Run(job="search", search_id=created["id"], counters={"stopped": 1}, sources=[source])
+    session.add(run)
+    session.commit()
+    response = client.get(f"/searches/{created['id']}/runs/{run.id}")
+    assert response.status_code == 200
+    assert response.json()["sources"][0]["state"] == "stopped"
+    assert response.json()["counters"]["stopped"] == 1

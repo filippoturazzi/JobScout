@@ -48,3 +48,89 @@ test("an unscored job's panel does not speak of a fit score", () => {
   openDetail(host, asMatch(unscoredItem));
   assert.ok(!host.textContent.includes(t("fit_score")));
 });
+
+test("a verdict's toast names what it set, or what it took back", async () => {
+  const { verdictMessage } = await import("../../src/jobscout/web/js/detail.js");
+  assert.equal(verdictMessage("new", "saved"), "toast_saved");
+  assert.equal(verdictMessage("saved", "applied"), "toast_applied");
+  assert.equal(verdictMessage("new", "dismissed"), "toast_dismissed");
+  assert.equal(verdictMessage("saved", "new"), "toast_unsaved");
+  assert.equal(verdictMessage("dismissed", "new"), "toast_undismissed");
+  assert.equal(verdictMessage("stale", "new"), "toast_updated");
+});
+
+// A stand-in for `window`: the panel listens for "focus" on it, the user coming back.
+function fakeWindow() {
+  const listeners = new Set();
+  return {
+    addEventListener: (type, fn) => type === "focus" && listeners.add(fn),
+    removeEventListener: (type, fn) => listeners.delete(fn),
+    comeBack: () => [...listeners].forEach((fn) => fn({})),
+    get count() {
+      return listeners.size;
+    },
+  };
+}
+const scored = (extra = {}) => ({ id: 9, score: 81, status: "new", reasoning: "Fits.", matched_skills: [], missing_skills: [], red_flags: [], job, ...extra });
+const clickApply = (host) => byAction(host, "open").listeners.click.forEach((fn) => fn({}));
+
+test("coming back after Apply asks whether you applied", () => {
+  const win = fakeWindow();
+  const host = fakeDocument.createElement("aside");
+  openDetail(host, scored(), { focusTarget: win });
+  assert.equal(byClass(host, "dt-ask"), null);
+  clickApply(host);
+  win.comeBack();
+  assert.ok(byClass(host, "dt-ask"));
+  assert.ok(byAction(host, "ask-yes") && byAction(host, "ask-no"));
+});
+
+test("coming back without pressing Apply asks nothing", () => {
+  const win = fakeWindow();
+  const host = fakeDocument.createElement("aside");
+  openDetail(host, scored(), { focusTarget: win });
+  win.comeBack();
+  assert.equal(byClass(host, "dt-ask"), null);
+});
+
+test("Not yet puts the question away, and it is asked once per Apply", () => {
+  const win = fakeWindow();
+  const host = fakeDocument.createElement("aside");
+  openDetail(host, scored(), { focusTarget: win });
+  clickApply(host);
+  win.comeBack();
+  byAction(host, "ask-no").listeners.click.forEach((fn) => fn({}));
+  assert.equal(byClass(host, "dt-ask"), null);
+  win.comeBack();
+  assert.equal(byClass(host, "dt-ask"), null);
+});
+
+test("a job already applied for, or with no score, is never asked about", () => {
+  for (const match of [scored({ status: "applied" }), asMatch(unscoredItem)]) {
+    const win = fakeWindow();
+    const host = fakeDocument.createElement("aside");
+    openDetail(host, match, { focusTarget: win });
+    clickApply(host);
+    win.comeBack();
+    assert.equal(byClass(host, "dt-ask"), null);
+  }
+});
+
+test("the question belongs to the job: moving to another one drops it", () => {
+  const win = fakeWindow();
+  const host = fakeDocument.createElement("aside");
+  const panel = openDetail(host, scored(), { focusTarget: win });
+  clickApply(host);
+  panel.update(scored({ id: 10 }));
+  win.comeBack();
+  assert.equal(byClass(host, "dt-ask"), null);
+});
+
+test("a closed panel stops listening for the user coming back", () => {
+  const win = fakeWindow();
+  const host = fakeDocument.createElement("aside");
+  const panel = openDetail(host, scored(), { focusTarget: win });
+  assert.equal(win.count, 1);
+  panel.close(false);
+  assert.equal(win.count, 0);
+});

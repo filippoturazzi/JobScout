@@ -1,3 +1,7 @@
+import csv
+import io
+import re
+import unicodedata
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -16,7 +20,9 @@ from jobscout.api.schemas import (
     SearchCreate,
     SearchListItem,
     SearchRead,
+    SearchRename,
     SearchStarted,
+    SearchStopping,
     UnscoredRead,
     WideningRead,
 )
@@ -25,7 +31,8 @@ from jobscout.models import Run, Search
 from jobscout.pipeline import conversation as conv
 from jobscout.pipeline import searches as svc
 from jobscout.pipeline.conversation import Answer, Question, QuestionId
-from jobscout.pipeline.run import count_waiting, list_matches, list_unscored
+from jobscout.pipeline.filters import work_mode_of
+from jobscout.pipeline.run import count_waiting, export_matches, list_matches, list_unscored
 from jobscout.scheduler import JobScoutScheduler, SearchBusyError
 
 router = APIRouter(prefix="/searches", tags=["searches"])
@@ -96,12 +103,14 @@ def read_searches(
     user_id: Annotated[int, Depends(get_current_user_id)],
 ) -> list[SearchListItem]:
     running = _running(request)
+    counts = svc.match_counts(session, user_id)
     return [
         SearchListItem(
             id=s.id,
             title=s.title,
             last_used_at=s.last_used_at,
             running=running is not None and running[0] == s.id,
+            match_count=counts.get(s.id, 0),
         )
         for s in svc.list_searches(session, user_id)
         if s.id is not None
@@ -132,6 +141,21 @@ def read_search(
     return _read(session, svc.get_search(session, user_id, search_id))
 
 
+@router.patch("/{search_id}", response_model=SearchRead)
+def rename_search(
+    search_id: int,
+    payload: SearchRename,
+    session: Annotated[Session, Depends(get_session)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> SearchRead:
+    """Rename the search. The name is kept when the conversation changes later."""
+    try:
+        search = svc.rename_search(session, user_id, search_id, payload.title)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _read(session, search)
+
+
 @router.delete("/{search_id}", status_code=204)
 def delete_search(
     search_id: int,
@@ -145,6 +169,73 @@ def delete_search(
         raise SearchBusyError(search_id)
     svc.delete_search(session, user_id, search_id)
     return Response(status_code=204)
+
+
+EXPORT_COLUMNS = [
+    "title",
+    "company",
+    "location",
+    "work_mode",
+    "source",
+    "score",
+    "status",
+    "posted_at",
+    "url",
+    "matched_skills",
+    "missing_skills",
+    "reasoning",
+]
+
+
+FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _cell(value: object) -> str:
+    """A CSV cell a spreadsheet will show as text: one starting like a formula gets a quote."""
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in FORMULA_STARTS else text
+
+
+def _slug(title: str) -> str:
+    ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_title.lower()).strip("-")[:60] or "search"
+
+
+@router.get("/{search_id}/export.csv")
+def export_search(
+    search_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> Response:
+    """The search's scored jobs as CSV (UTF-8 with a BOM, so spreadsheets read the accents)."""
+    search = svc.get_search(session, user_id, search_id)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(EXPORT_COLUMNS)
+    for match, job in export_matches(session, search_id):
+        writer.writerow(
+            _cell(v)
+            for v in (
+                job.title,
+                job.company,
+                job.location,
+                work_mode_of(job),
+                job.source,
+                match.score,
+                match.status,
+                job.posted_at.date().isoformat() if job.posted_at else None,
+                job.url,
+                "; ".join(match.matched_skills),
+                "; ".join(match.missing_skills),
+                match.reasoning,
+            )
+        )
+    filename = f"jobscout-{_slug(search.title)}.csv"
+    return Response(
+        content="﻿" + out.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{search_id}/questions/{question_id}", response_model=Question)
@@ -230,6 +321,21 @@ def rank_search(
     if in_flight is not None:
         return SearchStarted(run_id=in_flight)
     return SearchStarted(run_id=scheduler.start_search(search_id, fetch=False))
+
+
+@router.post("/{search_id}/stop", status_code=202, response_model=SearchStopping)
+def stop_search(
+    search_id: int,
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    user_id: Annotated[int, Depends(get_current_user_id)],
+) -> SearchStopping:
+    """Ask this search's run to stop at its next term or job, keeping what it has.
+
+    Harmless when it is not running: the run may have ended on its own meanwhile."""
+    scheduler = _scheduler(request)
+    svc.get_search(session, user_id, search_id)
+    return SearchStopping(stopping=scheduler.stop_search(search_id))
 
 
 @router.get("/{search_id}/runs/{run_id}", response_model=RunRead)

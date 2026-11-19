@@ -1,18 +1,20 @@
-# Jobscout — Design System
+# Jobscout — Design System 2.0 · Grafite & Menta
 
 Guia da identidade visual do Jobscout para quem desenvolve (pessoas e o Claude Code). **Siga este arquivo em toda UI do projeto.**
 
-Jobscout é um buscador open source de vagas de tecnologia: a pessoa roda localmente com as próprias chaves de API, descreve em um parágrafo a vaga que quer e o Jobscout varre várias plataformas (Brasil e exterior) e devolve as vagas compatíveis. A identidade é **preto + Scout Orange**: ferramenta de dev, técnica e direta, com um único ponto de calor que indica "achei".
+Jobscout é um buscador open source de vagas de tecnologia que roda localmente com as chaves de API de cada pessoa. A pessoa descreve em um parágrafo a vaga que quer e o **Julius**, o assistente, varre várias plataformas e devolve as vagas que combinam, com nota de aderência. A identidade é **grafite + menta**: uma interface de assistente de IA, minimalista e direta, em cinza (nunca preto), com um único acento menta que significa "deu match".
+
+Fonte da verdade visual: `design/jobscoutv2.pen` (na raiz do repositório), boards **Design System**, **01–04** (telas) e **05–08** (fluxos de interação). Comportamento das telas: `design/JOBSCOUT_UI_SPEC.md`.
 
 ## Arquivos
 
 | Arquivo | O que é |
 |---|---|
-| `tokens.css` | **Fonte da verdade** em CSS custom properties: cores (dark padrão + light), fontes, espaços, raios e classes `.text-*` |
-| `tokens.json` | Os mesmos tokens em JSON, com nota de uso de cada um |
-| `components.css` | Componentes base com classes `js-*` (Button, Tag, JobCard, PreferenceInput, Logo) |
-| `logos/` | `jobscout-mark.svg` (principal), `jobscout-mark-orange.svg`, `jobscout-glyph.svg`, `favicon.svg` |
-| `examples/index.html` | Tela principal de referência (abra no navegador) |
+| `tokens.css` | **Fonte da verdade** em CSS custom properties: cores (dark padrão + light), fontes, espaços, raios, tamanhos e classes `.text-*` |
+| `tokens.json` | Os mesmos tokens em JSON, gerados do `tokens.css`, com a nota de uso de cada um |
+| `components.css` | Componentes base com classes `js-*` (Button, IconButton, Send, Tag, Score, JobCard, Composer, Logo, Highlight) |
+| `logos/` | `jobscout-mark.svg` (olho em tile menta: app/favicon), `favicon.svg` (igual), `jobscout-glyph.svg` (só o olho menta), `turazzi-dev.png` (créditos) |
+| `examples/index.html` | Página antiga de referência (pré-2.0); a referência atual é o `.pen` |
 
 ## Como usar
 
@@ -20,92 +22,99 @@ Jobscout é um buscador open source de vagas de tecnologia: a pessoa roda localm
 <html lang="pt-BR" data-theme="dark">  <!-- "light" para o tema claro -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 ```
 
-- Em React/Next: importe `tokens.css` e `components.css` no CSS global; em Next.js pode trocar o `<link>` das fontes por `next/font/google` mantendo os nomes de família.
 - **Regras para código:**
-  - Nunca escreva hex, px de espaçamento ou fonte soltos: use `var(--token)`.
-  - Para tokens novos, adicione em `tokens.css` **e** `tokens.json`, com comentário de uso, e confira contraste (texto ≥ 4.5:1, bordas de controle e foco ≥ 3:1) nos dois temas.
+  - Nunca escreva hex, px de espaçamento, raio ou fonte soltos: use `var(--token)`. As únicas exceções são bordas de 1px, o anel de foco de 2px, larguras máximas de coluna e breakpoints.
+  - Para tokens novos, adicione em `tokens.css` (com comentário de uso) e regenere o `tokens.json`; confira contraste (texto ≥ 4.5:1, bordas de controle e foco ≥ 3:1) nos dois temas.
   - Tema: alterne `data-theme` no `<html>`; respeite a preferência salva do usuário, padrão `dark`.
 
 ## Princípios
 
-- **O laranja aponta, não decora.** `--brand` só onde há algo encontrado ou a ação principal: botão primário, card selecionado, score de match, a marca.
-- **Dados em mono, prosa em sans.** Plataforma, datas, salário e score em `.text-meta` (JetBrains Mono); textos em `.text-body` (IBM Plex Sans); títulos em Bricolage Grotesque.
-- **Escuro primeiro.** `dark` é o padrão; `light` usa os mesmos papéis.
-- **Bordas, não sombras.** Profundidade = `--surface` → `--surface-raised` + `--border`. Sem sombras, sem gradientes.
+- **Cinza, não preto.** Fundo `--bg` grafite; a sidebar e o painel de detalhes ficam um degrau abaixo (`--bg-sidebar`); cards e compositor um degrau acima (`--surface`).
+- **A menta aponta, não decora.** `--brand` / `--accent-text` só em: botão de enviar, ação principal ("Candidatar-se"), score alto, item ativo, a marca e o progresso da busca.
+- **Ações são ícones.** Botões de ação são só ícone (`js-icon-btn`), sempre com `aria-label` e `title`. Texto em botão só quando a ação precisa de palavra: confirmar, cancelar, candidatar-se, buscar de novo.
+- **Dados em mono, prosa em sans.** Fonte, datas, score, contadores e rótulos de seção em Geist Mono (`.text-meta`); o resto em Geist.
+- **Bordas, não sombras.** Profundidade = degraus de cinza + `--border`. Sombra (`--shadow-overlay`) só em overlays: modal, menu, toast.
 
 ## Cor
 
 | Token | Dark | Light | Uso |
 |---|---|---|---|
-| `--bg` | `#0b0b0c` | `#faf8f5` | Fundo da página |
-| `--surface` | `#141416` | `#ffffff` | Cards, painel de detalhes, campo de preferências |
-| `--surface-raised` | `#1c1c1f` | `#f2efea` | Hover, botão secundário |
-| `--border` | `#2c2c30` | `#e2dcd2` | Divisórias, contorno de cards |
-| `--border-strong` | `#6a6870` | `#8f8a82` | Contorno de controles (≥3:1) |
-| `--ink` | `#f4f1ec` | `#141416` | Texto principal |
-| `--ink-muted` | `#a8a49c` | `#5c5852` | Texto secundário, placeholder |
-| `--brand` | `#ff6a13` | `#ff6a13` | Scout Orange: fundo do botão primário, seleção, marca |
-| `--brand-hover` | `#ff8236` | `#e85a08` | Hover do primário |
-| `--on-brand` | `#0b0b0c` | `#0b0b0c` | Texto sobre laranja (**sempre preto**) |
-| `--accent-text` | `#ff8a3d` | `#b23f08` | Laranja como texto: links, score |
-| `--accent-subtle` | `#2b1708` | `#ffe7d6` | Fundo da tag de match |
-| `--focus` | `#ff8a3d` | `#b23f08` | Anel de foco 2px, offset 2px |
-| `--success` | `#4ade80` | `#11703f` | Candidatado / Nova |
-| `--danger` | `#f87171` | `#b42318` | Erros |
-| `--info` | `#7cb4ff` | `#1d4ed8` | Remoto, avisos, progresso |
+| `--bg` | `#202022` | `#f7f7f5` | Fundo da área principal |
+| `--bg-sidebar` | `#1a1a1c` | `#efefec` | Sidebar, painel de detalhes, rodapés de card |
+| `--surface` | `#28282b` | `#ffffff` | Cards, compositor, menus, modais |
+| `--surface-raised` | `#313135` | `#ebebe8` | Hover, item ativo, tags, bolha do usuário |
+| `--border` | `#36363b` | `#e0e0dc` | Contorno de cards, divisórias |
+| `--border-strong` | `#74747c` | `#8a8a90` | Contorno de controles (≥3:1) |
+| `--ink` | `#ededef` | `#18181a` | Texto principal |
+| `--ink-muted` | `#a1a1a8` | `#55555c` | Texto secundário |
+| `--ink-subtle` | `#8e8e96` | `#67676e` | Metadados em mono, rótulos de seção, placeholder |
+| `--brand` | `#7fd6a8` | `#7fd6a8` | Menta: enviar, botão primário, marca |
+| `--on-brand` | `#10291c` | `#10291c` | Texto/ícone sobre menta (**nunca branco**) |
+| `--accent-text` | `#7fd6a8` | `#1d7a4e` | Menta como texto: score alto, ícone ativo, logo |
+| `--accent-subtle` | menta 10% | verde 10% | Fundo do score alto e do ícone ativo |
+| `--warn` / `--warn-subtle` | `#e3b76b` | `#8f6210` | Score médio, vaga salva |
+| `--danger` / `--danger-subtle` | `#f08080` | `#b42318` | Erros e exclusão |
+| `--success` | `#7fd6a8` | `#1d7a4e` | Candidatada, chave encontrada, fonte ativa |
+| `--info` | `#9aa6f5` | `#3f51c9` | Avisos neutros |
 
-- Nunca branco sobre laranja. Nunca `--brand` como cor de texto (use `--accent-text`).
+- **Score:** ≥ 65% → menta · 45–64% → âmbar (`--warn`) · < 45% → neutro. Use `scoreLevel()` de `js/format.js` e `data-level` no `.js-tag--match`.
 - Status sempre com palavra ou ícone junto, nunca só a cor.
 - Todo elemento interativo: `:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }`.
 
-## Tipografia
+## Tipografia (Geist / Geist Mono)
 
-| Classe | Fonte | Tamanho/altura | Peso | Uso |
-|---|---|---|---|---|
-| `.text-display` | Bricolage Grotesque | 48/52, -0.03em | 700 | Wordmark, telas vazias (1 por tela) |
-| `.text-title` | Bricolage Grotesque | 36/42, -0.025em | 700 | Pergunta central da home, acima do campo |
-| `.text-h1` | Bricolage Grotesque | 28/34, -0.02em | 700 | Título da vaga nos detalhes |
-| `.text-h2` | Bricolage Grotesque | 18/24, -0.01em | 600 | Título no card, seções |
-| `.text-body` | IBM Plex Sans | 15/22 | 400 | Descrição, campo de preferências |
-| `.text-body-sm` | IBM Plex Sans | 13/18 | 400 | Empresa, local, ajuda |
-| `.text-label` | IBM Plex Sans | 13/16 | 600 | Botões, rótulos |
-| `.text-meta` | JetBrains Mono | 12/16, 0.02em | 500 | Plataforma, datas, salário, score |
+| Classe | Tamanho/altura | Peso | Uso |
+|---|---|---|---|
+| `.text-title` | 42/50, -0.03em | 500 | Pergunta central da home (2ª linha em `--ink-subtle`) |
+| `.text-h1` | 26/32, -0.025em | 500 | Título de tela, título da vaga no painel |
+| `.text-h2` | 16/22, -0.01em | 500 | Título da vaga no card, títulos de seção |
+| `.text-body` | 15/23 | 400 | Texto corrido, compositor |
+| `.text-body-sm` | 13/19 | 400 | Empresa, local, ajuda, itens da sidebar |
+| `.text-label` | 13/16 | 500 | Botões e rótulos |
+| `.text-meta` | 11/16, mono, 0.02em | 400 | Fonte, datas, score, contadores |
 
 ## Espaço, raio e layout
 
-- Espaço: `--space-1` 4 · `--space-2` 8 · `--space-3` 12 · `--space-4` 16 · `--space-6` 24 · `--space-8` 32. Não use valores fora da escala.
-- Raio: `--radius-sm` 6 (tags) · `--radius-md` 10 (botões, textarea) · `--radius-lg` 16 (cards, painéis) · `--radius-pill` (score).
-- **Tela principal:** header com logo → `PreferenceInput` em largura total → abaixo, lista de `JobCard` à esquerda (~400px, gap `--space-4`) e painel de detalhes à direita (`--surface`, padding `--space-6`, título `.text-h1`, sticky). Abaixo de 800px: uma coluna; lista e detalhes viram telas separadas. Largura máxima 1200px.
+- Espaço: `--space-0-5` 2 · `1` 4 · `1-5` 6 · `2` 8 · `2-5` 10 · `3` 12 · `3-5` 14 · `4` 16 · `4-5` 18 · `6` 24 · `7` 28 · `8` 32 · `12` 48.
+- Raio: `--radius-xs` 2 (medidor) · `sm` 6 (tags, chips) · `md` 10 (botões, menus) · `lg` 14 (cards) · `xl` 22 (compositor) · `pill` (enviar, avatar, chips de sugestão).
+- **Shell:** sidebar `--sidebar-width` (264) | área principal (coluna de 720, ou 1040 nas telas largas) | painel de detalhes `--detail-width` (440) à direita quando aberto. Abaixo de 800px a sidebar vira gaveta e o painel ocupa a tela.
 
 ## Componentes (`components.css`)
 
-- **Button** — `js-btn` + `js-btn--primary | --secondary | --ghost`. Primário **no máximo um por tela** ("Buscar vagas", "Candidatar-se"). Secundário: "Salvar vaga", "Abrir original". Ghost: "Ignorar", "Limpar".
-- **Tag** — `js-tag` (plataforma, senioridade, modalidade), `js-tag--match` (score, pill laranja suave, uma por card), `js-tag--remote`, `js-tag--success`. Mono, caixa alta, até ~16 caracteres, máx. 4 por card.
-- **JobCard** — `article.js-card` com `aria-selected`. Ordem fixa: título (`js-card__title`) → empresa · local (`js-card__company`) → tags (`js-card__tags`) → linha `js-meta` (salário · tempo). Score no canto superior direito. Selecionado = borda `--brand`; só um por vez. Sem salário, omita (não invente "A combinar"). Sem logos de empresa, sem borda lateral colorida, sem sombra.
-  - Dados: `title, company, location, source, workMode, seniority, matchScore (0–100), salary?, postedAt, selected`.
-- **Highlight** — `js-highlight`: borda tracejada `--brand` sobre o que já tem borda (card, botão secundário). Marca onde uma busca começa: "Nova busca" no menu (em todas as telas) e o campo do parágrafo na tela inicial. Não muda o fundo nem o hover do componente; selecionado vence (borda sólida). Não usar em cards de vaga: todos os resultados têm o mesmo visual.
-- **PreferenceInput** — `form.js-pref` com `label` ("Que vaga você procura?"), `textarea` (placeholder = exemplo concreto completo) e rodapé `js-pref__foot` (status em `js-meta` à esquerda, botão primário à direita). Buscando: botão "Buscando…" desabilitado e progresso por plataforma em `--info`.
-- **Logo** — `span.js-logo` com `<img src="logos/jobscout-mark.svg" alt="">` + texto `jobscout`.
+- **Button** — `js-btn` + `--primary | --secondary | --ghost | --danger`. Primário (menta) no máximo um por área: "Candidatar-se no {fonte}".
+- **IconButton** — `js-btn js-btn--ghost js-icon-btn` (36×36; `--sm` 32×32; `--outline` com borda). Ligado/desligado com `aria-pressed`. Sempre `aria-label` + `title`.
+- **Send** — `js-send`: círculo menta com `arrow-up`; desabilitado em `--surface-raised`. O texto do envio fica em `.sr-only`.
+- **Tag** — `js-tag`: mono, caixa normal, fundo `--surface-raised`. **Score** — `js-tag js-tag--match` + `data-level`: ponto + número.
+- **JobCard** — `article.js-card`: linha de topo (quadrado com a inicial da empresa `js-card__logo`, empresa e local, score) → título → tags e data. Selecionado = borda menta.
+- **Linha de Minhas vagas** — `jobRow()` / `.jr`: Vaga · Aderência · Fonte · Status · Busca · Data; em telas estreitas fica Vaga · Aderência · Data. No hover a data dá lugar a Salvar e Abrir original.
+- **Popover e Menu** — `togglePopover()` / `toggleMenu()` de `js/popover.js` (`.pop`, `.pop-menu`, `.pop-item`): abre sob o botão (o pai precisa de `position: relative`), um por vez; clique fora ou Esc fecha e devolve o foco. Menu: ↑↓, Enter; item destrutivo com `--danger`.
+- **Filtros de Minhas vagas** — popover `.mj-filters` (aderência mínima, modelo, fonte, publicada), aplicado ao vivo; filtros ativos viram chips `.mj-applied__chip` abaixo das abas. Todo o estado fica na URL (`router.js`).
+- **Composer** — `form.js-pref.composer`: raio `xl`, sem borda própria no textarea; na home é multilinha com o Send embaixo à direita; na conversa é uma linha só.
+- **Highlight** — `js-highlight`: onde uma busca começa ("Nova busca" na sidebar). Em 2.0 é só superfície + borda, sem tracejado.
+- **Toast** — `showToast()` de `js/toast.js` (`.toast` em `app.css`): um por vez, embaixo no centro da área principal, some em 6s (pausa com hover/foco). Toda mudança de status de vaga mostra um com "Desfazer"; excluir conversa também (o DELETE só sai quando o toast some).
+- **Paleta** — `togglePalette()` de `js/palette.js` (Ctrl K ou a lupa da sidebar): busca local nos títulos das conversas e nas vagas salvas; ↑↓, Enter, Esc.
+- **Sidebar recolhida** — Ctrl B ou o botão de painel: trilho de `--rail-width` só com ícones, salvo em `localStorage`; abaixo de 800px a sidebar é gaveta.
+- **Logo** — `a.js-logo`: `logoMark()` de `js/icons.js` (SVG inline em `currentColor`, pintado com `--accent-text`) + o texto `jobscout`.
 
 ## Marca
 
-- Símbolo: lente com ponto central ("mirei e achei"). Principal: lente laranja em tile preto. Alternativa: lente preta em tile laranja.
-- Wordmark é texto: `jobscout`, **sempre minúsculo**, Bricolage Grotesque 700, -0.03em, cor `--ink`. Gap `--space-2` entre símbolo e texto.
-- Nunca recolorir, distorcer, aplicar sombra/gradiente ou escrever "JobScout".
-- Ícones de UI: traço 1.5–2px, 16/20px, `currentColor` (sugestão: Lucide). Sem ícones preenchidos coloridos, sem emoji.
+- Símbolo: um **olho** com a pupila deslocada ("achei"). Menta sobre grafite; no app/favicon, olho escuro (`--on-brand`) num tile menta.
+- Wordmark é texto: `jobscout`, **sempre minúsculo**, Geist 600, -0.03em, cor `--ink`.
+- Nunca recolorir fora da paleta, distorcer, aplicar sombra/gradiente ou escrever "JobScout".
+- Ícones de UI: Lucide, traço 1.75, 14–18px, `currentColor`. Sem ícones preenchidos coloridos, sem emoji.
 
 ## Conteúdo e tom
 
-- Português do Brasil, "você", frases curtas, sentence case (inclusive botões).
-- Ações no infinitivo: "Buscar vagas", "Salvar vaga", "Candidatar-se".
-- Números concretos: "92% match", "há 2h", "R$ 6–8 mil". Nunca invente dados que a plataforma não forneceu.
-- Erros dizem o que houve e o que fazer: "Chave da API do LinkedIn inválida. Confira em Configurações → Plataformas."
+- Português do Brasil e inglês (`locales/*.json`), "você", frases curtas, sentence case.
+- O assistente se chama **Julius** ("o Julius").
+- Números concretos: "92%", "há 2h", "R$ 6–8 mil". Nunca invente dados que a plataforma não forneceu.
+- Erros dizem o que houve e o que fazer.
 
 ## Não fazer
 
-Gradientes azul/roxo, sombras pesadas, cards com borda lateral colorida, emoji decorativo, Inter/Roboto, laranja em grandes áreas de fundo, texto branco sobre laranja.
+Fundo preto puro, laranja, gradientes decorativos, sombras fora de overlays, cards com borda lateral colorida, emoji decorativo, menta em grandes áreas de fundo, texto branco sobre menta, botão de ação com texto quando um ícone com tooltip resolve.

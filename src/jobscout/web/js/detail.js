@@ -1,13 +1,15 @@
 // The job detail panel (screen 07), shared by a search's results and My jobs.
 // It sends the verdict itself (PATCH /matches/{id}); the caller decides what the change means
 // for its own listing and may answer with a notice ("it no longer shows here").
-// Every verdict can be taken back: a pressed button sends "new", and a notice offers Undo.
+// Every verdict can be taken back: a pressed button sends "new", and its toast offers Undo,
+// which still works after the panel has closed.
 import { h, mount } from "./dom.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
 import { api } from "./api.js";
-import { safeUrl, scoreLabel } from "./format.js";
-import { companyLine, jobTags, postedAgo } from "./jobcard.js";
+import { showToast } from "./toast.js";
+import { safeUrl, scoreLabel, scoreLevel, sourceName } from "./format.js";
+import { companyInitial, jobTags, postedAgo } from "./jobcard.js";
 
 function section(title, items, iconName) {
   if (!items || items.length === 0) return null;
@@ -44,15 +46,60 @@ export function undoStatus(before) {
   return USER_STATUSES.has(before) ? before : "new";
 }
 
+// The toast's message when the caller has no notice of its own: the verdict set, or the one
+// taken back when the button sent "new".
+export function verdictMessage(before, after) {
+  if (USER_STATUSES.has(after)) return `toast_${after}`;
+  return USER_STATUSES.has(before) ? `toast_un${before}` : "toast_updated";
+}
+
+// Sends a verdict and shows its toast, whose Undo sends the earlier status back. onChange
+// (changed, { undo }) hears both and may answer the toast's message (a notice). Throws when the
+// verdict's request fails; a failed Undo says so in a toast of its own.
+export async function sendVerdict(match, status, onChange) {
+  const before = match.status;
+  const updated = await api.patch(`/matches/${match.id}`, { status });
+  const notice = onChange ? onChange(updated) || null : null;
+  const back = undoStatus(before);
+  showToast({
+    message: notice || t(verdictMessage(before, updated.status)),
+    action: {
+      label: t("undo"),
+      run: async () => {
+        try {
+          const restored = await api.patch(`/matches/${updated.id}`, { status: back });
+          if (onChange) onChange(restored, { undo: true });
+        } catch (e) {
+          showToast({ message: t("request_failed"), kind: "error" });
+        }
+      },
+    },
+  });
+  return updated;
+}
+
 // Returns { update(match, {focus}), close(restoreFocus = true), id, match }.
+// opts: { onVerdict(match), onClose(), focusTarget (window: where the user comes back) }.
 export function openDetail(host, match, opts = {}) {
   const opener = document.activeElement;
   let current = match;
-  let notice = null;
   let error = null;
   let pending = false;
   let closed = false;
-  let undoTo = null;
+  // "Did you apply?": Apply opens the posting in a new tab; when the user comes back to this
+  // window the panel asks, once, about the job it still shows.
+  const focusTarget = opts.focusTarget !== undefined ? opts.focusTarget : typeof window !== "undefined" ? window : null;
+  let askFor = null; // the match id Apply was pressed on, until the user comes back
+  let asking = false;
+
+  function onReturn() {
+    if (closed || askFor === null) return;
+    const id = askFor;
+    askFor = null;
+    if (id !== current.id || current.status === "applied") return;
+    asking = true;
+    draw("ask-yes");
+  }
 
   // Escape closes the panel from inside it, or from anywhere but a field being typed in.
   function onKey(event) {
@@ -64,140 +111,190 @@ export function openDetail(host, match, opts = {}) {
     close();
   }
 
+  // Each change, the verdict's and its Undo's. Undo may come after the panel closed or moved
+  // to another job, so the panel only follows a change to the job it still shows.
+  function onChange(changed, { undo = false } = {}) {
+    if (!closed && current.id === changed.id) {
+      current = changed;
+      if (undo) draw("none");
+    }
+    return opts.onVerdict ? opts.onVerdict(changed) : null;
+  }
+
   async function verdict(status, action) {
     if (pending || current.status === status) return;
-    const before = current.status;
     pending = true;
     error = null;
     draw(action);
     try {
-      const updated = await api.patch(`/matches/${current.id}`, { status });
-      if (closed) return;
-      current = updated;
-      notice = opts.onVerdict ? opts.onVerdict(updated) || null : null;
-      // Undo is offered with the notice, which is when the job has left the caller's list.
-      undoTo = notice && action !== "undo" ? undoStatus(before) : null;
+      await sendVerdict(current, status, onChange);
     } catch (e) {
       if (closed) return;
       error = t("request_failed");
     }
     pending = false;
-    draw(notice ? (undoTo ? "undo" : "notice-close") : action);
+    if (!closed) draw(action);
+  }
+
+  // An icon-only verdict toggle: pressed when the verdict is on, a click takes it back.
+  function toggle(action, verdictName, on, iconOn, iconOff, labelOn, labelOff) {
+    const label = t(on ? labelOn : labelOff);
+    return h(
+      "button",
+      {
+        class: `js-btn js-btn--ghost js-icon-btn dt-toggle dt-toggle--${action}`,
+        type: "button",
+        disabled: pending,
+        "aria-pressed": on ? "true" : "false",
+        "aria-label": label,
+        title: label,
+        "data-action": action,
+        onclick: () => verdict(nextStatus(current.status, verdictName), action),
+      },
+      icon(on ? iconOn : iconOff, 18),
+    );
+  }
+
+  // Ten segments, lit up to the score.
+  function meter(score) {
+    const lit = Math.round(Math.max(0, Math.min(100, score)) / 10);
+    return h(
+      "div",
+      { class: "dt-meter", role: "img", "aria-label": t("fit_meter", { n: Math.round(score) }) },
+      Array.from({ length: 10 }, (_, i) => h("span", { class: `dt-meter__seg${i < lit ? " is-on" : ""}` })),
+    );
   }
 
   function draw(focusAction) {
     const job = current.job;
     const score = scoreLabel(current.score);
+    const level = scoreLevel(current.score);
     const ago = postedAgo(job);
     const url = safeUrl(job.url);
     const status = current.status;
-    const saved = status === "saved";
-    const applied = status === "applied";
-    const dismissed = status === "dismissed";
     // A job with no score has no match to give a verdict on: the panel only shows it.
     const verdicts = current.id !== null && current.id !== undefined;
     const title = h("h1", { class: "text-h1 dt-title", tabindex: "-1" }, job.title);
-    const actions = [];
-    if (url) {
-      actions.push(
-        h(
-          "a",
-          { class: "js-btn js-btn--primary dt-open", href: url, target: "_blank", rel: "noopener noreferrer", "data-action": "open" },
-          t("open_posting"),
-          icon("external-link", 16),
-        ),
-      );
-    }
-    if (verdicts) actions.push(
-      h(
-        "button",
-        // A pressed verdict button takes the verdict back on the next click.
-        {
-          class: "js-btn js-btn--secondary dt-toggle",
-          type: "button",
-          disabled: pending,
-          "aria-pressed": saved ? "true" : "false",
-          "data-action": "save",
-          onclick: () => verdict(nextStatus(status, "saved"), "save"),
-        },
-        icon(saved ? "bookmark-filled" : "bookmark", 16),
-        t(saved ? "saved" : "save"),
-      ),
-    );
+    const where = [job.location, ago].filter(Boolean).join(" · ");
     mount(
       host,
       h(
         "div",
         { class: "dt-body" },
-        h("div", { class: "dt-head" }, title, h("button", { class: "js-btn js-btn--ghost dt-close", type: "button", "aria-label": t("close"), onclick: () => close() }, icon("x", 20))),
-        job.company || job.location ? h("p", { class: "text-body-sm dt-company" }, companyLine(job)) : null,
-        jobTags(job),
-        score || ago
+        h(
+          "div",
+          { class: "dt-head" },
+          h("span", { class: "text-meta dt-eyebrow" }, t("job_detail")),
+          h(
+            "div",
+            { class: "dt-head__actions" },
+            verdicts ? toggle("save", "saved", status === "saved", "bookmark-check", "bookmark", "saved", "save") : null,
+            h("button", { class: "js-btn js-btn--ghost js-icon-btn dt-close", type: "button", "aria-label": t("close"), title: t("close"), onclick: () => close() }, icon("x", 18)),
+          ),
+        ),
+        job.company || where
           ? h(
               "div",
-              { class: "dt-score" },
-              score ? h("span", { class: "js-tag js-tag--match" }, score) : null,
-              h("span", { class: "text-meta dt-score__label" }, [score ? t("fit_score") : null, ago].filter(Boolean).join(" · ")),
+              { class: "dt-company" },
+              h("span", { class: "js-card__logo dt-logo", "aria-hidden": "true" }, companyInitial(job)),
+              h(
+                "div",
+                { class: "dt-company__text" },
+                job.company ? h("p", { class: "text-label dt-company__name" }, job.company) : null,
+                where ? h("p", { class: "text-body-sm dt-company__where" }, where) : null,
+              ),
             )
           : null,
-        current.reasoning ? h("p", { class: "text-body dt-reasoning" }, current.reasoning) : null,
-        section(t("matches_heading"), current.matched_skills, "check"),
-        section(t("missing"), current.missing_skills, "minus"),
+        title,
+        jobTags(job),
+        score
+          ? h(
+              "section",
+              { class: "dt-score" },
+              h(
+                "div",
+                { class: "dt-score__row" },
+                h("span", { class: "text-body-sm dt-score__label" }, t("fit_score")),
+                h("span", { class: "js-tag js-tag--match dt-score__num", "data-level": level }, score),
+              ),
+              meter(current.score),
+              current.reasoning ? h("p", { class: "text-body-sm dt-reasoning" }, current.reasoning) : null,
+            )
+          : null,
+        h(
+          "div",
+          { class: "dt-lists" },
+          section(t("matches_heading"), current.matched_skills, "check"),
+          section(t("missing"), current.missing_skills, "minus"),
+        ),
         section(t("watch_out"), current.red_flags, "alert-triangle"),
       ),
       h(
         "div",
         { class: "dt-foot" },
-        notice
+        error ? h("p", { class: "text-body-sm dt-error", role: "alert" }, error) : null,
+        asking && verdicts && status !== "applied"
           ? h(
               "div",
-              { class: "dt-notice", role: "status" },
-              h("p", { class: "text-body-sm dt-notice__text" }, notice),
-              undoTo
-                ? h(
-                    "button",
-                    { class: "js-btn js-btn--secondary", type: "button", disabled: pending, "data-action": "undo", onclick: () => verdict(undoTo, "undo") },
-                    icon("rotate-ccw", 16),
-                    t("undo"),
-                  )
-                : null,
-              h("button", { class: "js-btn js-btn--ghost", type: "button", "data-action": "notice-close", onclick: () => close() }, t("close")),
+              { class: "dt-ask", role: "group", "aria-labelledby": "dt-ask-q" },
+              h("p", { class: "text-body-sm dt-ask__q", id: "dt-ask-q" }, t("ask_applied")),
+              h(
+                "div",
+                { class: "dt-ask__actions" },
+                h(
+                  "button",
+                  {
+                    class: "js-btn js-btn--secondary",
+                    type: "button",
+                    "data-action": "ask-yes",
+                    onclick: () => {
+                      asking = false;
+                      verdict("applied", "applied");
+                    },
+                  },
+                  icon("check", 16),
+                  t("ask_applied_yes"),
+                ),
+                h(
+                  "button",
+                  {
+                    class: "js-btn js-btn--ghost",
+                    type: "button",
+                    "data-action": "ask-no",
+                    onclick: () => {
+                      asking = false;
+                      draw("open");
+                    },
+                  },
+                  t("ask_applied_no"),
+                ),
+              ),
             )
           : null,
-        error ? h("p", { class: "text-body-sm dt-error", role: "alert" }, error) : null,
-        h("div", { class: "dt-actions" }, actions),
-        verdicts
-          ? h(
+        h(
           "div",
-          { class: "dt-actions dt-actions--quiet" },
-          h(
-            "button",
-            {
-              class: "js-btn js-btn--ghost dt-toggle",
-              type: "button",
-              disabled: pending,
-              "aria-pressed": applied ? "true" : "false",
-              "data-action": "applied",
-              onclick: () => verdict(nextStatus(status, "applied"), "applied"),
-            },
-            icon("check-circle", 16),
-            t(applied ? "applied" : "mark_applied"),
-          ),
-          h(
-            "button",
-            {
-              class: "js-btn js-btn--ghost dt-toggle",
-              type: "button",
-              disabled: pending,
-              "aria-pressed": dismissed ? "true" : "false",
-              "data-action": "dismiss",
-              onclick: () => verdict(nextStatus(status, "dismissed"), "dismiss"),
-            },
-            icon("eye-off", 16),
-            t(dismissed ? "dismissed" : "dismiss"),
-          ),
-        )
-          : null,
+          { class: "dt-actions" },
+          url
+            ? h(
+                "a",
+                {
+                  class: "js-btn js-btn--primary dt-open",
+                  href: url,
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  "data-action": "open",
+                  onclick: () => {
+                    asking = false;
+                    askFor = verdicts && status !== "applied" ? current.id : null;
+                  },
+                },
+                job.source ? t("apply_on", { source: sourceName(job.source) }) : t("open_posting"),
+                icon("arrow-up-right", 16),
+              )
+            : null,
+          verdicts ? toggle("applied", "applied", status === "applied", "check-circle", "check-circle", "applied", "mark_applied") : null,
+          verdicts ? toggle("dismiss", "dismissed", status === "dismissed", "eye-off", "eye-off", "dismissed", "dismiss") : null,
+        ),
       ),
     );
     if (focusAction === "none") return;
@@ -210,6 +307,7 @@ export function openDetail(host, match, opts = {}) {
     if (closed) return;
     closed = true;
     document.removeEventListener("keydown", onKey);
+    if (focusTarget) focusTarget.removeEventListener("focus", onReturn);
     host.hidden = true;
     mount(host);
     if (opts.onClose) opts.onClose();
@@ -217,6 +315,7 @@ export function openDetail(host, match, opts = {}) {
   }
 
   document.addEventListener("keydown", onKey);
+  if (focusTarget) focusTarget.addEventListener("focus", onReturn);
   host.hidden = false;
   draw(null);
 
@@ -229,9 +328,11 @@ export function openDetail(host, match, opts = {}) {
         const active = document.activeElement;
         if (active && host.contains(active)) keep = active.getAttribute("data-action") || null;
       } else {
-        notice = null;
         error = null;
-        undoTo = null;
+      }
+      if (next.id !== current.id) {
+        askFor = null;
+        asking = false;
       }
       current = next;
       draw(focus ? null : keep);

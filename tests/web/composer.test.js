@@ -41,3 +41,26 @@ test("a composer asked for the highlight carries it; others do not", async () =>
   assert.ok(classes(composer({ multiline: true, highlight: true })).includes("js-highlight"));
   assert.ok(!classes(composer({})).includes("js-highlight"));
 });
+
+test("while a search runs the send button is Stop: locked field, and it stops, once", async () => {
+  const { fakeDocument, findElement } = await import("./fake-dom.js");
+  globalThis.document = fakeDocument;
+  const { composer } = await import("../../src/jobscout/web/js/composer.js");
+  let stops = 0;
+  const box = composer({ submitLabel: "Send", stopLabel: "Stop", running: true, onStop: () => stops++ });
+  const button = findElement(box.el, (el) => el.tagName === "BUTTON");
+  assert.equal(button.getAttribute("type"), "button");
+  assert.equal(button.getAttribute("title"), "Stop");
+  assert.ok(button.getAttribute("class").split(" ").includes("js-send--stop"));
+  assert.notEqual(findElement(box.el, (el) => el.tagName === "TEXTAREA").getAttribute("disabled"), null);
+  button.listeners.click.forEach((fn) => fn({ preventDefault() {} }));
+  assert.equal(stops, 1);
+});
+
+test("a stop already asked for leaves the Stop button disabled", async () => {
+  const { fakeDocument, findElement } = await import("./fake-dom.js");
+  globalThis.document = fakeDocument;
+  const { composer } = await import("../../src/jobscout/web/js/composer.js");
+  const box = composer({ stopLabel: "Stop", running: true, stopping: true, onStop() {} });
+  assert.notEqual(findElement(box.el, (el) => el.tagName === "BUTTON").getAttribute("disabled"), null);
+});

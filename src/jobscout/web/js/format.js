@@ -59,3 +59,21 @@ export function sourceName(id) {
   const name = String(id || "");
   return SOURCE_NAMES[name] || name.charAt(0).toUpperCase() + name.slice(1);
 }
+
+// The score's colour band, on the rounded number the user sees: high (≥65), mid (≥45), low.
+export function scoreLevel(score) {
+  if (typeof score !== "number") return null;
+  const n = Math.round(score);
+  return n >= 65 ? "high" : n >= 45 ? "mid" : "low";
+}
+
+// Which group of the searches list a last use falls in, by the user's own calendar day:
+// today, the six days before it, or older.
+export function dayGroup(iso, now) {
+  const then = parseUtc(iso);
+  if (then === null) return "older";
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (then >= startOfToday) return "today";
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).getTime();
+  return then >= startOfWeek ? "week" : "older";
+}

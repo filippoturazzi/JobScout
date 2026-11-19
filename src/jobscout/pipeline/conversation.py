@@ -67,6 +67,7 @@ class Conversation(BaseModel):
     answers: dict[QuestionId, Answer] = {}
     asked: list[QuestionId] = []  # order first answered, for the transcript
     confirmed: bool = False  # True after "Search jobs"; any change sets it False
+    name: str | None = None  # the user's own title (Rename); wins over the reading's
 
 
 class Option(BaseModel):
@@ -480,7 +481,10 @@ def _capitalise(word: str) -> str:
 
 
 def title(c: Conversation) -> str:
-    """Level and role ("Junior AI Engineer"); with no role, the paragraph's first words."""
+    """The user's name for it; else level and role ("Junior AI Engineer"); with no role, the
+    paragraph's first words."""
+    if c.name:
+        return c.name
     terms = c.reading.terms if c.reading is not None else []
     if not terms:
         return " ".join(c.paragraph.split()[:_TITLE_WORDS])[:_TITLE_LENGTH]

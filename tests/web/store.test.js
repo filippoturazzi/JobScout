@@ -24,3 +24,9 @@ test("runningMismatch: the status and the sidebar's running flags disagree", () 
   assert.equal(runningMismatch(status(9), searches()), false);
   assert.equal(runningMismatch(null, searches()), false);
 });
+
+test("withoutHidden: a search deleted with Undo on offer stays out of the list", async () => {
+  const { withoutHidden } = await import("../../src/jobscout/web/js/store.js");
+  assert.deepEqual(withoutHidden(searches(), new Set([2])).map((s) => s.id), [1, 3]);
+  assert.deepEqual(withoutHidden(null, new Set()), []);
+});

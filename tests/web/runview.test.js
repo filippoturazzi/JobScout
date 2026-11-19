@@ -213,3 +213,16 @@ test("freshFor: an unscored job open in the panel finds the match a ranking gave
   assert.equal(freshFor({ matches: [match(5, 70), scored] }, open), scored);
   assert.equal(freshFor({ matches: [match(5, 70)] }, open), null);
 });
+
+test("runView: a run the user stopped says so; one nobody stopped does not", () => {
+  const stopped = runView(search, run({ counters: { fetched: 4, stopped: 1 } }), list(2, 3), null);
+  assert.equal(stopped.stopped, true);
+  assert.equal(stopped.state, "results");
+  assert.equal(runView(search, run(), list(2, 0), null).stopped, false);
+});
+
+test("runView: a run stopped before anything came in is nothing, not a fit failure", () => {
+  const v = runView(search, run({ counters: { stopped: 1 } }), list(0, 0), null);
+  assert.equal(v.state, "nothing");
+  assert.equal(v.stopped, true);
+});

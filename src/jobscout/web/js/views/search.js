@@ -15,6 +15,9 @@ import { freshFor, matchChanged, runView, shouldKeepPolling, withVerdict } from 
 import { runSection } from "../results.js";
 import { openDetail } from "../detail.js";
 import { cardKey } from "../jobcard.js";
+import { convBar } from "../convbar.js";
+import { confirmDelete } from "../sidebar.js";
+import { showToast } from "../toast.js";
 
 const POLL_MS = 2000;
 const guard = createGuard();
@@ -22,6 +25,20 @@ let pollTimer = null;
 let polling = false; // a run's polling is on: the shell's own watcher leaves /status to it
 let detail = null; // the open panel's controller
 let detailRoot = null; // the element that makes room for it
+let escapeStops = null; // while a run is in flight here: what Escape does (stop it)
+
+// Escape stops the running search, unless something on top of the page takes it first: the
+// detail panel, a dialog, the palette, or a field being typed in (the run locks the composer).
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || !escapeStops || detail) return;
+    if (document.querySelector("dialog[open], .pal-list")) return;
+    const target = event.target;
+    if (target && (target.tagName === "INPUT" || (target.tagName === "TEXTAREA" && !target.disabled))) return;
+    event.preventDefault();
+    escapeStops();
+  });
+}
 
 function stopPolling() {
   polling = false;
@@ -47,6 +64,7 @@ function closeDetail() {
 // Called by the shell when another view takes the page: late responses must not redraw over
 // it, the polling stops and the panel closes.
 export function leaveSearch() {
+  escapeStops = null;
   guard.invalidate();
   stopPolling();
   closeDetail();
@@ -91,6 +109,7 @@ export async function renderSearch(root, ctx, id) {
     runState: "none",
     starting: false,
     ranking: false,
+    stopping: false,
     busyOther: null,
     runError: null,
     selectedId: null,
@@ -195,8 +214,27 @@ export async function renderSearch(root, ctx, id) {
     schedule();
   }
 
+  // Stop: the run ends at its next term or job, keeping what it has; polling sees it finish.
+  async function stopRun() {
+    if (ui.stopping || ui.runState !== "running") return;
+    ui.stopping = true;
+    draw({ focus: false });
+    try {
+      const answer = await api.post(`/searches/${id}/stop`);
+      if (!guard.isCurrent(mine)) return;
+      // Nothing to stop: the run ended meanwhile, and the next poll shows how.
+      if (!answer.stopping) ui.stopping = false;
+    } catch (e) {
+      if (!guard.isCurrent(mine)) return;
+      ui.stopping = false;
+      showToast({ message: t("request_failed"), kind: "error" });
+    }
+    draw({ focus: false });
+  }
+
   async function startRun(kind) {
     if (ui.starting) return;
+    ui.stopping = false;
     ui.starting = true;
     ui.busyOther = null;
     ui.runError = null;
@@ -209,6 +247,15 @@ export async function renderSearch(root, ctx, id) {
       ui.ranking = kind === "rank";
       ui.starting = false;
       refreshSearches().catch(() => {});
+      // Starting confirmed the conversation, which may have retitled the search.
+      api
+        .get(`/searches/${id}`)
+        .then((next) => {
+          if (!guard.isCurrent(mine)) return;
+          search = next;
+          bar.update(search, jobCount());
+        })
+        .catch(() => {});
       await poll();
       return;
     } catch (e) {
@@ -330,6 +377,34 @@ export async function renderSearch(root, ctx, id) {
     });
   }
 
+  // --- The top bar: title, job count, and Rename · Export CSV · Delete --------------------
+
+  const jobCount = () => (ui.matches && ui.matches.found) || 0;
+  const bar = convBar(search, jobCount(), {
+    onRename: async (title) => {
+      try {
+        const next = await api.patch(`/searches/${id}`, { title });
+        if (!guard.isCurrent(mine)) return;
+        search = next;
+        bar.update(search, jobCount());
+        refreshSearches().catch(() => {});
+      } catch (e) {
+        if (guard.isCurrent(mine)) showToast({ message: t("rename_failed"), kind: "error" });
+        throw e;
+      }
+    },
+    onExport: () => {
+      const link = h("a", { href: `/searches/${id}/export.csv`, download: "" });
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    },
+    onDelete: () => {
+      const listed = store.searches.find((s) => s.id === id);
+      confirmDelete({ id, title: search.title, running: listed ? listed.running : ui.runningId === id }, { name: "search", id });
+    },
+  });
+
   let box = null;
   let runHost = null;
 
@@ -350,11 +425,27 @@ export async function renderSearch(root, ctx, id) {
     else if (locked) placeholder = t("composer_locked");
     else if (ui.run) placeholder = t("composer_refine");
 
-    box = composer({ placeholder, locked, primary: false, submitLabel: t("send"), disabled: ui.busy, onSubmit: submitText });
+    const running = v.state === "running";
+    if (!running) ui.stopping = false;
+    escapeStops = running ? stopRun : null;
+    if (running) placeholder = ui.stopping ? t("stopping") : t("composer_running");
+    box = composer({
+      placeholder,
+      locked,
+      primary: false,
+      submitLabel: t("send"),
+      disabled: ui.busy,
+      onSubmit: submitText,
+      running,
+      stopping: ui.stopping,
+      stopLabel: t("stop"),
+      onStop: stopRun,
+    });
     if (kept) box.setText(kept);
     const entries = buildTranscript(search, t);
     runHost = h("div", { class: "run" }, runSection(v, search, ui, handlers));
-    const column = h("div", { class: `app-column conv${ui.wide ? " app-column--wide" : ""}` }, renderEntries(entries, search, ui, handlers), runHost);
+    bar.update(search, jobCount());
+    const column = h("div", { class: `app-column conv${ui.wide ? " app-column--wide" : ""}` }, bar.el, renderEntries(entries, search, ui, handlers), runHost);
     const composerError = ui.error && ui.error.qid === "composer" ? ui.error.text : null;
     mount(
       root,
@@ -378,6 +469,7 @@ export async function renderSearch(root, ctx, id) {
 
   // Redraws the run area alone, so polling never touches the composer or the open panel.
   function drawRun() {
+    bar.update(search, jobCount());
     const v = view();
     if (!runHost || v.state !== ui.runState || isWide(v) !== ui.wide) {
       draw({ focus: false });

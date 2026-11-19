@@ -295,12 +295,15 @@ The same command also adds the `run.sources` column (per-source progress of a se
 | GET    | `/searches` | Your searches, most recently used first |
 | POST   | `/searches` | `{"paragraph": ...}`: a new search, read once; the answer carries the first question |
 | GET    | `/searches/{id}` | The search and its conversation |
+| PATCH  | `/searches/{id}` | `{"title": ...}`: rename it; your title is kept through later changes |
 | DELETE | `/searches/{id}` | Remove it with its matches; the jobs stay |
 | POST   | `/searches/{id}/answers` | Answer one of its questions |
 | POST   | `/searches/{id}/refinements` | `{"text": ...}`: add to the paragraph and read it again; never runs the search |
 | POST   | `/searches/{id}/reread` | Try the reading again after it failed |
 | POST   | `/searches/{id}/run` | Confirm the conversation, then fetch and score in the background; returns `{"run_id": ...}`; refused while another search runs |
 | POST   | `/searches/{id}/rank` | Score what the search already holds, calling no source |
+| POST   | `/searches/{id}/stop` | Stop its run at the next term or job, keeping what came in; `{"stopping": false}` when nothing of it runs |
+| GET    | `/searches/{id}/export.csv` | Its scored jobs as CSV (UTF-8 with a BOM) |
 | GET    | `/searches/{id}/runs/{run_id}` | That run's progress: its counters are written while it runs |
 | GET    | `/searches/{id}/matches` | Scored matches, best first (`?min_score=`, `?status=`, `?limit=`); dismissed and applied ones only with `?status=` |
 | PATCH  | `/matches/{id}` | `{"status": "saved" \| "dismissed" \| "applied"}`; dismissed and applied are never re-scored |

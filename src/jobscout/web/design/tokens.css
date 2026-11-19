@@ -1,75 +1,114 @@
-/* Jobscout — design tokens (gerado de tokens.json). Tema padrão: dark. Use <html data-theme="light"> para o claro. */
+/* Jobscout — design tokens "Grafite & Menta" (gerado de tokens.json). Tema padrão: dark. Use <html data-theme="light"> para o claro. */
 
 :root, [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0b0b0c;  /* Fundo da página e da janela do app. O preto do Jobscout no tema escuro. */
-  --surface: #141416;  /* Cards de vaga, painel de detalhes, campo de preferências. */
-  --surface-raised: #1c1c1f;  /* Hover de card, botão secundário, cabeçalhos de seção dentro do painel. */
-  --border: #2c2c30;  /* Divisórias e contorno de cards (decorativo, sem significado). */
-  --border-strong: #6a6870;  /* Contorno de controles (textarea, inputs, botão secundário). ≥3:1 sobre surface em ambos os temas. */
-  --ink: #f4f1ec;  /* Texto principal sobre bg, surface e surface-raised. */
-  --ink-muted: #a8a49c;  /* Texto secundário (empresa, local, data, ajuda) e placeholder sobre bg, surface e surface-raised. */
-  --brand: #ff6a13;  /* Scout Orange. Preenchimento do botão primário, card selecionado, marca. Nunca texto sobre fundo claro — use accent-text. */
-  --brand-hover: #ff8236;  /* Hover/pressed do botão primário. */
-  --on-brand: #0b0b0c;  /* Texto e ícones sobre brand e brand-hover (preto, 6.8:1). Nunca branco sobre laranja. */
-  --accent-text: #ff8a3d;  /* Texto/links em laranja e score de match sobre bg, surface, surface-raised e accent-subtle. */
-  --accent-subtle: #2b1708;  /* Fundo de tag de match e destaque suave; texto nele em accent-text. */
-  --focus: #ff8a3d;  /* Anel de foco sólido de 2px, offset 2px, em todos os controles. ≥5:1 sobre bg e surface. */
-  --success: #4ade80;  /* Texto/ícone de 'Candidatado' e 'Nova'. Sempre com palavra ou ícone, nunca só a cor. */
-  --danger: #f87171;  /* Erros (chave de API inválida, falha de plataforma). Sempre com texto. */
-  --info: #7cb4ff;  /* Avisos neutros (rate limit, busca em andamento) e a tag 'Remoto'. */
+  --bg: #202022;  /* Fundo da área principal. Cinza grafite, nunca preto. */
+  --bg-sidebar: #1a1a1c;  /* Sidebar, painel de detalhes, rodapés de card: um degrau abaixo do fundo. */
+  --surface: #28282b;  /* Cards de vaga, compositor, cards de configuração, menus, modais. */
+  --surface-raised: #313135;  /* Hover, item ativo, tags, bolha do usuário, segmento escolhido. */
+  --border: #36363b;  /* Contorno de cards e divisórias (decorativo). */
+  --border-strong: #74747c;  /* Contorno de controles (botão secundário, campo). ≥3:1 sobre surface. */
+  --ink: #ededef;  /* Texto principal. */
+  --ink-muted: #a1a1a8;  /* Texto secundário: empresa, descrições, rótulos de linha. */
+  --ink-subtle: #8e8e96;  /* Metadados em mono: datas, contadores, rótulos de seção. ≥4.5:1 sobre surface. */
+  --brand: #7fd6a8;  /* Menta. Botão primário, enviar, item ativo, score alto, marca. */
+  --brand-hover: #95dfb8;  /* Hover do primário. */
+  --on-brand: #10291c;  /* Texto e ícones sobre menta. Nunca branco. */
+  --accent-text: #7fd6a8;  /* Menta como texto: score alto, links, ícone ativo. */
+  --accent-subtle: rgb(127 214 168 / 0.1);  /* Fundo do score alto, ícone ativo, chip escolhido. */
+  --focus: #7fd6a8;  /* Anel de foco 2px, offset 2px. */
+  --success: #7fd6a8;  /* Candidatada, chave encontrada, fonte ativa. Sempre com palavra ou ícone. */
+  --warn: #e3b76b;  /* Score médio e vaga salva. */
+  --warn-subtle: rgb(227 183 107 / 0.1);  /* Fundo do score médio. */
+  --danger: #f08080;  /* Erros e ações destrutivas. Sempre com texto. */
+  --danger-subtle: rgb(240 128 128 / 0.1);  /* Fundo do ícone no modal de exclusão, hover da lixeira. */
+  --info: #9aa6f5;  /* Avisos neutros e a tag Remoto. */
+  --overlay: rgb(14 14 16 / 0.7);  /* Fundo escurecido atrás de modais. */
+  --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.4);  /* Só em overlays: menus, modais, toasts. */
 }
 
 [data-theme="light"] {
   color-scheme: light;
-  --bg: #faf8f5;
+  --bg: #f7f7f5;
+  --bg-sidebar: #efefec;
   --surface: #ffffff;
-  --surface-raised: #f2efea;
-  --border: #e2dcd2;
-  --border-strong: #8f8a82;
-  --ink: #141416;
-  --ink-muted: #5c5852;
-  --brand: #ff6a13;
-  --brand-hover: #e85a08;
-  --on-brand: #0b0b0c;
-  --accent-text: #b23f08;
-  --accent-subtle: #ffe7d6;
-  --focus: #b23f08;
-  --success: #11703f;
+  --surface-raised: #ebebe8;
+  --border: #e0e0dc;
+  --border-strong: #8a8a90;
+  --ink: #18181a;
+  --ink-muted: #55555c;
+  --ink-subtle: #67676e;
+  --brand: #7fd6a8;
+  --brand-hover: #6cc996;
+  --on-brand: #10291c;
+  --accent-text: #1d7a4e;
+  --accent-subtle: rgb(29 122 78 / 0.1);
+  --focus: #1d7a4e;
+  --success: #1d7a4e;
+  --warn: #8f6210;
+  --warn-subtle: rgb(143 98 16 / 0.1);
   --danger: #b42318;
-  --info: #1d4ed8;
+  --danger-subtle: rgb(180 35 24 / 0.08);
+  --info: #3f51c9;
+  --overlay: rgb(24 24 26 / 0.35);
+  --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.12);
 }
 
 :root {
-  --font-display: "Bricolage Grotesque", "Space Grotesk", system-ui, sans-serif;
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --space-1: 4px;  /* Gap entre ícone e texto. */
   --space-2: 8px;  /* Gap entre tags; padding vertical de tag. */
   --space-3: 12px;  /* Padding vertical de botão; gap entre linhas do card. */
   --space-4: 16px;  /* Padding interno do card; gap entre cards. */
   --space-6: 24px;  /* Padding de painéis; gap entre colunas. */
   --space-8: 32px;  /* Separação entre seções da tela. */
-  --radius-sm: 6px;  /* Tags, inputs pequenos. */
-  --radius-md: 10px;  /* Botões, textarea. */
-  --radius-lg: 16px;  /* Cards de vaga, painéis. */
-  --radius-pill: 999px;  /* Score de match e indicador de status. */
-  --text-display-size: 48px; --text-display-line: 52px; --text-display-weight: 700;
-  --text-title-size: 36px; --text-title-line: 42px; --text-title-weight: 700;
-  --text-h1-size: 28px; --text-h1-line: 34px; --text-h1-weight: 700;
-  --text-h2-size: 18px; --text-h2-line: 24px; --text-h2-weight: 600;
-  --text-body-size: 15px; --text-body-line: 22px; --text-body-weight: 400;
-  --text-body-sm-size: 13px; --text-body-sm-line: 18px; --text-body-sm-weight: 400;
-  --text-label-size: 13px; --text-label-line: 16px; --text-label-weight: 600;
-  --text-meta-size: 12px; --text-meta-line: 16px; --text-meta-weight: 500;
+  --space-12: 48px;  /* Margem da tela, separação entre seções das configurações. */
+  --space-0-5: 2px;  /* Gap entre linhas de texto empilhadas (título/subtítulo). */
+  --space-1-5: 6px;  /* Gap entre tags; padding de segmento. */
+  --space-2-5: 10px;  /* Gap entre cards; padding de chip. */
+  --space-3-5: 14px;  /* Gap entre avatar e texto. */
+  --space-4-5: 18px;  /* Padding interno do card e do compositor. */
+  --space-7: 28px;  /* Padding horizontal do painel de detalhes. */
+  --radius-xs: 2px;  /* Segmentos do medidor de aderência. */
+  --radius-sm: 6px;  /* Tags, chips, score. */
+  --radius-md: 10px;  /* Botões, botão-ícone, inputs, menus. */
+  --radius-lg: 14px;  /* Cards de vaga e de configuração. */
+  --radius-xl: 22px;  /* Compositor. */
+  --radius-pill: 999px;  /* Botão de enviar, avatar, chips de sugestão. */
+  --sidebar-width: 264px;  /* Sidebar aberta. */
+  --rail-width: 64px;  /* Sidebar recolhida (Ctrl B): trilho de botões só-ícone. */
+  --detail-width: 440px;
+  --icon-btn: 36px;  /* Lado do botão só-ícone e do quadrado da empresa. */
+  --icon-btn-sm: 32px;  /* Botão só-ícone compacto, quadrado da fonte. */
+  --avatar: 28px;  /* Avatar do Julius na conversa. */
+  --tile: 40px;  /* Ícone do modal, tile do app em Sobre. */
+  --tile-lg: 44px;  /* Quadrado da empresa no painel de detalhes. */
+  --dot: 6px;  /* Ponto de status e do score. */
+  --meter: 6px;  /* Altura do medidor e da barra de progresso. */
+  --set-info-width: 240px;  /* Coluna de título das seções das configurações. */
+  --text-xs-size: 10px;  /* Cabeçalho de tabela em mono. */
+  --text-sm-size: 12px;  /* Linha secundária da tabela. */
+  --text-md-size: 14px;  /* Título na tabela, itens do painel. */
+  --text-lg-size: 18px;  /* Título do modal. */
+  --text-score-size: 28px;  /* Número da aderência no painel. */
+  --text-display-size: 42px; --text-display-line: 50px; --text-display-weight: 500;
+  --text-title-size: 42px; --text-title-line: 50px; --text-title-weight: 500;
+  --text-h1-size: 26px; --text-h1-line: 32px; --text-h1-weight: 500;
+  --text-h2-size: 16px; --text-h2-line: 22px; --text-h2-weight: 500;
+  --text-body-size: 15px; --text-body-line: 23px; --text-body-weight: 400;
+  --text-body-sm-size: 13px; --text-body-sm-line: 19px; --text-body-sm-weight: 400;
+  --text-label-size: 13px; --text-label-line: 16px; --text-label-weight: 500;
+  --text-meta-size: 11px; --text-meta-line: 16px; --text-meta-weight: 400;
 }
 
 /* Estilos de texto */
-.text-display { font-family: var(--font-display); font-size: 48px; line-height: 52px; font-weight: 700; letter-spacing: -0.03em; }  /* Wordmark e telas vazias/onboarding. Uma por tela, no máximo. */
-.text-title { font-family: var(--font-display); font-size: 36px; line-height: 42px; font-weight: 700; letter-spacing: -0.025em; }  /* Pergunta central da home, acima do campo. */
-.text-h1 { font-family: var(--font-display); font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.02em; }  /* Título da vaga no painel de detalhes. */
-.text-h2 { font-family: var(--font-display); font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }  /* Título da vaga no card; títulos de seção. */
-.text-body { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 400; }  /* Descrição da vaga, texto do campo de preferências. */
-.text-body-sm { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 400; }  /* Empresa, local, textos de ajuda. */
-.text-label { font-family: var(--font-sans); font-size: 13px; line-height: 16px; font-weight: 600; }  /* Botões e rótulos de campo. */
-.text-meta { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.02em; }  /* Plataforma de origem, datas, score de match, salário. Dados, não prosa. */
+.text-display { font-family: var(--font-display); font-size: var(--text-display-size); line-height: var(--text-display-line); font-weight: var(--text-display-weight); letter-spacing: -0.03em; }  /* Telas vazias/onboarding. */
+.text-title { font-family: var(--font-display); font-size: var(--text-title-size); line-height: var(--text-title-line); font-weight: var(--text-title-weight); letter-spacing: -0.03em; }  /* Pergunta central da home. */
+.text-h1 { font-family: var(--font-display); font-size: var(--text-h1-size); line-height: var(--text-h1-line); font-weight: var(--text-h1-weight); letter-spacing: -0.025em; }  /* Títulos de tela e da vaga no painel. */
+.text-h2 { font-family: var(--font-display); font-size: var(--text-h2-size); line-height: var(--text-h2-line); font-weight: var(--text-h2-weight); letter-spacing: -0.01em; }  /* Título da vaga no card; títulos de seção. */
+.text-body { font-family: var(--font-sans); font-size: var(--text-body-size); line-height: var(--text-body-line); font-weight: var(--text-body-weight); }  /* Texto corrido, compositor. */
+.text-body-sm { font-family: var(--font-sans); font-size: var(--text-body-sm-size); line-height: var(--text-body-sm-line); font-weight: var(--text-body-sm-weight); }  /* Empresa, local, ajuda. */
+.text-label { font-family: var(--font-sans); font-size: var(--text-label-size); line-height: var(--text-label-line); font-weight: var(--text-label-weight); }  /* Botões e rótulos. */
+.text-meta { font-family: var(--font-mono); font-size: var(--text-meta-size); line-height: var(--text-meta-line); font-weight: var(--text-meta-weight); letter-spacing: 0.02em; }  /* Fonte, datas, score, contadores. Dados, não prosa. */

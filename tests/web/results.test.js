@@ -41,3 +41,29 @@ test("every result card looks the same: none carries the highlight", () => {
   const cards = cardsIn(host);
   assert.deepEqual(cards.map((c) => hasClass(c, "js-highlight")), Array(12).fill(false));
 });
+
+const textOf = (nodes) => {
+  const host = fakeDocument.createElement("div");
+  nodes.forEach((n) => host.appendChild(n));
+  return host.textContent;
+};
+const noHandlers = { onSearchAgain() {}, onRank() {}, onWiden() {}, onOpen() {}, onPage() {} };
+
+test("a stopped run's results say the user stopped it", () => {
+  const v = { ...view(scored(2)), stopped: true };
+  assert.ok(textOf(runSection(v, { widenings: [] }, { page: 1, busyOther: null }, noHandlers)).includes("stopped_note"));
+  assert.ok(!textOf(runSection(view(scored(2)), { widenings: [] }, { page: 1, busyOther: null }, noHandlers)).includes("stopped_note"));
+});
+
+test("a run stopped before anything came in says that, not that nothing fit", () => {
+  const v = { state: "nothing", stopped: true, searched: 1, fetched: 0, failures: [], runError: null };
+  const text = textOf(runSection(v, { widenings: [], summary: {} }, { busyOther: null }, noHandlers));
+  assert.ok(text.includes("stopped_nothing"));
+  assert.ok(!text.includes("nothing_found"));
+});
+
+test("while a stop is on its way the running headline says it is stopping", () => {
+  const v = { state: "running", searchedSources: true, sources: [], progress: { sources: 0, scored: 0, toScore: 0 }, matches: [], failures: [] };
+  const text = textOf(runSection(v, { widenings: [] }, { stopping: true, busyOther: null }, noHandlers));
+  assert.ok(text.includes("stopping"));
+});

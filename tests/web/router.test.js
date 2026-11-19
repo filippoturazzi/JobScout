@@ -10,23 +10,41 @@ test("the plain routes parse, unknown ones are home", () => {
   assert.deepEqual(parseRoute("#/nowhere"), { name: "home" });
 });
 
-test("my jobs defaults to the All tab with no search filter", () => {
-  assert.deepEqual(parseRoute("#/my-jobs"), { name: "my-jobs", tab: "all", search: null });
+const DEFAULT = { name: "my-jobs", tab: "all", search: null, open: null, min: 0, modes: [], sources: [], since: null, q: "", sort: "score", page: 1 };
+
+test("my jobs defaults to the All tab with no filter", () => {
+  assert.deepEqual(parseRoute("#/my-jobs"), DEFAULT);
 });
 
-test("my jobs reads the tab and the search from the query", () => {
-  assert.deepEqual(parseRoute("#/my-jobs?tab=saved&search=2"), { name: "my-jobs", tab: "saved", search: 2 });
-  assert.deepEqual(parseRoute("#/my-jobs?tab=applied"), { name: "my-jobs", tab: "applied", search: null });
+test("my jobs reads the tab, the search and the filters from the query", () => {
+  assert.deepEqual(parseRoute("#/my-jobs?tab=saved&search=2"), { ...DEFAULT, tab: "saved", search: 2 });
+  assert.deepEqual(parseRoute("#/my-jobs?tab=dismissed"), { ...DEFAULT, tab: "dismissed" });
+  assert.deepEqual(parseRoute("#/my-jobs?min=50&mode=remote,hybrid&source=indeed&since=7d&q=data%20eng&sort=recent&page=3"), {
+    ...DEFAULT,
+    min: 50,
+    modes: ["remote", "hybrid"],
+    sources: ["indeed"],
+    since: "7d",
+    q: "data eng",
+    sort: "recent",
+    page: 3,
+  });
 });
 
-test("my jobs ignores a bad tab or search", () => {
-  assert.deepEqual(parseRoute("#/my-jobs?tab=bogus&search=abc"), { name: "my-jobs", tab: "all", search: null });
-  assert.deepEqual(parseRoute("#/my-jobs?search=0"), { name: "my-jobs", tab: "all", search: null });
+test("my jobs ignores what it does not know", () => {
+  assert.deepEqual(parseRoute("#/my-jobs?tab=bogus&search=abc"), DEFAULT);
+  assert.deepEqual(parseRoute("#/my-jobs?search=0&min=45&mode=space,remote&since=1y&sort=x&page=0"), { ...DEFAULT, modes: ["remote"] });
 });
 
-test("myJobsPath writes only what differs from the default", () => {
-  assert.equal(myJobsPath("all", null), "/my-jobs");
-  assert.equal(myJobsPath("saved", null), "/my-jobs?tab=saved");
-  assert.equal(myJobsPath("saved", 2), "/my-jobs?tab=saved&search=2");
-  assert.equal(myJobsPath("all", 2), "/my-jobs?search=2");
+test("myJobsPath writes only what differs from the default, and round-trips", () => {
+  assert.equal(myJobsPath(DEFAULT), "/my-jobs");
+  assert.equal(myJobsPath({ ...DEFAULT, tab: "saved", search: 2 }), "/my-jobs?tab=saved&search=2");
+  const view = { ...DEFAULT, min: 70, modes: ["onsite"], sources: ["linkedin", "indeed"], since: "24h", q: "ai", sort: "company", page: 2 };
+  assert.deepEqual(parseRoute("#" + myJobsPath(view)), view);
+});
+
+test("my-jobs carries a match to open, which the path never writes", () => {
+  assert.equal(parseRoute("#/my-jobs?tab=saved&open=7").open, 7);
+  assert.equal(parseRoute("#/my-jobs?open=x").open, null);
+  assert.equal(myJobsPath({ ...DEFAULT, open: 7 }), "/my-jobs");
 });

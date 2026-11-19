@@ -9,10 +9,10 @@ import { resultsLayout } from "./resultslayout.js";
 import { runHeadline } from "./runview.js";
 import { appLine } from "./conversation.js";
 
-const SOURCE_ICONS = { done: "check-circle", searching: "loader", waiting: "clock", failed: "alert-triangle", skipped: "minus" };
+const SOURCE_ICONS = { done: "check-circle", searching: "loader", waiting: "clock", failed: "alert-triangle", skipped: "minus", stopped: "square" };
 
 function sourceState(s) {
-  if (s.state === "done") return t("src_done", { n: s.fetched || 0 });
+  if (s.state === "done" || s.state === "stopped") return t(`src_${s.state}`, { n: s.fetched || 0 });
   if (s.state === "searching") {
     const total = Math.max(s.queries_total || 0, 1);
     return t("src_searching", { i: Math.min((s.queries_done || 0) + 1, total), n: total });
@@ -224,7 +224,7 @@ export function runSection(view, search, ui, handlers) {
       const headline = runHeadline(view, ui.ranking);
       return [
         appLine(
-          h("p", { class: "text-body run-status", "aria-live": "polite" }, t(headline.key, { n: headline.n })),
+          h("p", { class: "text-body run-status", "aria-live": "polite" }, ui.stopping ? t("stopping") : t(headline.key, { n: headline.n })),
           headline.showSources ? sourceRows(view.sources) : null,
           scoring(view.progress),
           cards(view.matches, ui, handlers),
@@ -235,6 +235,7 @@ export function runSection(view, search, ui, handlers) {
       return [
         appLine(
           h("p", { class: "text-body" }, view.found > 0 ? t("found", { n: view.found }) : t("none_scored")),
+          view.stopped ? h("p", { class: "text-body-sm run-stopped" }, icon("square", 14), t("stopped_note")) : null,
           view.widen ? widenBlock(search, ui, handlers) : null,
           // With nothing unscored to list (old scores waiting to be redone), the rank line has
           // no divider to sit in: it goes under the count, as before.
@@ -248,7 +249,7 @@ export function runSection(view, search, ui, handlers) {
     case "nothing": {
       return [
         appLine(
-          h("p", { class: "text-body" }, t("nothing_found", { n: view.searched, m: view.fetched, what: nothingWhat(search.summary) })),
+          h("p", { class: "text-body" }, view.stopped ? t("stopped_nothing") : t("nothing_found", { n: view.searched, m: view.fetched, what: nothingWhat(search.summary) })),
           failureLines(view.failures, view.runError),
           widenBlock(search, ui, handlers),
           h("div", { class: "run-actions" }, again()),

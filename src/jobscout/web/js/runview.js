@@ -59,6 +59,8 @@ export function runView(search, run, matchList, runningSearchId) {
 
   return {
     state,
+    // The user pressed Stop: what came in stays, the rest was not searched or scored.
+    stopped: Boolean(counters.stopped),
     searched,
     runError,
     found,

@@ -3,6 +3,7 @@ from typing import Annotated, Literal, cast
 from fastapi import APIRouter, Depends, Request
 from sqlmodel import Session
 
+from jobscout import __version__
 from jobscout.api.deps import get_current_user, get_current_user_id, get_session
 from jobscout.api.schemas import LocaleBody, StatusRead
 from jobscout.config import get_settings
@@ -45,6 +46,7 @@ def read_status(request: Request, user: Annotated[User, Depends(get_current_user
         sources=all_source_statuses(settings),
         running_search_id=running[0] if running is not None else None,
         locale=user.locale,
+        version=__version__,
     )
 
 

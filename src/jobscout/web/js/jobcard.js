@@ -3,7 +3,7 @@
 import { h } from "./dom.js";
 import { icon } from "./icons.js";
 import { currentLocale, t } from "./i18n.js";
-import { salary, scoreLabel, sourceName, timeAgo } from "./format.js";
+import { safeUrl, salary, scoreLabel, scoreLevel, sourceName, timeAgo } from "./format.js";
 
 export function workMode(job) {
   return job.work_mode || (job.remote ? "remote" : null);
@@ -11,6 +11,12 @@ export function workMode(job) {
 
 export function companyLine(job) {
   return [job.company, job.location].filter(Boolean).join(" · ");
+}
+
+// The letter on the company's square: the company's first letter, or the title's.
+export function companyInitial(job) {
+  const name = String(job.company || job.title || "").trim();
+  return name ? name.charAt(0).toUpperCase() : "·";
 }
 
 export function postedAgo(job) {
@@ -69,11 +75,98 @@ export function jobCard(match, { selected = false, onOpen, searches = null, exce
     h(
       "div",
       { class: "js-card__top" },
-      h("div", { class: "jc-head" }, h("h3", { class: "js-card__title" }, job.title), h("p", { class: "js-card__company" }, companyLine(job))),
-      score ? h("span", { class: "js-tag js-tag--match" }, score) : null,
+      h("span", { class: "js-card__logo", "aria-hidden": "true" }, companyInitial(job)),
+      h(
+        "div",
+        { class: "jc-head" },
+        job.company ? h("p", { class: "text-label jc-company" }, job.company) : null,
+        job.location ? h("p", { class: "js-card__company" }, job.location) : null,
+      ),
+      score ? h("span", { class: "js-tag js-tag--match", "data-level": scoreLevel(match.score) }, score) : null,
       !score && unscored ? h("span", { class: "js-tag" }, t("no_score")) : null,
     ),
+    h("h3", { class: "js-card__title" }, job.title),
     excerpt && match.reasoning ? h("p", { class: "text-body-sm jc-reason" }, match.reasoning) : null,
     h("div", { class: "jc-foot" }, h("div", { class: "jc-tags" }, jobTags(job), verdictTag(match.status)), meta ? h("span", { class: "js-meta jc-meta" }, meta) : null),
+  );
+}
+
+// The columns of My jobs' table, in order. The header and every row share them.
+export const ROW_COLUMNS = ["job", "fit", "source", "status", "search", "date"];
+
+export function jobRowHeader() {
+  return h(
+    "div",
+    { class: "jr jr--head", "aria-hidden": "true" },
+    ROW_COLUMNS.map((c) => h("span", { class: `text-meta jr__${c}` }, t(`col_${c}`))),
+  );
+}
+
+// My jobs' row: the same job as the card, laid out in the table's columns.
+// opts: { selected, onOpen(match), searches: [{id, title}], onSave(match) }
+// With onSave, hovering the row (or focusing in it) swaps the date for Save and Open original.
+export function jobRow(match, { selected = false, onOpen, searches = null, onSave = null } = {}) {
+  const job = match.job;
+  const score = scoreLabel(match.score);
+  const status = ["saved", "applied", "dismissed"].includes(match.status) ? match.status : "new";
+  const url = safeUrl(job.url);
+  const saved = match.status === "saved";
+  const stop = (event) => event.stopPropagation();
+  const actions = onSave
+    ? h(
+        "div",
+        { class: "jr__actions", onclick: stop, onkeydown: stop },
+        h(
+          "button",
+          {
+            class: `js-btn js-btn--ghost js-icon-btn js-icon-btn--sm jr__save`,
+            type: "button",
+            "aria-pressed": saved ? "true" : "false",
+            "aria-label": `${t(saved ? "saved" : "save")}: ${job.title}`,
+            title: t(saved ? "saved" : "save"),
+            onclick: () => onSave(match),
+          },
+          icon(saved ? "bookmark-check" : "bookmark", 16),
+        ),
+        url
+          ? h(
+              "a",
+              { class: "js-btn js-btn--ghost js-icon-btn js-icon-btn--sm", href: url, target: "_blank", rel: "noopener noreferrer", "aria-label": `${t("open_posting")}: ${job.title}`, title: t("open_posting") },
+              icon("external-link", 16),
+            )
+          : null,
+      )
+    : null;
+  const where = [job.company, job.location, salary(job, currentLocale())].filter(Boolean).join(" · ");
+  const open = () => {
+    if (onOpen) onOpen(match);
+  };
+  return h(
+    "article",
+    {
+      class: "jr",
+      role: "option",
+      tabindex: "0",
+      "aria-selected": selected ? "true" : "false",
+      "data-match-id": cardKey(match),
+      onclick: open,
+      onkeydown: (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          open();
+        }
+      },
+    },
+    h(
+      "div",
+      { class: "jr__job" },
+      h("span", { class: "js-card__logo", "aria-hidden": "true" }, companyInitial(job)),
+      h("div", { class: "jr__text" }, h("h3", { class: "text-label jr__title" }, job.title), where ? h("p", { class: "text-body-sm jr__where" }, where) : null),
+    ),
+    h("div", { class: "jr__fit" }, score ? h("span", { class: "js-tag js-tag--match", "data-level": scoreLevel(match.score) }, score) : null),
+    h("div", { class: "jr__source" }, h("span", { class: "js-tag" }, sourceName(job.source))),
+    h("div", { class: `text-body-sm jr__status jr__status--${status}` }, h("span", { class: "jr__dot", "aria-hidden": "true" }), t(status === "new" ? "status_new" : status)),
+    h("div", { class: "text-body-sm jr__search" }, searches && searches.length ? searches.map((s) => s.title).join(", ") : ""),
+    h("div", { class: "jr__end" }, h("span", { class: "js-meta jr__date" }, postedAgo(job) || ""), actions),
   );
 }

@@ -57,7 +57,7 @@ class SearchStarted(BaseModel):
 
 class RunSource(BaseModel):
     name: str
-    state: Literal["waiting", "searching", "done", "failed", "skipped"]
+    state: Literal["waiting", "searching", "done", "failed", "skipped", "stopped"]
     fetched: int
     queries_done: int
     queries_total: int
@@ -103,6 +103,15 @@ class SearchListItem(BaseModel):
     title: str
     last_used_at: datetime
     running: bool
+    match_count: int
+
+
+class SearchRename(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+class SearchStopping(BaseModel):
+    stopping: bool  # False: nothing of this search was running to stop
 
 
 class SearchCreate(BaseModel):
@@ -165,6 +174,7 @@ class MyJobRead(BaseModel):
 class MyJobsRead(BaseModel):
     items: list[MyJobRead]
     counts: dict[str, int]
+    total: int
 
 
 class StatusRead(BaseModel):
@@ -176,6 +186,7 @@ class StatusRead(BaseModel):
     sources: list[SourceStatus]
     running_search_id: int | None
     locale: str
+    version: str
 
 
 class LocaleBody(BaseModel):

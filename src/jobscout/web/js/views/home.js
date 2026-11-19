@@ -1,4 +1,5 @@
-// Home (#/): the heading, the no-key notice when needed, and the big composer.
+// Home (#/): Julius's badge, the two-line heading, the no-key notice when needed, the big composer,
+// suggestion chips that fill it in (they never send) and the active sources.
 import { h, mount } from "../dom.js";
 import { icon } from "../icons.js";
 import { t } from "../i18n.js";
@@ -7,6 +8,14 @@ import { go } from "../router.js";
 import { refreshSearches } from "../store.js";
 import { composer } from "../composer.js";
 import { withCode } from "./common.js";
+import { sourceName } from "../format.js";
+
+const SUGGESTIONS = [
+  ["database", "sugg_data"],
+  ["code", "sugg_frontend"],
+  ["graduation-cap", "sugg_first"],
+  ["globe", "sugg_abroad"],
+];
 
 const SETUP_URL = "https://github.com/filippoturazzi/JobScout#quick-start";
 
@@ -37,7 +46,6 @@ export function renderHome(root, ctx) {
     // The paragraph is where a search starts: the design system's highlight marks it.
     highlight: true,
     submitLabel: t("start_search"),
-    submitIcon: "search",
     disabled: noKey,
     onSubmit: submit,
   });
@@ -64,9 +72,44 @@ export function renderHome(root, ctx) {
     }
   }
 
+  const chips = h(
+    "div",
+    { class: "home-suggestions", role: "group", "aria-label": t("suggestions") },
+    SUGGESTIONS.map(([iconName, key]) =>
+      h(
+        "button",
+        {
+          class: "home-chip text-body-sm",
+          type: "button",
+          disabled: noKey,
+          onclick: () => {
+            box.setText(t(`${key}_text`));
+            box.focus({ end: true });
+          },
+        },
+        icon(iconName, 14),
+        t(key),
+      ),
+    ),
+  );
+  const active = ((status && status.sources) || []).filter((s) => s.active).map((s) => sourceName(s.name));
+
   mount(
     root,
-    h("div", { class: "app-column home" }, h("h1", { class: "text-title home-title" }, t("home_title")), noticeSlot, box.el),
+    h(
+      "div",
+      { class: "app-column home" },
+      h(
+        "div",
+        { class: "home-hero" },
+        h("p", { class: "home-badge text-body-sm" }, h("span", { class: "home-badge__icon" }, icon("sparkles", 12)), t("home_badge")),
+        h("h1", { class: "text-title home-title" }, t("home_title"), h("span", { class: "home-title__sub" }, t("home_subtitle"))),
+      ),
+      noticeSlot,
+      box.el,
+      chips,
+    ),
+    active.length ? h("p", { class: "text-meta home-sources" }, t("sources_footer", { names: active.join(" · ") })) : null,
   );
   box.focus();
 }
