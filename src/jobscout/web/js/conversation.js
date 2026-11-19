@@ -59,7 +59,7 @@ export function optionLabel(qid, option, country) {
 }
 
 // The answer a click on one option sends (null for "other", which asks for typing).
-function singleAnswer(option) {
+export function singleAnswer(option) {
   if (option.choice === "country" || option.choice === "abroad") return { choice: option.choice, values: [option.value] };
   if (option.choice === "other") return null;
   return { choice: option.choice, values: [] };

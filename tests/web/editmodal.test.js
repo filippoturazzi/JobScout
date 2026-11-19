@@ -1,0 +1,52 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+const { editKind, answerFor, initialSelection } = await import("../../src/jobscout/web/js/editmodal.js");
+
+const sel = (over = {}) => ({ option: null, picked: [], any: false, text: "", ...over });
+const role = { id: "role", multi: false, typed: true, options: [] };
+const modes = { id: "work_modes", multi: true, options: [{ choice: "remote" }, { choice: "hybrid" }, { choice: "onsite" }, { choice: "any" }] };
+const level = { id: "level", multi: false, options: [{ choice: "intern" }, { choice: "junior" }, { choice: "mid" }, { choice: "senior" }] };
+const location = { id: "location", multi: false, options: [{ choice: "country", value: "Brazil" }, { choice: "anywhere" }, { choice: "abroad", value: "Brazil" }, { choice: "other" }] };
+const city = { id: "city", multi: false, options: [{ choice: "anywhere", value: "Brazil" }, { choice: "other" }] };
+
+test("role is typed, work mode and skills are multi, the rest single", () => {
+  assert.equal(editKind(role), "text");
+  assert.equal(editKind(modes), "multi");
+  assert.equal(editKind({ id: "skills", multi: true, options: [] }), "multi");
+  assert.equal(editKind(level), "single");
+  assert.equal(editKind(city), "single");
+});
+
+test("a typed role sends one value, trimmed; blank sends nothing", () => {
+  assert.deepEqual(answerFor(role, sel({ text: "  data engineer " })), { choice: "role", values: ["data engineer"] });
+  assert.equal(answerFor(role, sel({ text: "  " })), null);
+  assert.equal(answerFor(role, sel({ text: " , ," })), null);
+});
+
+test("multi sends pick, or any, or nothing when empty", () => {
+  assert.deepEqual(answerFor(modes, sel({ picked: ["remote", "hybrid"] })), { choice: "pick", values: ["remote", "hybrid"] });
+  assert.deepEqual(answerFor(modes, sel({ any: true })), { choice: "any", values: [] });
+  assert.equal(answerFor(modes, sel()), null);
+});
+
+test("single sends the option's answer; 'other' sends the typed place", () => {
+  assert.deepEqual(answerFor(level, sel({ option: { choice: "junior" } })), { choice: "junior", values: [] });
+  assert.deepEqual(answerFor(location, sel({ option: { choice: "country", value: "Brazil" } })), { choice: "country", values: ["Brazil"] });
+  assert.deepEqual(answerFor(city, sel({ option: { choice: "other" }, text: " Recife " })), { choice: "city", values: ["Recife"] });
+  assert.deepEqual(answerFor(location, sel({ option: { choice: "other" }, text: "Chile" })), { choice: "country", values: ["Chile"] });
+  assert.equal(answerFor(city, sel({ option: { choice: "other" }, text: " " })), null);
+  assert.equal(answerFor(level, sel()), null);
+});
+
+test("the modal opens on the current answer", () => {
+  assert.equal(initialSelection(role, undefined, { terms: ["ai engineer", "python"] }).text, "ai engineer, python");
+  assert.deepEqual(initialSelection(modes, { choice: "pick", values: ["remote"] }, {}).picked, ["remote"]);
+  assert.equal(initialSelection(modes, { choice: "any", values: [] }, {}).any, true);
+  assert.equal(initialSelection(level, { choice: "junior", values: [] }, {}).option.choice, "junior");
+  assert.equal(initialSelection(location, { choice: "country", values: ["Brazil"] }, {}).option.value, "Brazil");
+  const typed = initialSelection(city, { choice: "city", values: ["Recife"] }, {});
+  assert.equal(typed.option.choice, "other");
+  assert.equal(typed.text, "Recife");
+  assert.equal(initialSelection(level, undefined, {}).option, null);
+});
