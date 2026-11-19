@@ -7,6 +7,7 @@ from jobscout.api.deps import get_current_user_id, get_session
 from jobscout.api.schemas import JobRead
 from jobscout.models import Job
 from jobscout.pipeline.filters import work_mode_of
+from jobscout.pipeline.logos import company_logo_of
 from jobscout.pipeline.run import list_jobs
 from jobscout.pipeline.searches import get_search, latest_search
 
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 def read_job(job: Job) -> JobRead:
     read = JobRead.model_validate(job)
     read.work_mode = work_mode_of(job)
+    read.company_logo = company_logo_of(job)
     return read
 
 
