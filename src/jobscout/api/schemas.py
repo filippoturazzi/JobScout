@@ -106,6 +106,10 @@ class SearchListItem(BaseModel):
     match_count: int
 
 
+class SearchRename(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
 class SearchCreate(BaseModel):
     paragraph: str = Field(min_length=1)
 

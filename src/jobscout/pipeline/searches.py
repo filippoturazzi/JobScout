@@ -101,6 +101,27 @@ def delete_search(session: Session, user_id: int, search_id: int) -> None:
     session.commit()
 
 
+TITLE_MAX = 120
+
+
+def rename_search(session: Session, user_id: int, search_id: int, name: str) -> Search:
+    """Give the search the user's own title, kept through later changes. Not a use: the
+    search keeps its place in the list."""
+    clean = " ".join(name.split())
+    if not clean:
+        raise ValueError("A title cannot be blank.")
+    if len(clean) > TITLE_MAX:
+        raise ValueError(f"A title has at most {TITLE_MAX} characters.")
+    search = get_search(session, user_id, search_id)
+    named = conversation_of(search).model_copy(update={"name": clean})
+    search.conversation = named.model_dump(mode="json")
+    search.title = clean
+    session.add(search)
+    session.commit()
+    session.refresh(search)
+    return search
+
+
 def conversation_of(search: Search) -> Conversation:
     return Conversation.model_validate(search.conversation)
 

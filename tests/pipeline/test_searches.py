@@ -22,6 +22,7 @@ from jobscout.pipeline.searches import (
     list_searches,
     record_fetched,
     refine,
+    rename_search,
     reread,
     touch,
 )
@@ -258,3 +259,27 @@ def test_confirm_stales_only_this_searchs_matches(session):
 
     statuses = {m.search_id: m.status for m in session.exec(select(Match)).all()}
     assert statuses == {search.id: "stale", other.id: "new"}
+
+
+def test_rename_keeps_the_name_through_later_changes(session):
+    search, _ = _create(session, CountingChatModel(results=[_reading(), _reading()]))
+    renamed = rename_search(session, search.user_id, search.id, "  Lisbon,   remote  ")
+    assert renamed.title == "Lisbon, remote"
+    later = refine(
+        session,
+        search.user_id,
+        search.id,
+        "Also Kubernetes.",
+        CountingChatModel(results=[_reading()]),
+    )
+    assert later.title == "Lisbon, remote"
+
+
+def test_rename_refuses_a_blank_or_overlong_name(session):
+    search, _ = _create(session)
+    with pytest.raises(ValueError):
+        rename_search(session, search.user_id, search.id, "   ")
+    with pytest.raises(ValueError):
+        rename_search(session, search.user_id, search.id, "x" * 121)
+    with pytest.raises(SearchNotFoundError):
+        rename_search(session, search.user_id + 1, search.id, "Other")

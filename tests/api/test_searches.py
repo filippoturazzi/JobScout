@@ -482,3 +482,66 @@ def test_list_searches_counts_the_scored_jobs_not_dismissed(client, session):
     counts = {item["title"]: item["match_count"] for item in client.get("/searches").json()}
     assert counts == {"A": 2, "B": 0}
     assert other.id is not None
+
+
+def test_rename_a_search(client, chat):
+    created = _create(client).json()
+    response = client.patch(f"/searches/{created['id']}", json={"title": "Remote ML"})
+    assert response.status_code == 200
+    assert response.json()["title"] == "Remote ML"
+    assert client.get("/searches").json()[0]["title"] == "Remote ML"
+    assert client.patch(f"/searches/{created['id']}", json={"title": " "}).status_code == 422
+    assert client.patch("/searches/999", json={"title": "x"}).status_code == 404
+
+
+def test_export_a_search_as_csv(client, session):
+    import csv
+    import io
+
+    from jobscout.models import Job, Match
+    from jobscout.pipeline.users import get_or_create_default_user
+    from tests.helpers import make_search
+
+    user = get_or_create_default_user(session)
+    search = make_search(session, title="Dados · remoto")
+    other = make_search(session, title="Other")
+    rows = [("Data Engineer", "=HYPERLINK(evil)", 60, "saved"), ("ML Engineer", "Acme", 90, "new")]
+    for n, (title, company, score, status) in enumerate(rows):
+        job = Job(
+            source="indeed",
+            external_id=str(n),
+            title=title,
+            company=company,
+            description="d",
+            remote=True,
+            url=f"https://x/{n}",
+            content_hash=str(n),
+        )
+        session.add(job)
+        session.commit()
+        session.add(
+            Match(
+                job_id=job.id,
+                user_id=user.id,
+                search_id=search.id,
+                similarity=0.5,
+                score=score,
+                status=status,
+                matched_skills=["Python", "SQL"],
+            )
+        )
+    session.add(Match(job_id=job.id, user_id=user.id, search_id=other.id, similarity=0.5, score=10))
+    session.commit()
+
+    response = client.get(f"/searches/{search.id}/export.csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert 'filename="jobscout-dados-remoto.csv"' in response.headers["content-disposition"]
+    table = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+    assert table[0][:4] == ["title", "company", "location", "work_mode"]
+    assert [row[0] for row in table[1:]] == ["ML Engineer", "Data Engineer"]
+    by_title = {row[0]: dict(zip(table[0], row, strict=True)) for row in table[1:]}
+    assert by_title["Data Engineer"]["company"] == "'=HYPERLINK(evil)"
+    assert by_title["Data Engineer"]["status"] == "saved"
+    assert by_title["ML Engineer"]["matched_skills"] == "Python; SQL"
+    assert client.get("/searches/999/export.csv").status_code == 404

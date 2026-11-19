@@ -115,6 +115,17 @@ def list_matches(
     return [(match, job) for match, job in rows if job_matches_preferences(job, prefs)][:limit]
 
 
+def export_matches(session: Session, search_id: int) -> list[tuple[Match, Job]]:
+    """Every job this search scored, whatever its status or whether it is still up, best first."""
+    statement = (
+        select(Match, Job)
+        .join(Job, col(Match.job_id) == col(Job.id))
+        .where(col(Match.search_id) == search_id, col(Match.score).is_not(None))
+        .order_by(col(Match.score).desc(), col(Match.id))
+    )
+    return list(session.exec(statement).all())
+
+
 def count_waiting(session: Session, search_id: int) -> int:
     """Jobs this search fetched that are still waiting to be scored."""
     return len(select_candidates(session, get_preferences(session, search_id), search_id))
