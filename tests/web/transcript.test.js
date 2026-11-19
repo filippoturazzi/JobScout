@@ -74,3 +74,10 @@ test("titleCase capitalises each word and upper-cases acronyms", async () => {
   const base = load("search-ready.json");
   assert.equal(gotitWhat({ ...base, summary: { ...base.summary, role: "data engineer" } }).role, "Data Engineer");
 });
+
+test("refinements leave the transcript once a run exists", () => {
+  const s = { ...load("search-ready.json"), refinements: ["only remote"], latest_run: { id: 1 } };
+  const entries = buildTranscript(s);
+  assert.equal(entries.some((e) => e.text === "only remote"), false);
+  assert.equal(entries[0].text, s.paragraph);
+});

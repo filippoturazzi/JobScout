@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { fakeDocument, findElement } from "./fake-dom.js";
 
 globalThis.document = fakeDocument;
-const { runSection } = await import("../../src/jobscout/web/js/results.js");
+const { runSection, refinedLine } = await import("../../src/jobscout/web/js/results.js");
 
 const scored = (n) => Array.from({ length: n }, (_, i) => ({ id: i + 1, score: 90 - i, status: "new", job: { id: i + 1, title: `Job ${i + 1}`, source: "linkedin" } }));
 const view = (matches) => ({ state: "results", found: matches.length, waiting: 0, matches, unscored: [], widen: false, failures: [], runError: null });
@@ -80,4 +80,21 @@ test("while a stop is on its way the running headline says it is stopping", () =
   const v = { state: "running", searchedSources: true, sources: [], progress: { sources: 0, scored: 0, toScore: 0 }, matches: [], failures: [] };
   const text = textOf(runSection(v, { widenings: [] }, { stopping: true, busyOther: null }, noHandlers));
   assert.ok(text.includes("stopping"));
+});
+
+test("the refined line shows the latest refinement, and updating while running", () => {
+  const search = { refinements: ["only hybrid", "only remote"], latest_run: { id: 1 } };
+  assert.equal(refinedLine(search, { state: "results" }).textContent, "refined only remote");
+  assert.equal(refinedLine(search, { state: "running" }).textContent, "refined only remote · updating");
+  assert.equal(refinedLine({ refinements: [], latest_run: { id: 1 } }, { state: "results" }), null);
+  assert.equal(refinedLine({ refinements: ["x"], latest_run: null }, { state: "none" }), null);
+});
+
+test("an updating run dims the old cards", () => {
+  const host = fakeDocument.createElement("div");
+  const v = { state: "running", updating: true, matches: scored(2), sources: [], progress: { sources: 0, scored: 0, toScore: 0 }, found: 0 };
+  runSection(v, { refinements: [], widenings: [] }, { selectedId: null, page: 1 }, { onOpen() {} }).forEach((n) => host.appendChild(n));
+  const dim = findElement(host, (el) => hasClass(el, "run-grid--dim"));
+  assert.ok(dim);
+  assert.equal(dim.getAttribute("aria-busy"), "true");
 });

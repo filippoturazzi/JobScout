@@ -226,3 +226,21 @@ test("runView: a run stopped before anything came in is nothing, not a fit failu
   assert.equal(v.state, "nothing");
   assert.equal(v.stopped, true);
 });
+
+test("runView: an update keeps the previous cards until the first fresh score", () => {
+  const old = [match(1, 80), match(2, 60)];
+  const running = run({ finished_at: null });
+  const empty = runView(search, running, list(0, 0, [{ ...match(9, 70), status: "stale", updated_at: "2026-11-08T09:00:00" }]), 7, old);
+  assert.equal(empty.updating, true);
+  assert.deepEqual(empty.matches.map((m) => m.id), [1, 2]);
+  const fresh = { ...match(5, 90), status: "new", updated_at: "2026-11-08T10:01:00" };
+  const scoredOne = runView(search, running, list(1, 0, [fresh]), 7, old);
+  assert.equal(scoredOne.updating, false);
+  assert.deepEqual(scoredOne.matches.map((m) => m.id), [5]);
+});
+
+test("runView: previous is ignored once the run has finished", () => {
+  const v = runView(search, run(), list(1, 0, [match(5, 90)]), 7, [match(1, 80)]);
+  assert.equal(v.updating, false);
+  assert.deepEqual(v.matches.map((m) => m.id), [5]);
+});

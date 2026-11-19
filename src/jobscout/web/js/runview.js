@@ -20,7 +20,9 @@ function scoredBy(run) {
   };
 }
 
-export function runView(search, run, matchList, runningSearchId) {
+// previous: the cards on screen before an update run began (a refinement or an edit). They stay,
+// dimmed, until the run scores its first job, so an update never blanks the results.
+export function runView(search, run, matchList, runningSearchId, previous = null) {
   const list = matchList || { matches: [], found: 0, waiting: 0, unscored: [] };
   const found = list.found || 0;
   const waiting = list.waiting || 0;
@@ -75,8 +77,14 @@ export function runView(search, run, matchList, runningSearchId) {
     searchedSources: sources.some((s) => s.state !== "waiting"),
     failures,
     progress: { sources: sources.length, scored: counters.scored || 0, toScore: counters.to_score || 0 },
-    matches: (list.matches || []).filter(state === "running" ? scoredBy(run) : () => true).sort(byScore),
+    ...currentCards(state, run, list, previous),
   };
+}
+
+function currentCards(state, run, list, previous) {
+  const matches = (list.matches || []).filter(state === "running" ? scoredBy(run) : () => true).sort(byScore);
+  if (state === "running" && matches.length === 0 && previous && previous.length) return { matches: previous, updating: true };
+  return { matches, updating: false };
 }
 
 // The line over a running search. A run with no sources yet (the placeholder a start draws
