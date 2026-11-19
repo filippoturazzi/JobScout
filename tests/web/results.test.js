@@ -42,6 +42,20 @@ test("every result card looks the same: none carries the highlight", () => {
   assert.deepEqual(cards.map((c) => hasClass(c, "js-highlight")), Array(12).fill(false));
 });
 
+test("a page holding only unscored jobs renders them, past the page with the divider", () => {
+  // 3 highlighted + 11 scored + 22 unscored: page 2 has the divider, pages 3 and 4 do not.
+  const unscored = Array.from({ length: 22 }, (_, i) => ({ similarity: 0.5, job: { id: 100 + i, title: `Loose ${i + 1}`, source: "indeed" } }));
+  const v = { ...view(scored(14)), unscored, waiting: 22 };
+  const handlers = { onSearchAgain() {}, onRank() {}, onWiden() {}, onOpen() {}, onPage() {} };
+  for (const [page, n] of [[3, 9], [4, 6]]) {
+    const host = fakeDocument.createElement("div");
+    runSection(v, { widenings: [] }, { selectedId: null, page, busyOther: null }, handlers).forEach((node) => host.appendChild(node));
+    assert.equal(cardsIn(host).length, n, `page ${page}`);
+    const current = findElement(host, (el) => el.getAttribute("aria-current") === "page");
+    assert.equal(current.getAttribute("data-pager"), String(page));
+  }
+});
+
 const textOf = (nodes) => {
   const host = fakeDocument.createElement("div");
   nodes.forEach((n) => host.appendChild(n));

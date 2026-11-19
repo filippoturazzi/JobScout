@@ -132,9 +132,10 @@ function rankLine(view, rank) {
 
 function resultsBody(view, ui, handlers, rank) {
   const layout = resultsLayout(view.matches, view.unscored, ui.page || 1);
+  // A page past the divider holds only unscored cards: sort them by kind, not by position.
   const split = layout.items.findIndex((it) => it.kind === "divider");
-  const scored = split === -1 ? layout.items : layout.items.slice(0, split);
-  const loose = split === -1 ? [] : layout.items.slice(split + 1);
+  const scored = layout.items.filter((it) => it.kind === "match");
+  const loose = layout.items.filter((it) => it.kind === "unscored");
   return [
     layout.highlighted.length
       ? h(
