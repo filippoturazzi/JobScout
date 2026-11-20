@@ -63,7 +63,11 @@ The user picked A.
 - The body depends on the question:
   - **Role**: a text field holding the current role.
   - **Level**: the single-choice chips. A click selects one, and Save sends it.
-  - **Work mode, Skills**: the multi-choice chips, the same as today's `questionBlock`.
+  - **Work mode**: the multi-choice chips, the same as today's `questionBlock`.
+  - **Skills**: a text field, like the role's, holding the current skills separated by commas.
+    Save splits on commas (trimmed, blanks and repeats dropped). An empty field is an answer:
+    no skill required. The Skills row is always in the summary, showing "Don't mind" when
+    empty, so its pencil can add skills back.
   - **Location / Country / City**: the chips. "Other city/country" shows a text field
     inside the modal instead of using the composer.
 - Save posts the answer (`POST /searches/{id}/answers`). A validation error is shown inside
@@ -94,9 +98,14 @@ refinement and reading it again.
   a new run with everything asked so far. A run in progress is never doubled.
 - **Old results while it runs**: they stay, dimmed, under a line "Updating…". Cards are
   replaced as new scores arrive, as a running search does today.
-- *My call:* do this in one backend call (`POST /searches/{id}/refinements` and `/answers`
-  take `run: true`, or one new endpoint) so the page cannot leave a confirmed summary without
-  a run. The builder chooses which.
+- **As built:** the page chains the existing endpoints (answers or refinements, then `stop`
+  while a run is in flight, then `run` once nothing is pending). The first draft of this spec
+  called for one backend call, but `run` is refused while this search runs and the stop is
+  asynchronous, so a single call would have needed a restart queue in the scheduler. The page
+  already polls until the run ends, so it starts the next run then. If that start fails, the
+  usual `request_failed` toast shows and "Search again" stays under the results.
+- A run waiting on a question scrolls that question into view, since it sits above the
+  results.
 
 ### Where a refinement appears
 

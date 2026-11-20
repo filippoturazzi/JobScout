@@ -93,13 +93,28 @@ function card(m, ui, handlers, opts = {}) {
   return jobCard(m, { selected: cardKey(m) === ui.selectedId, onOpen: handlers.onOpen, ...opts });
 }
 
-function grid(label, cards) {
+// dim: an update run's old cards, shown until its first fresh score.
+function grid(label, cards, dim = false) {
   if (!cards.length) return null;
-  return h("div", { class: "run-grid", role: "listbox", "aria-label": label }, cards);
+  return h("div", { class: dim ? "run-grid run-grid--dim" : "run-grid", role: "listbox", "aria-label": label, "aria-busy": dim ? "true" : null }, cards);
 }
 
-function cards(matches, ui, handlers) {
-  return grid(t("results_label"), matches.map((m) => card(m, ui, handlers)));
+function cards(matches, ui, handlers, dim = false) {
+  return grid(t("results_label"), matches.map((m) => card(m, ui, handlers)), dim);
+}
+
+// The latest refinement, just above the results: "Refined: only remote · updating…".
+export function refinedLine(search, view) {
+  const all = search.refinements || [];
+  if (!search.latest_run || !all.length) return null;
+  return h(
+    "p",
+    { class: "text-body-sm run-refined" },
+    h("span", { class: "run-refined__label" }, t("refined")),
+    " ",
+    h("span", { class: "run-refined__text" }, all[all.length - 1]),
+    view.state === "running" ? [" · ", t("updating")] : null,
+  );
 }
 
 function pager(layout, handlers) {
@@ -225,16 +240,18 @@ export function runSection(view, search, ui, handlers) {
       const headline = runHeadline(view, ui.ranking);
       return [
         appLine(
+          refinedLine(search, view),
           h("p", { class: "text-body run-status", "aria-live": "polite" }, ui.stopping ? t("stopping") : t(headline.key, { n: headline.n })),
           headline.showSources ? sourceRows(view.sources) : null,
           scoring(view.progress),
-          cards(view.matches, ui, handlers),
+          cards(view.matches, ui, handlers, view.updating),
         ),
       ];
     }
     case "results":
       return [
         appLine(
+          refinedLine(search, view),
           h("p", { class: "text-body" }, view.found > 0 ? t("found", { n: view.found }) : t("none_scored")),
           view.stopped ? h("p", { class: "text-body-sm run-stopped" }, icon("square", 14), t("stopped_note")) : null,
           view.widen ? widenBlock(search, ui, handlers) : null,
@@ -250,6 +267,7 @@ export function runSection(view, search, ui, handlers) {
     case "nothing": {
       return [
         appLine(
+          refinedLine(search, view),
           h("p", { class: "text-body" }, view.stopped ? t("stopped_nothing") : t("nothing_found", { n: view.searched, m: view.fetched, what: nothingWhat(search.summary) })),
           failureLines(view.failures, view.runError),
           widenBlock(search, ui, handlers),

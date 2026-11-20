@@ -84,6 +84,27 @@ def test_answering_moves_to_the_next_question(client, chat):
     assert body["asked"] == ["level"]
 
 
+def test_answering_the_role_sets_the_terms(client, chat):
+    chat.results = [reading(seniority=[])]
+    created = _create(client).json()
+    response = client.post(
+        f"/searches/{created['id']}/answers",
+        json={"question": "role", "choice": "role", "values": ["data engineer"]},
+    )
+    assert response.status_code == 200
+    assert response.json()["summary"]["terms"] == ["data engineer"]
+
+
+def test_an_empty_role_is_422(client, chat):
+    chat.results = [reading(seniority=[])]
+    created = _create(client).json()
+    response = client.post(
+        f"/searches/{created['id']}/answers",
+        json={"question": "role", "choice": "role", "values": [" , "]},
+    )
+    assert response.status_code == 422
+
+
 def test_an_invalid_answer_is_422(client, chat):
     chat.results = [reading(seniority=[])]
     created = _create(client).json()

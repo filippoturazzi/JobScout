@@ -59,16 +59,16 @@ export function optionLabel(qid, option, country) {
 }
 
 // The answer a click on one option sends (null for "other", which asks for typing).
-function singleAnswer(option) {
+export function singleAnswer(option) {
   if (option.choice === "country" || option.choice === "abroad") return { choice: option.choice, values: [option.value] };
   if (option.choice === "other") return null;
   return { choice: option.choice, values: [] };
 }
 
-// A question with its chips. opts: { showCounter, primary, error, initial }
+// A question with its chips. opts: { showCounter, primary, error }
 function questionBlock(q, country, handlers, opts) {
-  const picked = new Set(q.multi && opts.initial && opts.initial.choice === "pick" ? opts.initial.values : []);
-  let any = Boolean(q.multi && opts.initial && opts.initial.choice === "any");
+  const picked = new Set();
+  let any = false;
   const chips = [];
   const cont = q.multi
     ? h("button", { class: `js-btn ${opts.primary ? "js-btn--primary" : "js-btn--secondary"} conv-continue`, type: "button" }, t("continue"))
@@ -170,7 +170,8 @@ function summaryCard(search, ui, handlers) {
     ["work_modes", t("row_work_mode"), s.work_modes.length ? s.work_modes.map((m) => t(`mode_${m}`)) : [t("dont_mind")], "work_modes"],
     ["location", t("row_location"), [locationRow(s)], locationQuestionId(search)],
   ];
-  if (s.skills.length) rows.push(["skills", t("row_skills"), s.skills, "skills"]);
+  // Always shown: its pencil is how a skill gets added when there is none.
+  rows.push(["skills", t("row_skills"), s.skills.length ? s.skills : [t("dont_mind")], "skills"]);
   const names = (ui.sources || []).map(sourceName);
   return h(
     "div",
@@ -181,7 +182,7 @@ function summaryCard(search, ui, handlers) {
         { class: "conv-row", "data-row": key },
         h("span", { class: "text-body-sm conv-row__label" }, label),
         tags(values),
-        h("button", { class: "js-btn js-btn--ghost conv-row__edit", type: "button", "aria-label": t("edit_row", { row: label }), onclick: () => handlers.onEdit(qid) }, icon("pencil", 16)),
+        h("button", { class: "js-btn js-btn--ghost conv-row__edit", type: "button", "aria-label": t("edit_row", { row: label }), "data-edit": qid, onclick: () => handlers.onEdit(qid) }, icon("pencil", 16)),
       ),
     ),
     h(
@@ -193,7 +194,7 @@ function summaryCard(search, ui, handlers) {
   );
 }
 
-// ui: { sources: [name], editing: Question | null, error: {qid, text} | null, reading: bool,
+// ui: { sources: [name], error: {qid, text} | null, reading: bool,
 //       runState: runView state, starting: bool }
 export function renderEntries(entries, search, ui, handlers) {
   const country = (search.summary || {}).country || null;
@@ -219,11 +220,6 @@ export function renderEntries(entries, search, ui, handlers) {
     } else if (entry.kind === "summary") {
       out.push(appLine(h("p", { class: "text-body" }, t("summary_intro"))));
       out.push(h("div", { class: "conv-summary" }, summaryCard(search, ui, handlers)));
-      if (ui.editing) {
-        const q = ui.editing;
-        const error = ui.error && ui.error.qid === q.id ? ui.error.text : null;
-        out.push(h("div", { class: "conv-edit" }, questionBlock(q, country, handlers, { showCounter: false, primary: false, initial: (search.answers || {})[q.id], error })));
-      }
     }
   }
   return out;

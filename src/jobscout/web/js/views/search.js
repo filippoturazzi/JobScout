@@ -18,6 +18,8 @@ import { cardKey } from "../jobcard.js";
 import { convBar } from "../convbar.js";
 import { confirmDelete } from "../sidebar.js";
 import { showToast } from "../toast.js";
+import { openEditModal } from "../editmodal.js";
+import { nextStep } from "../liverefine.js";
 
 const POLL_MS = 2000;
 const guard = createGuard();
@@ -28,13 +30,14 @@ let detailRoot = null; // the element that makes room for it
 let escapeStops = null; // while a run is in flight here: what Escape does (stop it)
 
 // Escape stops the running search, unless something on top of the page takes it first: the
-// detail panel, a dialog, the palette, or a field being typed in (the run locks the composer).
+// detail panel, a dialog, the palette, or a field with text in it (the composer stays open
+// while a run is in flight, for a refinement: empty, Escape still stops).
 if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || event.defaultPrevented || !escapeStops || detail) return;
     if (document.querySelector("dialog[open], .pal-list")) return;
     const target = event.target;
-    if (target && (target.tagName === "INPUT" || (target.tagName === "TEXTAREA" && !target.disabled))) return;
+    if (target && (target.tagName === "INPUT" || (target.tagName === "TEXTAREA" && !target.disabled && String(target.value || "").trim()))) return;
     event.preventDefault();
     escapeStops();
   });
@@ -95,7 +98,6 @@ export async function renderSearch(root, ctx, id) {
   if (search.latest_run && runningMismatch(store.status, store.searches)) refreshSearches().catch(() => {});
 
   const ui = {
-    editing: null,
     error: null,
     otherFor: null,
     reading: false,
@@ -115,11 +117,30 @@ export async function renderSearch(root, ctx, id) {
     selectedId: null,
     page: 1,
     wide: false,
+    // Live refinement: a run waits for a pending question or for the stopped run to end, and
+    // the cards on screen when an update began stay, dimmed, until it scores its first job.
+    queued: false,
+    previous: null,
   };
   const status = ctx.state.status;
   ui.sources = ((status && status.sources) || []).filter((s) => s.active).map((s) => s.name);
 
-  const view = () => runView(search, ui.run, ui.matches, ui.runningId);
+  const view = () => runView(search, ui.run, ui.matches, ui.runningId, ui.previous);
+
+  // After a refinement or an edit: once the search has run, the results update by themselves.
+  function afterChange() {
+    const v = view();
+    const step = nextStep({ hasRun: Boolean(ui.run), running: v.state === "running", stopping: ui.stopping, starting: ui.starting, question: search.question });
+    if (step === "ask" || step === "wait") ui.queued = true;
+    else if (step === "stop") {
+      ui.queued = true;
+      stopRun();
+    } else if (step === "run") {
+      ui.queued = false;
+      if (v.matches.length) ui.previous = v.matches;
+      startRun("run");
+    }
+  }
   const isWide = (v) => v.state === "results" || (v.state === "running" && v.matches.length > 0);
 
   function problem(qid, e) {
@@ -186,6 +207,7 @@ export async function renderSearch(root, ctx, id) {
       ui.matches = list;
       ui.runningId = runningId();
       if (run.finished_at) {
+        ui.previous = null;
         // The matches above may predate the run's last writes: read them once more.
         try {
           const last = await api.get(`/searches/${id}/matches?limit=500`);
@@ -212,11 +234,14 @@ export async function renderSearch(root, ctx, id) {
     refreshDetail();
     drawRun();
     schedule();
+    // A refinement stopped this run: now that it has ended, the queued one starts.
+    if (ui.queued && ui.run && ui.run.finished_at && !search.question) afterChange();
   }
 
   // Stop: the run ends at its next term or job, keeping what it has; polling sees it finish.
   async function stopRun() {
-    if (ui.stopping || ui.runState !== "running") return;
+    // view(), not ui.runState: a run that just started has not been drawn yet.
+    if (ui.stopping || view().state !== "running") return;
     ui.stopping = true;
     draw({ focus: false });
     try {
@@ -246,6 +271,8 @@ export async function renderSearch(root, ctx, id) {
       ui.runningId = id;
       ui.ranking = kind === "rank";
       ui.starting = false;
+      // A change came in while this run was being started: it is stale already, stop it.
+      if (ui.queued) afterChange();
       refreshSearches().catch(() => {});
       // Starting confirmed the conversation, which may have retitled the search.
       api
@@ -312,27 +339,15 @@ export async function renderSearch(root, ctx, id) {
   const handlers = {
     onAnswer: (qid, answer) =>
       mutate(qid, () => api.post(`/searches/${id}/answers`, { question: qid, choice: answer.choice, values: answer.values }), () => {
-        ui.editing = null;
         ui.otherFor = null;
+        if (ui.queued) afterChange();
       }),
     onOther: (qid) => {
       ui.otherFor = qid;
       ui.error = null;
       draw();
     },
-    onEdit: async (qid) => {
-      try {
-        const q = await api.get(`/searches/${id}/questions/${qid}`);
-        if (!guard.isCurrent(mine)) return;
-        ui.editing = q;
-        ui.otherFor = null;
-        ui.error = null;
-      } catch (e) {
-        if (!guard.isCurrent(mine)) return;
-        problem(qid, e);
-      }
-      draw();
-    },
+    onEdit: (qid) => openEdit(qid),
     onReread: () => {
       ui.reading = true;
       draw();
@@ -361,19 +376,67 @@ export async function renderSearch(root, ctx, id) {
     },
   };
 
+  // The summary's pencil: the question in a modal. An edit that opens a new need (hybrid now
+  // needs a city) goes straight on to that question, in the modal too.
+  async function openEdit(qid) {
+    let q;
+    try {
+      q = await api.get(`/searches/${id}/questions/${qid}`);
+    } catch (e) {
+      if (!guard.isCurrent(mine)) return;
+      problem(qid, e);
+      draw();
+      return;
+    }
+    if (!guard.isCurrent(mine)) return;
+    let saved = false;
+    const modal = openEditModal(q, {
+      country: (search.summary || {}).country || null,
+      answer: (search.answers || {})[q.id],
+      summary: search.summary,
+      onSave: async (answer) => {
+        try {
+          const next = await api.post(`/searches/${id}/answers`, { question: q.id, choice: answer.choice, values: answer.values });
+          if (!guard.isCurrent(mine)) return;
+          search = next;
+          saved = true;
+          ui.error = null;
+          modal.close();
+          refreshSearches().catch(() => {});
+          afterChange();
+        } catch (e) {
+          if (!guard.isCurrent(mine)) return;
+          modal.showError(e instanceof ApiError && e.status === 422 && e.detail ? e.detail : t("request_failed"));
+        }
+      },
+      onClose: () => {
+        if (!guard.isCurrent(mine)) return;
+        if (saved) {
+          draw({ focus: false });
+          if (search.question) {
+            openEdit(search.question.id);
+            return;
+          }
+        }
+        const pencil = root.querySelector(`[data-edit="${q.id}"]`);
+        if (pencil) pencil.focus();
+      },
+    });
+  }
+
   function submitText(text) {
     if (ui.otherFor) {
       const qid = ui.otherFor;
       const choice = qid === "city" ? "city" : "country";
       return mutate(qid, () => api.post(`/searches/${id}/answers`, { question: qid, choice, values: [text] }), () => {
         ui.otherFor = null;
-        ui.editing = null;
         ui.clearComposer = true;
+        if (ui.queued) afterChange();
       });
     }
     return mutate("composer", () => api.post(`/searches/${id}/refinements`, { text }), () => {
-      ui.editing = null;
       ui.clearComposer = true;
+      afterChange();
     });
   }
 
@@ -428,7 +491,7 @@ export async function renderSearch(root, ctx, id) {
     const running = v.state === "running";
     if (!running) ui.stopping = false;
     escapeStops = running ? stopRun : null;
-    if (running) placeholder = ui.stopping ? t("stopping") : t("composer_running");
+    if (running) placeholder = ui.stopping ? t("stopping") : t("composer_running_refine");
     box = composer({
       placeholder,
       locked,
@@ -463,8 +526,11 @@ export async function renderSearch(root, ctx, id) {
       return;
     }
     if (!locked) box.focus();
-    const last = column.lastElementChild;
-    if (last && typeof last.scrollIntoView === "function") last.scrollIntoView({ block: "end" });
+    // A run waiting on a question (a refinement opened one): show the question, which sits
+    // above the results, rather than the end of the column.
+    const waitingOn = ui.queued && search.question ? column.querySelector(".conv-question:not(.conv-question--past)") : null;
+    const last = waitingOn || column.lastElementChild;
+    if (last && typeof last.scrollIntoView === "function") last.scrollIntoView({ block: waitingOn ? "center" : "end" });
   }
 
   // Redraws the run area alone, so polling never touches the composer or the open panel.

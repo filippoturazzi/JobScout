@@ -238,9 +238,16 @@ def _skills(c: Conversation) -> list[str]:
 # --- Questions --------------------------------------------------------------------------
 
 
+def _terms(c: Conversation) -> list[str]:
+    """The search terms: the role typed in the summary's edit, else the reading's."""
+    if "role" in c.answers:
+        return list(c.answers["role"].values)
+    return list(c.reading.terms) if c.reading is not None else []
+
+
 def _is_pending(c: Conversation, qid: QuestionId) -> bool:
     r = c.reading
-    assert r is not None and r.terms
+    assert r is not None and _terms(c)
     if qid in c.answers:
         return False
     match qid:
@@ -265,7 +272,7 @@ def _is_pending(c: Conversation, qid: QuestionId) -> bool:
 
 def pending(c: Conversation) -> list[QuestionId]:
     """The questions still to ask, in order."""
-    if c.reading is None or not c.reading.terms:
+    if c.reading is None or not _terms(c):
         return ["role"]
     return [qid for qid in QUESTION_ORDER if qid != "role" and _is_pending(c, qid)]
 
@@ -332,6 +339,11 @@ def _one_country(a: Answer) -> Answer:
 
 def _validated(c: Conversation, qid: QuestionId, a: Answer) -> Answer:
     match qid:
+        case "role":
+            if a.choice == "role" and len(a.values) == 1 and c.reading is not None:
+                terms = list(dict.fromkeys(t.strip() for t in a.values[0].split(",") if t.strip()))
+                if terms:
+                    return Answer(choice="role", values=terms)
         case "level":
             if a.choice in LEVELS:
                 return Answer(choice=a.choice)
@@ -364,7 +376,8 @@ def _validated(c: Conversation, qid: QuestionId, a: Answer) -> Answer:
 def answer(c: Conversation, qid: QuestionId, a: Answer) -> Conversation:
     """Record ``a`` for ``qid``. Raises ``InvalidAnswerError`` for an answer it does not take.
 
-    The role is never answered: typed text arrives as a refinement and is read again.
+    The role is answered only from the summary's edit: it sets the terms, beats any later
+    reading, and is not a transcript question, so it stays out of ``asked``.
     """
     stored = _validated(c, qid, a)
     answers = {key: value.model_copy(deep=True) for key, value in c.answers.items()}
@@ -373,7 +386,7 @@ def answer(c: Conversation, qid: QuestionId, a: Answer) -> Conversation:
         changed = c.model_copy(update={"answers": answers})
         if _home(changed) != _home(c) or _country_known(changed) != _country_known(c):
             answers.pop("city", None)
-    asked = c.asked if qid in c.asked else [*c.asked, qid]
+    asked = c.asked if qid in c.asked or qid == "role" else [*c.asked, qid]
     return c.model_copy(
         update={"answers": answers, "asked": list(asked), "confirmed": False}, deep=True
     )
@@ -383,7 +396,7 @@ def answer(c: Conversation, qid: QuestionId, a: Answer) -> Conversation:
 
 
 def summary(c: Conversation) -> Summary:
-    terms = list(c.reading.terms) if c.reading is not None else []
+    terms = _terms(c)
     country: str | None
     city: str | None = None
     abroad_from: str | None = None
@@ -443,6 +456,10 @@ def to_preferences(c: Conversation) -> dict[str, object]:
         if s.abroad_from is not None:
             excluded_regions = [s.abroad_from]
     text = full_text(c)
+    if "role" in c.answers:
+        # A role typed in the summary must reach the scoring too, not only the search terms;
+        # it also changes the hash, so the old matches go stale.
+        text += "\n\nTarget role: " + ", ".join(s.terms)
     return {
         "profile_summary": text,
         "profile_hash": profile_hash(text),
@@ -485,7 +502,7 @@ def title(c: Conversation) -> str:
     paragraph's first words."""
     if c.name:
         return c.name
-    terms = c.reading.terms if c.reading is not None else []
+    terms = _terms(c)
     if not terms:
         return " ".join(c.paragraph.split()[:_TITLE_WORDS])[:_TITLE_LENGTH]
     level = _level(c)

@@ -148,6 +148,37 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .cd-delete:hover { filter: brightness(1.08); }
 .cd-delete:disabled { cursor: progress; opacity: 0.5; }
 
+/* Summary edit modal: one question, its chips or its field, Cancel and Save. */
+.em {
+  box-sizing: border-box;
+  width: calc(100% - var(--space-8));
+  max-width: calc(var(--space-8) * 15);
+  padding: var(--space-6);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+}
+.em::backdrop { background: var(--overlay); }
+.em-title { color: var(--ink); font-size: var(--text-lg-size); }
+.em-chips { margin-top: var(--space-4); }
+.em-field-row { margin-top: var(--space-4); }
+.em-field-row[hidden] { display: none; }
+.em-field {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--space-2-5) var(--space-3);
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+.em-field:focus-visible { outline: none; border-color: var(--brand); }
+.em-error { margin-top: var(--space-3); }
+.em-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
+
 /* Search palette (Ctrl K): a modal list under a search field, near the top of the page. */
 .pal {
   box-sizing: border-box;
@@ -196,6 +227,8 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .composer--multiline .composer__foot { justify-content: flex-end; }
 .composer--multiline .composer__foot > span:first-child:empty { display: none; }
 .composer__foot { justify-content: space-between; }
+/* While a run is in flight only one of Stop and Send shows (composer.js). */
+.composer__foot .js-send[hidden] { display: none; }
 .js-send--quiet:not(:disabled) { background: var(--brand); }
 
 /* Home: badge, two-line heading, composer and suggestions centred in the main area */
@@ -327,7 +360,6 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .conv-card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin: var(--space-3) calc(var(--space-4) * -1) 0; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); background: var(--bg-sidebar); border-radius: 0 0 var(--radius-lg) var(--radius-lg); flex-wrap: wrap; }
 .conv-sources { color: var(--ink-subtle); }
 .conv-card__foot .js-btn:disabled { cursor: not-allowed; opacity: 0.5; }
-.conv-edit { margin-left: calc(var(--avatar) + var(--space-3-5)); padding: var(--space-4); border: 1px solid var(--brand); border-radius: var(--radius-lg); background: var(--bg); }
 
 /* The one-line composer of the conversation: lock | field | Send in a single row */
 .composer:not(.composer--multiline) { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1-5) var(--space-1-5) var(--space-1-5) var(--space-4); border-radius: var(--radius-xl); }
@@ -364,6 +396,9 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 /* Results: the best three, then a grid of 3 / 2 / 1 columns by the run area's own width
    (it narrows when the detail panel opens), a divider before the unscored jobs, a pager. */
 .run-cards { display: grid; gap: var(--space-2-5); }
+.run-grid--dim { opacity: var(--dim); transition: opacity 0.2s; }
+.run-refined { color: var(--ink-muted); margin-bottom: var(--space-2); }
+.run-refined__text { color: var(--ink); }
 .run-grid { display: grid; gap: var(--space-2-5); grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .run-grid .js-card { align-content: start; }
 .run-best { display: grid; gap: var(--space-3); }

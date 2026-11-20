@@ -54,7 +54,9 @@ export function answerLabel(qid, answer, t, ctx = {}) {
 // t labels the user's answers; without it the raw choice keys show.
 export function buildTranscript(search, t = (key) => key) {
   const entries = [{ kind: "user", text: search.paragraph }];
-  for (const text of search.refinements || []) entries.push({ kind: "user", text });
+  // Once a search has run, its refinements show above the results (results.js refinedLine),
+  // so nothing of the conversation ever lands below them.
+  if (!search.latest_run) for (const text of search.refinements || []) entries.push({ kind: "user", text });
   const active = search.question || null;
   const asked = (search.asked || []).filter((qid) => !(active && active.id === qid));
   if (search.reading_error) {

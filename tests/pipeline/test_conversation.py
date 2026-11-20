@@ -61,9 +61,40 @@ def test_no_terms_asks_only_for_the_role():
     assert question.options == []
 
 
-def test_the_role_is_not_answerable():
+def test_the_role_only_takes_a_role_answer():
     with pytest.raises(InvalidAnswerError):
         answer(conv(terms=[]), "role", Answer(choice="ai engineer"))
+
+
+def test_a_typed_role_becomes_the_terms():
+    c = answer(conv(), "role", Answer(choice="role", values=["Data Engineer, analytics engineer "]))
+    assert summary(c).terms == ["Data Engineer", "analytics engineer"]
+    assert summary(c).role == "Data Engineer"
+    assert "role" not in c.asked  # an edit from the summary, not a transcript question
+    assert c.confirmed is False
+
+
+def test_an_empty_role_is_refused():
+    for text in ["", "  ", " , ,"]:
+        with pytest.raises(InvalidAnswerError):
+            answer(conv(), "role", Answer(choice="role", values=[text]))
+
+
+def test_a_typed_role_beats_a_new_reading():
+    c = answer(conv(), "role", Answer(choice="role", values=["data engineer"]))
+    c = with_reading(c, reading(terms=["ml engineer"]))
+    assert summary(c).terms == ["data engineer"]
+
+
+def test_a_typed_role_answers_the_role_question():
+    c = conv(terms=[], suggested_skills=["python"])
+    c = answer(c, "role", Answer(choice="role", values=["qa"]))
+    assert "role" not in pending(c)
+
+
+def test_the_title_follows_a_typed_role():
+    c = answer(conv(), "role", Answer(choice="role", values=["data engineer"]))
+    assert title(c).endswith("Data Engineer")
 
 
 def test_a_paragraph_that_states_everything_asks_nothing():
@@ -556,3 +587,11 @@ def test_a_city_given_with_its_country_in_one_entry_asks_nothing():
     assert pending(c) == []
     s = summary(c)
     assert (s.country, s.city) == ("Brazil", "Brasilia")
+
+
+def test_a_typed_role_reaches_the_profile_that_is_scored():
+    before = to_preferences(everything_stated())
+    c = answer(everything_stated(), "role", Answer(choice="role", values=["data engineer"]))
+    after = to_preferences(c)
+    assert "Target role: data engineer" in after["profile_summary"]
+    assert after["profile_hash"] != before["profile_hash"]

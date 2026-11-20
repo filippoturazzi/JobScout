@@ -66,6 +66,7 @@
   --space-4: 16px;  /* Padding interno do card; gap entre cards. */
   --space-6: 24px;  /* Padding de painéis; gap entre colunas. */
   --space-8: 32px;  /* Separação entre seções da tela. */
+  --dim: 0.5;  /* Opacidade de conteúdo esperando atualização (resultados antigos). */
   --space-12: 48px;  /* Margem da tela, separação entre seções das configurações. */
   --space-0-5: 2px;  /* Gap entre linhas de texto empilhadas (título/subtítulo). */
   --space-1-5: 6px;  /* Gap entre tags; padding de segmento. */
